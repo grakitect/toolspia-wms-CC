@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TOOLSPIA WMS</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <h1>TOOLSPIA WMS</h1>
+        <button data-view="dashboard">대시보드</button>
+        <button data-view="master">기본 정보</button>
+        <button data-view="products">기본상품정보</button>
+        <button data-view="stock">재고현황</button>
+        <button data-view="inbound">입고</button>
+        <button data-view="inbound-plan" class="sidebar-sub">ㄴ 입고예정목록 1</button>
+        <button data-view="inbound-plan-2" class="sidebar-sub">ㄴ 입고예정목록 2</button>
+        <button data-view="outbound">출고</button>
+        <button data-view="outbound-plan" class="sidebar-sub">ㄴ 출고예정관리</button>
+        <button data-view="outbound-upload-daiso" class="sidebar-sub">ㄴㄴ 다이소</button>
+        <button data-view="outbound-upload-emart" class="sidebar-sub">ㄴㄴ 이마트</button>
+        <button data-view="outbound-upload-lotte" class="sidebar-sub">ㄴㄴ 롯데마트</button>
+        <button data-view="adjust">재고 조정 / 이동</button>
+        <button data-view="history">입출고이력</button>
+        <button data-view="alert">알림</button>
+      </aside>
+
+      <main class="main">
+        <section id="view-dashboard" class="view"></section>
+        <section id="view-master" class="view hidden"></section>
+        <section id="view-products" class="view hidden"></section>
+        <section id="view-stock" class="view hidden"></section>
+        <section id="view-inbound" class="view hidden"></section>
+        <section id="view-inbound-plan" class="view hidden"></section>
+        <section id="view-inbound-plan-2" class="view hidden"></section>
+        <section id="view-outbound" class="view hidden"></section>
+        <section id="view-outbound-plan" class="view hidden"></section>
+        <section id="view-outbound-upload-daiso" class="view hidden"></section>
+        <section id="view-outbound-upload-emart" class="view hidden"></section>
+        <section id="view-outbound-upload-lotte" class="view hidden"></section>
+        <section id="view-adjust" class="view hidden"></section>
+        <section id="view-history" class="view hidden"></section>
+        <section id="view-alert" class="view hidden"></section>
+      </main>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>
