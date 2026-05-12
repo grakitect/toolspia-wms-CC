@@ -1730,11 +1730,83 @@ function renderProducts() {
 }
 
 function renderStock() {
+  const all = state.stock;
+  const totalLow = all.filter((s) => Number(s.stock) <= Number(s.safetyStock || 0)).length;
+  const totalOk = all.filter((s) => Number(s.stock) > Number(s.safetyStock || 0) && Number(s.stock) <= Number(s.optimalStock || Infinity)).length;
+  const totalOver = all.filter((s) => Number(s.optimalStock || 0) > 0 && Number(s.stock) > Number(s.optimalStock || 0)).length;
+
+  const warehouseOptions = [`<option value="ALL">창고 전체</option>`, ...(state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`)].join("");
+
+  qs("#view-stock").innerHTML = `
+    <div class="stock-page">
+      <div class="stock-header">
+        <div class="stock-header-title">
+          <h2>재고현황</h2>
+          <span class="stock-total-badge">${all.length}개 상품</span>
+        </div>
+        <div class="stock-summary-cards">
+          <div class="stock-summary-card stock-sc-all" data-filter="ALL">
+            <div class="stock-sc-label">전체</div>
+            <div class="stock-sc-value">${all.length}</div>
+          </div>
+          <div class="stock-summary-card stock-sc-ok" data-filter="OK">
+            <div class="stock-sc-label">정상</div>
+            <div class="stock-sc-value">${totalOk}</div>
+          </div>
+          <div class="stock-summary-card stock-sc-low" data-filter="LOW">
+            <div class="stock-sc-label">재고부족</div>
+            <div class="stock-sc-value">${totalLow}</div>
+          </div>
+          <div class="stock-summary-card stock-sc-over" data-filter="OVER">
+            <div class="stock-sc-label">적정초과</div>
+            <div class="stock-sc-value">${totalOver}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stock-toolbar">
+        <div class="stock-search-wrap">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="stock-q" placeholder="상품코드, 상품명, 바코드 검색" />
+        </div>
+        <select id="stock-warehouse">${warehouseOptions}</select>
+        <select id="stock-status">
+          <option value="ALL">상태 전체</option>
+          <option value="LOW">재고부족</option>
+          <option value="OK">정상</option>
+          <option value="OVER">적정재고 초과</option>
+        </select>
+        <span id="stock-count-label" class="stock-count-label">표시: 0건</span>
+      </div>
+
+      <div class="stock-table-wrap">
+        <table id="stock-table" class="stock-table draggable-table">
+          <thead>
+            <tr>
+              <th draggable="true">상태</th>
+              <th draggable="true">창고</th>
+              <th draggable="true">상품코드</th>
+              <th draggable="true">상품명</th>
+              <th draggable="true">카테고리</th>
+              <th draggable="true">판매처</th>
+              <th draggable="true">구매처</th>
+              <th draggable="true">단위</th>
+              <th draggable="true">안전재고</th>
+              <th draggable="true">적정재고</th>
+              <th draggable="true">현재고</th>
+              <th draggable="true">재고수준</th>
+            </tr>
+          </thead>
+          <tbody id="stock-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
   const draw = () => {
     const q = (qs("#stock-q")?.value || "").trim().toLowerCase();
     const status = (qs("#stock-status")?.value || "ALL").trim();
     const warehouse = (qs("#stock-warehouse")?.value || "ALL").trim();
-    const warehouseOptions = [`<option value="ALL">창고 전체</option>`, ...(state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`)].join("");
 
     const filtered = state.stock.filter((s) => {
       if (warehouse !== "ALL" && String(s.warehouse || "") !== warehouse) return false;
@@ -1743,126 +1815,85 @@ function renderStock() {
         if (!hay.includes(q)) return false;
       }
       if (status === "LOW") return Number(s.stock) <= Number(s.safetyStock || 0);
-      if (status === "OK") return Number(s.stock) > Number(s.safetyStock || 0);
-      if (status === "OVER") return Number(s.stock) > Number(s.optimalStock || 0);
+      if (status === "OK") return Number(s.stock) > Number(s.safetyStock || 0) && (Number(s.optimalStock || 0) === 0 || Number(s.stock) <= Number(s.optimalStock || 0));
+      if (status === "OVER") return Number(s.optimalStock || 0) > 0 && Number(s.stock) > Number(s.optimalStock || 0);
       return true;
     });
 
-    const lowCellClass = "low-stock-cell";
-    const lowStatusClass = "low-status";
-    const rows = filtered
-      .map((s) => {
-        const safety = Number(s.safetyStock || 0);
-        const low = Number(s.stock) <= safety;
-        const optimal = Number(s.optimalStock || 0);
-        const ratio = optimal > 0 ? `${((Number(s.stock || 0) / optimal) * 100).toFixed(1)}%` : "-";
-        return `<tr data-code="${esc(s.code)}">
-          <td>${esc(s.warehouse || "")}</td>
-          <td>${esc(s.code)}</td>
-          <td>${esc(s.name)}</td>
-          <td>${esc(s.ecountCode || "")}</td>
-          <td>${esc(s.barcode || "")}</td>
-          <td>${esc(s.logisticsBarcode || "")}</td>
-          <td>${esc(s.spec || "")}</td>
-          <td>${esc(s.salesVendor || "")}</td>
-          <td>${esc(s.purchaseVendor || "")}</td>
-          <td>${esc(s.category || "")}</td>
-          <td>${esc(s.unit || "")}</td>
-          <td>${esc(s.safetyStock || 0)}</td>
-          <td>${esc(s.optimalStock || 0)}</td>
-          <td>${ratio}</td>
-          <td>${esc(s.note || "")}</td>
-          <td class="${low ? lowCellClass : ""}">${esc(s.stock)}</td>
-          <td class="${low ? lowStatusClass : ""}">${low ? "<strong>재고부족</strong>" : "정상"}</td>
-        </tr>`;
-      })
-      .join("");
+    const countLabel = qs("#stock-count-label");
+    if (countLabel) countLabel.textContent = `표시: ${filtered.length}건`;
 
-    qs("#view-stock").innerHTML = `
-      <div class="card"><h2>재고현황</h2></div>
-      <div class="card">
-        <div class="row stock-filter-row">
-          <input id="stock-q" class="stock-q" placeholder="상품코드/상품명 검색" />
-          <button id="stock-search-btn" class="primary" type="button">조회</button>
-          <select id="stock-warehouse">${warehouseOptions}</select>
-          <select id="stock-status">
-            <option value="ALL">전체</option>
-            <option value="LOW">안전재고이하</option>
-            <option value="OK">정상</option>
-            <option value="OVER">적정재고 초과</option>
-          </select>
-          <div class="muted" style="align-self:end;">표시: ${filtered.length}건</div>
-        </div>
-      </div>
-      <div class="card">
-        <table id="stock-table" class="draggable-table">
-          <thead>
-            <tr>
-              <th draggable="true">창고</th>
-              <th draggable="true">상품코드</th>
-              <th draggable="true">상품명</th>
-              <th draggable="true">품목코드</th>
-              <th draggable="true">바코드</th>
-              <th draggable="true">물류바코드</th>
-              <th draggable="true">규격</th>
-              <th draggable="true">판매처</th>
-              <th draggable="true">구매처</th>
-              <th draggable="true">카테고리</th>
-              <th draggable="true">단위</th>
-              <th draggable="true">안전재고</th>
-              <th draggable="true">적정재고</th>
-              <th draggable="true">적정대비%</th>
-              <th draggable="true">비고</th>
-              <th draggable="true">현재고</th>
-              <th draggable="true">상태</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
+    const tbody = qs("#stock-tbody");
+    if (!tbody) return;
+
+    tbody.innerHTML = filtered.map((s) => {
+      const stock = Number(s.stock || 0);
+      const safety = Number(s.safetyStock || 0);
+      const optimal = Number(s.optimalStock || 0);
+      const isLow = stock <= safety;
+      const isOver = optimal > 0 && stock > optimal;
+
+      let statusBadge, rowClass;
+      if (isLow) {
+        statusBadge = `<span class="stock-badge stock-badge-low">부족</span>`;
+        rowClass = "stock-row-low";
+      } else if (isOver) {
+        statusBadge = `<span class="stock-badge stock-badge-over">초과</span>`;
+        rowClass = "stock-row-over";
+      } else {
+        statusBadge = `<span class="stock-badge stock-badge-ok">정상</span>`;
+        rowClass = "";
+      }
+
+      let barHtml = "-";
+      if (optimal > 0) {
+        const pct = Math.min((stock / optimal) * 100, 100).toFixed(0);
+        const barColor = isLow ? "var(--red)" : isOver ? "var(--accent-2)" : "var(--green)";
+        barHtml = `
+          <div class="stock-bar-wrap">
+            <div class="stock-bar-track">
+              <div class="stock-bar-fill" style="width:${pct}%;background:${barColor};"></div>
+            </div>
+            <span class="stock-bar-pct">${pct}%</span>
+          </div>`;
+      }
+
+      return `<tr class="${rowClass}" data-code="${esc(s.code)}">
+        <td>${statusBadge}</td>
+        <td>${esc(s.warehouse || "-")}</td>
+        <td class="stock-code">${esc(s.code)}</td>
+        <td class="stock-name">${esc(s.name)}</td>
+        <td>${esc(s.category || "-")}</td>
+        <td>${esc(s.salesVendor || "-")}</td>
+        <td>${esc(s.purchaseVendor || "-")}</td>
+        <td>${esc(s.unit || "-")}</td>
+        <td class="num">${safety}</td>
+        <td class="num">${optimal || "-"}</td>
+        <td class="num stock-qty ${isLow ? "stock-qty-low" : ""}">${stock}</td>
+        <td>${barHtml}</td>
+      </tr>`;
+    }).join("");
 
     applyExcelLikeFilter("#stock-table");
     enableColumnDrag("#stock-table");
+
+    // summary card click filter
+    qs(".stock-page").querySelectorAll(".stock-summary-card").forEach((card) => {
+      card.onclick = () => {
+        const f = card.dataset.filter;
+        const stEl2 = qs("#stock-status");
+        if (stEl2) { stEl2.value = f; draw(); }
+      };
+    });
   };
 
-  // first render
-  qs("#view-stock").innerHTML = `
-    <div class="card"><h2>재고현황</h2></div>
-    <div class="card">
-      <div class="row stock-filter-row">
-        <input id="stock-q" class="stock-q" placeholder="상품코드/상품명 검색" />
-        <button id="stock-search-btn" class="primary" type="button">조회</button>
-        <select id="stock-warehouse"><option value="ALL">창고 전체</option></select>
-        <select id="stock-status">
-          <option value="ALL">전체</option>
-          <option value="LOW">안전재고이하</option>
-          <option value="OK">정상</option>
-          <option value="OVER">적정재고 초과</option>
-        </select>
-        <div class="muted" style="align-self:end;">표시: 0건</div>
-      </div>
-    </div>
-    <div class="card"><div class="muted">로딩 중...</div></div>
-  `;
+  draw();
 
-  // bind filter events after draw creates inputs
-  // eslint-disable-next-line no-use-before-define
-  const initialDraw = () => draw();
-  initialDraw();
   const qEl = qs("#stock-q");
-  const searchBtnEl = qs("#stock-search-btn");
   const wEl = qs("#stock-warehouse");
   const stEl = qs("#stock-status");
-  if (qEl) {
-    qEl.onkeydown = (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        draw();
-      }
-    };
-  }
-  if (searchBtnEl) searchBtnEl.onclick = () => draw();
+  if (qEl) qEl.oninput = () => draw();
+  if (qEl) qEl.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); draw(); } };
   if (wEl) wEl.onchange = () => draw();
   if (stEl) stEl.onchange = () => draw();
 }
