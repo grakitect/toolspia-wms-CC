@@ -9,5 +9,5 @@ for /f "tokens=1,2 delims==" %%A in ('type .env 2^>nul ^| findstr /i "^PORT"') d
 title WMS - localhost:%PORT%
 echo Open in browser: http://localhost:%PORT%
 echo Keep this window open. Close it to stop the server.
-node server.js
+node --watch server.js
 pause
