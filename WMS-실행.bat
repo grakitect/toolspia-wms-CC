@@ -1,13 +1,22 @@
 @echo off
 cd /d "%~dp0"
-title WMS
 
 :: .env에서 PORT 읽기 (없으면 기본 3000)
 set PORT=3000
 for /f "tokens=1,2 delims==" %%A in ('type .env 2^>nul ^| findstr /i "^PORT"') do set PORT=%%B
 
 title WMS - localhost:%PORT%
-echo Open in browser: http://localhost:%PORT%
-echo Keep this window open. Close it to stop the server.
+echo ========================================
+echo  TOOLSPIA WMS (CC)
+echo  http://localhost:%PORT%
+echo  자동 업데이트: 30초마다 git pull
+echo  이 창을 닫으면 서버가 종료됩니다.
+echo ========================================
+echo.
+
+:: 30초마다 git pull 백그라운드 실행
+start /min powershell -WindowStyle Hidden -Command ^
+  "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/implement-wms-system-QabA1 2>$null }"
+
 node --watch server.js
 pause
