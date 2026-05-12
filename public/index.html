@@ -10,22 +10,32 @@
   <body>
     <div class="app">
       <aside class="sidebar">
-        <h1>TOOLSPIA WMS</h1>
-        <button data-view="dashboard">대시보드</button>
-        <button data-view="master">기본 정보</button>
-        <button data-view="products">기본상품정보</button>
-        <button data-view="stock">재고현황</button>
-        <button data-view="inbound">입고</button>
-        <button data-view="inbound-plan" class="sidebar-sub">ㄴ 입고예정목록 1</button>
-        <button data-view="inbound-plan-2" class="sidebar-sub">ㄴ 입고예정목록 2</button>
-        <button data-view="outbound">출고</button>
-        <button data-view="outbound-plan" class="sidebar-sub">ㄴ 출고예정관리</button>
-        <button data-view="outbound-upload-daiso" class="sidebar-sub">ㄴㄴ 다이소</button>
-        <button data-view="outbound-upload-emart" class="sidebar-sub">ㄴㄴ 이마트</button>
-        <button data-view="outbound-upload-lotte" class="sidebar-sub">ㄴㄴ 롯데마트</button>
-        <button data-view="adjust">재고 조정 / 이동</button>
-        <button data-view="history">입출고이력</button>
-        <button data-view="alert">알림</button>
+        <h1>(CC) TOOLSPIA WMS</h1>
+        <nav class="sidebar-nav">
+          <button data-view="dashboard">대시보드</button>
+
+          <div class="sidebar-label">마스터</div>
+          <button data-view="master">기본 정보</button>
+          <button data-view="products">상품 정보</button>
+          <button data-view="stock">재고현황</button>
+
+          <div class="sidebar-label">입고</div>
+          <button data-view="inbound">입고 등록</button>
+          <button data-view="inbound-plan" class="sidebar-sub">입고예정 1</button>
+          <button data-view="inbound-plan-2" class="sidebar-sub">입고예정 2</button>
+
+          <div class="sidebar-label">출고</div>
+          <button data-view="outbound">출고 등록</button>
+          <button data-view="outbound-plan" class="sidebar-sub">출고예정 관리</button>
+          <button data-view="outbound-upload-daiso" class="sidebar-sub">다이소</button>
+          <button data-view="outbound-upload-emart" class="sidebar-sub">이마트</button>
+          <button data-view="outbound-upload-lotte" class="sidebar-sub">롯데마트</button>
+
+          <div class="sidebar-label">관리</div>
+          <button data-view="adjust">재고 조정 / 이동</button>
+          <button data-view="history">입출고 이력</button>
+          <button data-view="alert">알림</button>
+        </nav>
       </aside>
 
       <main class="main">
