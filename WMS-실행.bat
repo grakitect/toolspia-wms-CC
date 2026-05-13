@@ -14,6 +14,11 @@ echo  이 창을 닫으면 서버가 종료됩니다.
 echo ========================================
 echo.
 
+:: 시작 시 최신 코드 받기
+echo [업데이트 확인 중...]
+git pull origin claude/redesign-wms-ui-VRvSQ
+echo.
+
 :: 30초마다 git pull 백그라운드 실행
 start /min powershell -WindowStyle Hidden -Command ^
   "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/redesign-wms-ui-VRvSQ 2>$null }"
