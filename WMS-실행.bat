@@ -1,8 +1,8 @@
 @echo off
 cd /d "%~dp0"
 
-:: .env에서 PORT 읽기 (없으면 기본 3000)
-set PORT=3000
+:: .env에서 PORT 읽기 (없으면 기본 4000)
+set PORT=4000
 for /f "tokens=1,2 delims==" %%A in ('type .env 2^>nul ^| findstr /i "^PORT"') do set PORT=%%B
 
 title WMS - localhost:%PORT%
@@ -16,7 +16,7 @@ echo.
 
 :: 30초마다 git pull 백그라운드 실행
 start /min powershell -WindowStyle Hidden -Command ^
-  "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/implement-wms-system-QabA1 2>$null }"
+  "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/redesign-wms-ui-VRvSQ 2>$null }"
 
 node --watch server.js
 pause
