@@ -4686,7 +4686,6 @@ async function handleApi(req, res, urlObj) {
         ],
       });
       const page = await browser.newPage();
-      await page.setViewport({ width: 1024, height: 768 });
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
 
       const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
