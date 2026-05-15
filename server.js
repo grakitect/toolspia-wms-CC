@@ -4873,7 +4873,24 @@ async function handleApi(req, res, urlObj) {
           await page.goto("https://emart.ecvan.co.kr/pre_ecvan_ui/index.jsp", {
             waitUntil: "domcontentloaded", timeout: 30000
           });
-          await sleep(3000);
+          await sleep(2000);
+
+          // 페이지 로드 후 팝업 닫기 (최대 3회)
+          session.progress = "팝업 닫는 중...";
+          for (let i = 0; i < 3; i++) {
+            const closed = await page.evaluate(() => {
+              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+              let any = false;
+              btns.forEach(b => {
+                const t = (b.textContent || b.value || "").trim();
+                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
+              });
+              return any;
+            }).catch(() => false);
+            await sleep(500);
+            if (!closed) break;
+          }
           await snap("01-loaded");
 
           session.progress = "로그인 폼 탐색 중...";
