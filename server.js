@@ -4922,29 +4922,25 @@ async function handleApi(req, res, urlObj) {
             throw new Error(`아이디 입력창을 찾지 못했습니다. 페이지: ${bodyText}`);
           }
 
-          session.progress = "아이디 입력 중...";
-          await fillInput(idEl, ecvanId);
+          session.progress = "아이디/비밀번호 입력 중...";
+          // ID 클릭 후 value 직접 설정 + Tab → PW 타이핑 → Enter
+          await idEl.click({ clickCount: 3 });
+          await sleep(30);
+          await idEl.evaluate((el, v) => { el.value = ""; el.focus(); }, ecvanId);
+          await page.keyboard.type(ecvanId, { delay: 0 });
+          await sleep(100);
 
-          const pwEl = await findEl(["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"], 5000);
-          if (!pwEl) { await snap("err-no-pw"); throw new Error("비밀번호 입력창을 찾지 못했습니다."); }
+          // Tab으로 PW 필드 이동
+          await page.keyboard.press("Tab");
+          await sleep(100);
 
-          session.progress = "비밀번호 입력 중...";
-          await fillInput(pwEl, ecvanPw);
+          // PW 타이핑 (현재 포커스된 요소 = PW 필드)
+          await page.keyboard.type(ecvanPw, { delay: 0 });
+          await sleep(100);
           await snap("02-filled");
 
-          session.progress = "로그인 버튼 클릭 중...";
-          await sleep(300);
-
-          const loginBtnClicked = await activeFrame.evaluate(() => {
-            const candidates = [...document.querySelectorAll("button,input[type='submit'],input[type='button'],a")];
-            const btn = candidates.find(e => {
-              const t = (e.textContent || e.value || "").trim();
-              return t === "로그인" || t === "LOGIN" || t === "Log In" || t === "login";
-            });
-            if (btn) { btn.click(); return true; }
-            return false;
-          });
-          if (!loginBtnClicked) await page.keyboard.press("Enter");
+          session.progress = "로그인 중...";
+          await page.keyboard.press("Enter");
 
           session.progress = "로그인 처리 중...";
           await sleep(2000);
