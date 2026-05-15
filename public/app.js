@@ -4606,12 +4606,21 @@ function typeBadge(type, cancelled, memo, originType) {
 
 async function renderHistory() {
   const wrap = qs("#view-history");
+  const today = localDateYmd(new Date());
   const managerOptions = state.managers.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
+
   wrap.innerHTML = `
-    <div class="card">
-      <h2>입출고이력</h2>
-      <div class="row history-row">
-        <input id="history-q" class="history-q" placeholder="상품코드 검색" />
+    <div class="card history-search-card">
+      <div class="history-search-header">
+        <h2>입출고 이력</h2>
+        <p class="muted">입고·출고·재고조정·이동 내역을 조회합니다.</p>
+      </div>
+      <div class="history-filter-row">
+        <div class="history-search-input-wrap">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="history-q" class="history-q-input" placeholder="상품코드 · 상품명 검색" />
+        </div>
         <select id="history-type-filter">
           <option value="ALL">구분 전체</option>
           <option value="IN">입고</option>
@@ -4620,97 +4629,140 @@ async function renderHistory() {
           <option value="TRANSFER">이동</option>
           <option value="CANCEL">취소반영</option>
         </select>
-        <button class="primary" id="history-search">조회</button>
+        <select id="history-warehouse-filter">
+          <option value="">창고 전체</option>
+          ${warehouseOptions}
+        </select>
+        <select id="history-manager-filter">
+          <option value="">담당자 전체</option>
+          ${managerOptions}
+        </select>
+      </div>
+      <div class="history-filter-row">
+        <div class="history-date-wrap">
+          <input type="date" id="history-date-from" value="${today}" />
+          <span class="history-date-sep">~</span>
+          <input type="date" id="history-date-to" value="${today}" />
+        </div>
+        <div class="history-quick-dates">
+          <button type="button" class="bh-btn bh-btn-sm history-quick-btn" data-range="today">오늘</button>
+          <button type="button" class="bh-btn bh-btn-sm history-quick-btn" data-range="week">이번 주</button>
+          <button type="button" class="bh-btn bh-btn-sm history-quick-btn" data-range="month">이번 달</button>
+          <button type="button" class="bh-btn bh-btn-sm history-quick-btn" data-range="all">전체</button>
+        </div>
+        <div class="history-search-actions">
+          <button type="button" class="bh-btn" id="history-reset">초기화</button>
+          <button type="button" class="bh-btn bh-btn-primary" id="history-search">조회</button>
+        </div>
       </div>
     </div>
-    <div class="card" id="history-table"></div>
-    <datalist id="history-manager-list">${managerOptions}</datalist>
+    <div class="card" id="history-result-card" style="display:none;">
+      <div class="history-result-header">
+        <span class="history-result-count">조회 결과 <strong id="history-count">0</strong>건</span>
+        <span class="muted" id="history-stock-info" style="font-size:12px;"></span>
+        <button type="button" class="bh-btn bh-btn-sm" id="history-excel-btn" style="margin-left:auto;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          엑셀 다운로드
+        </button>
+      </div>
+      <div id="history-table">
+        <p class="muted" style="text-align:center; padding:32px 0;">조회 버튼을 눌러 이력을 불러오세요.</p>
+      </div>
+    </div>
+    <div class="card" id="history-empty-card">
+      <p class="muted" style="text-align:center; padding:32px 0;">조회 버튼을 눌러 이력을 불러오세요.</p>
+    </div>
   `;
 
-  async function draw(q = "") {
-    const qTrim = (q || "").trim();
-    const typeFilter = qs("#history-type-filter") ? qs("#history-type-filter").value : "ALL";
-    const [res, stockRes] = await Promise.all([api(`/api/history?q=${encodeURIComponent(qTrim)}`), api("/api/stock")]);
+  let lastDisplayItems = [];
+
+  async function draw() {
+    const qTrim = (qs("#history-q")?.value || "").trim();
+    const typeFilter = qs("#history-type-filter")?.value || "ALL";
+    const warehouseFilter = qs("#history-warehouse-filter")?.value || "";
+    const managerFilter = qs("#history-manager-filter")?.value || "";
+    const dateFrom = qs("#history-date-from")?.value || "";
+    const dateTo = qs("#history-date-to")?.value || "";
+
+    qs("#history-table").innerHTML = `<p class="muted" style="text-align:center; padding:32px 0;">조회 중...</p>`;
+    qs("#history-result-card").style.display = "block";
+    qs("#history-empty-card").style.display = "none";
+
+    const [res, stockRes] = await Promise.all([
+      api(`/api/history?q=${encodeURIComponent(qTrim)}`),
+      api("/api/stock")
+    ]);
 
     const matched = qTrim
       ? stockRes.items.filter((s) => String(s.code).includes(qTrim) || String(s.name).includes(qTrim)).map((s) => `${s.code}: ${s.stock}`)
       : [];
-    const matchedStocks = matched.length ? matched.join(" / ") : qTrim ? "해당 상품 없음" : "-";
+    const matchedStocks = matched.length ? matched.join(" / ") : "";
 
-    const items = typeFilter === "ALL" ? res.items : res.items.filter((x) => x.type === typeFilter);
+    let items = res.items;
+    if (typeFilter !== "ALL") items = items.filter((x) => x.type === typeFilter);
+    if (warehouseFilter) items = items.filter((x) => x.warehouse === warehouseFilter || x.toWarehouse === warehouseFilter);
+    if (managerFilter) items = items.filter((x) => x.user === managerFilter);
+    if (dateFrom || dateTo) {
+      items = items.filter((x) => {
+        const d = (x.createdAt || "").slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        return true;
+      });
+    }
+
     const displayItems = (() => {
       const outGrouped = new Map();
       const out = [];
       for (const x of items) {
-        if (x.type !== "OUT") {
-          out.push(x);
-          continue;
-        }
+        if (x.type !== "OUT") { out.push(x); continue; }
         const slipKey = String(x.slipNoDisplay || x.slipNo || "").trim();
         const productKey = String(x.productCode || "").trim();
         const gk = `${slipKey}|${productKey}`;
-        if (!gk) {
-          out.push(x);
-          continue;
-        }
+        if (!gk) { out.push(x); continue; }
         if (!outGrouped.has(gk)) {
-          outGrouped.set(gk, {
-            ...x,
-            _qtySum: 0,
-            _lineCount: 0
-          });
+          outGrouped.set(gk, { ...x, _qtySum: 0, _lineCount: 0 });
           out.push(outGrouped.get(gk));
         }
         const g = outGrouped.get(gk);
         g._qtySum += Math.abs(Number(x.qty || 0));
         g._lineCount += 1;
         if (new Date(x.createdAt || 0).getTime() > new Date(g.createdAt || 0).getTime()) {
-          g.createdAt = x.createdAt;
-          g.id = x.id;
-          g.user = x.user;
-          g.memo = x.memo;
-          g.stockAfter = x.stockAfter;
+          g.createdAt = x.createdAt; g.id = x.id; g.user = x.user; g.memo = x.memo; g.stockAfter = x.stockAfter;
         }
       }
       return out;
     })();
 
-    const rows = displayItems
-      .map((x) => `<tr>
-        <td>${x.id}</td>
-        <td>${typeBadge(x.type, x.cancelled, x.memo, x.originType)}</td>
-        <td>${esc(x.slipNoDisplay || x.slipNo || "")}</td>
-        <td>${esc(x.productCode)}</td>
-        <td>${esc(x.ecountCode || "")}</td>
-        <td>${esc(x.productName)}</td>
-        <td>${
-          x.type === "OUT"
-            ? `-${Number.isFinite(Number(x._qtySum)) ? Number(x._qtySum) : Math.abs(Number(x.qty || 0))}`
-            : x.qty
-        }</td>
-        <td>${esc(x.warehouse || "-")}</td>
-        <td>${esc(x.toWarehouse || "-")}</td>
-        <td>${x.type === "IN" ? esc(x.partner) : x.type === "CANCEL" && x.originType === "IN" ? esc(x.partner) : "-"}</td>
-        <td>${x.type === "OUT" ? esc(x.partner) : x.type === "CANCEL" && x.originType === "OUT" ? esc(x.partner) : "-"}</td>
-        <td>${esc(x.user)}</td>
-        <td>${
-          x.type === "OUT" && Number(x._lineCount || 0) > 1
-            ? `${esc(x.memo || "")}${x.memo ? " / " : ""}센터 통합 합산(${Number(x._lineCount)}건)`
-            : esc(x.memo)
-        }</td>
-        <td>${esc(formatDateTimeDisplay(x.createdAt))}</td>
-        <td>${x.stockAfter ?? "-"}</td>
-        <td>${(!x.cancelled && ["IN", "OUT", "ADJUST"].includes(x.type) && !String(x.slipNo || "").trim()) ? `<button class="cancel-btn history-cancel-btn" data-id="${x.id}">등록취소</button>` : "-"}</td>
-      </tr>`)
-      .join("");
+    lastDisplayItems = displayItems;
+    qs("#history-count").textContent = displayItems.length.toLocaleString();
+    qs("#history-stock-info").textContent = matchedStocks ? `현재고: ${matchedStocks}` : "";
+
+    const rows = displayItems.map((x) => `<tr>
+      <td>${x.id}</td>
+      <td>${typeBadge(x.type, x.cancelled, x.memo, x.originType)}</td>
+      <td>${esc(x.slipNoDisplay || x.slipNo || "")}</td>
+      <td>${esc(x.productCode)}</td>
+      <td>${esc(x.ecountCode || "")}</td>
+      <td>${esc(x.productName)}</td>
+      <td class="num">${x.type === "OUT" ? `-${Number.isFinite(Number(x._qtySum)) ? Number(x._qtySum) : Math.abs(Number(x.qty || 0))}` : x.qty}</td>
+      <td>${esc(x.warehouse || "-")}</td>
+      <td>${esc(x.toWarehouse || "-")}</td>
+      <td>${x.type === "IN" ? esc(x.partner) : x.type === "CANCEL" && x.originType === "IN" ? esc(x.partner) : "-"}</td>
+      <td>${x.type === "OUT" ? esc(x.partner) : x.type === "CANCEL" && x.originType === "OUT" ? esc(x.partner) : "-"}</td>
+      <td>${esc(x.user)}</td>
+      <td>${x.type === "OUT" && Number(x._lineCount || 0) > 1 ? `${esc(x.memo || "")}${x.memo ? " / " : ""}센터 통합 합산(${Number(x._lineCount)}건)` : esc(x.memo)}</td>
+      <td>${esc(formatDateTimeDisplay(x.createdAt))}</td>
+      <td class="num">${x.stockAfter ?? "-"}</td>
+      <td>${(!x.cancelled && ["IN", "OUT", "ADJUST"].includes(x.type) && !String(x.slipNo || "").trim()) ? `<button class="cancel-btn history-cancel-btn" data-id="${x.id}">등록취소</button>` : "-"}</td>
+    </tr>`).join("");
 
     qs("#history-table").innerHTML = `
       <div class="history-table-outer">
         <div class="history-table-scroll" id="history-table-scroll">
           <table id="history-table-list">
             <thead><tr><th>ID</th><th>구분</th><th>전표번호</th><th>상품코드</th><th>품목코드</th><th>상품명</th><th>수량</th><th>창고</th><th>이동창고</th><th>구매처</th><th>판매처</th><th>담당</th><th>메모</th><th>일시</th><th>시점재고</th><th>액션</th></tr></thead>
-            <tbody>${rows}</tbody>
-            <tfoot><tr><td colspan="16"><strong>현재고(검색 기준): </strong>${esc(matchedStocks)}</td></tr></tfoot>
+            <tbody>${rows || `<tr><td colspan="16" style="text-align:center; padding:32px; color:var(--t3);">조회된 이력이 없습니다.</td></tr>`}</tbody>
           </table>
         </div>
         <div class="history-scroll-proxy-wrap" id="history-scroll-proxy-wrap">
@@ -4719,7 +4771,6 @@ async function renderHistory() {
       </div>
     `;
 
-    /* 하단 스크롤바 ↔ 테이블 동기화 */
     const tblScroll = qs("#history-table-scroll");
     const proxyWrap = qs("#history-scroll-proxy-wrap");
     const proxyInner = qs("#history-scroll-proxy-inner");
@@ -4729,6 +4780,7 @@ async function renderHistory() {
       tblScroll.addEventListener("scroll", () => { proxyWrap.scrollLeft = tblScroll.scrollLeft; });
       proxyWrap.addEventListener("scroll", () => { tblScroll.scrollLeft = proxyWrap.scrollLeft; });
     }
+
     applyExcelLikeFilter("#history-table-list");
 
     document.querySelectorAll(".history-cancel-btn").forEach((btn) => {
@@ -4736,20 +4788,71 @@ async function renderHistory() {
         const manager = prompt("취소 담당자명을 입력하세요 (기본정보>담당자 등록 필요)");
         if (!manager) return;
         try {
-          await api("/api/movements/cancel", {
-            method: "POST",
-            body: JSON.stringify({ id: Number(btn.dataset.id), user: manager.trim() })
-          });
+          await api("/api/movements/cancel", { method: "POST", body: JSON.stringify({ id: Number(btn.dataset.id), user: manager.trim() }) });
           await afterMovementDone();
-        } catch (err) {
-          alert(err.message);
-        }
+        } catch (err) { alert(err.message); }
       };
     });
   }
 
-  qs("#history-search").onclick = () => draw(qs("#history-q").value.trim());
-  await draw("");
+  /* 빠른 날짜 버튼 */
+  wrap.querySelectorAll(".history-quick-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const now = new Date();
+      const t = localDateYmd(now);
+      if (btn.dataset.range === "today") {
+        qs("#history-date-from").value = t;
+        qs("#history-date-to").value = t;
+      } else if (btn.dataset.range === "week") {
+        const mon = new Date(now);
+        mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+        qs("#history-date-from").value = localDateYmd(mon);
+        qs("#history-date-to").value = t;
+      } else if (btn.dataset.range === "month") {
+        qs("#history-date-from").value = localDateYmd(new Date(now.getFullYear(), now.getMonth(), 1));
+        qs("#history-date-to").value = t;
+      } else if (btn.dataset.range === "all") {
+        qs("#history-date-from").value = "";
+        qs("#history-date-to").value = "";
+      }
+    };
+  });
+
+  /* 초기화 */
+  qs("#history-reset").onclick = () => {
+    const t = localDateYmd(new Date());
+    qs("#history-q").value = "";
+    qs("#history-type-filter").value = "ALL";
+    qs("#history-warehouse-filter").value = "";
+    qs("#history-manager-filter").value = "";
+    qs("#history-date-from").value = t;
+    qs("#history-date-to").value = t;
+  };
+
+  /* 엑셀 다운로드 */
+  qs("#history-excel-btn").onclick = () => {
+    if (!lastDisplayItems.length) { alert("조회 결과가 없습니다."); return; }
+    const headers = ["ID","구분","전표번호","상품코드","품목코드","상품명","수량","창고","이동창고","구매처","판매처","담당","메모","일시","시점재고"];
+    const data = lastDisplayItems.map((x) => [
+      x.id,
+      x.type + (x.cancelled ? "(취소)" : ""),
+      x.slipNoDisplay || x.slipNo || "",
+      x.productCode, x.ecountCode || "", x.productName,
+      x.type === "OUT" ? -(Number.isFinite(Number(x._qtySum)) ? Number(x._qtySum) : Math.abs(Number(x.qty || 0))) : x.qty,
+      x.warehouse || "", x.toWarehouse || "",
+      x.type === "IN" ? x.partner : "",
+      x.type === "OUT" ? x.partner : "",
+      x.user, x.memo, formatDateTimeDisplay(x.createdAt), x.stockAfter ?? ""
+    ]);
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...data]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "입출고이력");
+    XLSX.writeFile(wb, `입출고이력_${localDateYmd(new Date())}.xlsx`);
+  };
+
+  /* 조회 */
+  qs("#history-search").onclick = () => draw();
+  qs("#history-q").addEventListener("keydown", (e) => { if (e.key === "Enter") draw(); });
 }
 
 function renderAlert() {
