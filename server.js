@@ -32,6 +32,19 @@ const XLSX = require("xlsx");
 
 const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || "0.0.0.0";
+
+// eCvan 스크래퍼 세션 저장소
+const ecvanSessions = new Map();
+// 30분 초과 세션 자동 정리
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [sid, s] of ecvanSessions) {
+    if (new Date(s.startedAt).getTime() < cutoff) {
+      s.browser?.close().catch(() => {});
+      ecvanSessions.delete(sid);
+    }
+  }
+}, 5 * 60 * 1000).unref();
 const PRODUCT_OPTION_KEYS = [
   "status",
   "deliveryVendors",
@@ -4608,6 +4621,284 @@ async function handleApi(req, res, urlObj) {
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
+  }
+
+  // ── eCvan 자동수집 ───────────────────────────────────────────────
+  if (req.method === "POST" && pathname === "/api/ecvan/start") {
+    try {
+      const body = await parseBody(req);
+      const ecvanId = String(body.id || "").trim();
+      const ecvanPw = String(body.pw || "").trim();
+      if (!ecvanId || !ecvanPw) throw new Error("아이디와 비밀번호를 입력해주세요.");
+
+      let pup;
+      try { pup = require("puppeteer-core"); } catch { throw new Error("puppeteer-core가 설치되어 있지 않습니다. npm install puppeteer-core 실행 후 재시작해주세요."); }
+
+      // Chrome 경로 탐색 (Windows 우선)
+      const chromePaths = [
+        process.env.CHROME_PATH,
+        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        "/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"
+      ].filter(Boolean);
+      let chromePath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!chromePath) throw new Error("Chrome을 찾을 수 없습니다. .env에 CHROME_PATH=C:\\...\\chrome.exe 를 추가해주세요.");
+
+      const sessionId = `ecvan-${Date.now()}`;
+      const browser = await pup.launch({
+        executablePath: chromePath,
+        headless: true,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled"]
+      });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1366, height: 768 });
+      await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
+
+      const session = { browser, page, status: "logging_in", progress: "로그인 중...", data: null, error: null, startedAt: new Date().toISOString() };
+      ecvanSessions.set(sessionId, session);
+
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const clickByText = async (text, sel = "button,a,input[type=button],input[type=submit]") => {
+        return page.evaluate((t, s) => {
+          const el = [...document.querySelectorAll(s)].find(e => (e.textContent || e.value || "").trim() === t);
+          if (el) { el.click(); return true; } return false;
+        }, text, sel);
+      };
+
+      // 비동기 로그인
+      (async () => {
+        try {
+          page.on("dialog", async dlg => { await sleep(200); await dlg.accept().catch(() => {}); });
+          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", { waitUntil: "networkidle2", timeout: 30000 });
+          await sleep(1000);
+
+          // ID 입력
+          const idSel = "input[placeholder*='아이디'], input[name='id'], #id";
+          await page.waitForSelector(idSel, { timeout: 10000 });
+          await page.click(idSel, { clickCount: 3 });
+          await page.type(idSel, ecvanId, { delay: 50 });
+
+          // PW 입력
+          const pwSel = "input[type='password'], input[name='pw'], #pw";
+          await page.waitForSelector(pwSel, { timeout: 5000 });
+          await page.click(pwSel, { clickCount: 3 });
+          await page.type(pwSel, ecvanPw, { delay: 50 });
+
+          // 로그인 클릭
+          await clickByText("로그인");
+          await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+          await sleep(1000);
+
+          session.status = "waiting_otp";
+          session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
+        } catch (e) {
+          session.status = "error"; session.error = e.message;
+          browser.close().catch(() => {}); ecvanSessions.delete(sessionId);
+        }
+      })();
+
+      return sendJson(res, 200, { sessionId });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  if (req.method === "POST" && pathname === "/api/ecvan/otp") {
+    try {
+      const body = await parseBody(req);
+      const sessionId = String(body.sessionId || "");
+      const otp = String(body.otp || "").trim();
+      const session = ecvanSessions.get(sessionId);
+      if (!session) throw new Error("세션이 없거나 만료되었습니다. 다시 시작해주세요.");
+      if (session.status !== "waiting_otp") throw new Error(`현재 상태: ${session.status}`);
+      if (!otp) throw new Error("인증번호를 입력해주세요.");
+
+      const { page, browser } = session;
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const clickByText = async (text, sel = "button,a,input[type=button],input[type=submit]") => {
+        return page.evaluate((t, s) => {
+          const el = [...document.querySelectorAll(s)].find(e => (e.textContent || e.value || "").trim() === t);
+          if (el) { el.click(); return true; } return false;
+        }, text, sel);
+      };
+
+      session.status = "submitting_otp"; session.progress = "인증번호 제출 중...";
+
+      (async () => {
+        try {
+          // OTP 입력
+          const otpSel = "input[placeholder*='인증번호'], input[name*='cert'], input[name*='otp'], input[id*='cert']";
+          try { await page.waitForSelector(otpSel, { timeout: 5000 }); } catch {}
+          const filled = await page.evaluate((otp, sel) => {
+            const el = document.querySelector(sel);
+            if (!el) { // 여러 text input 중 첫 번째 빈 것 시도
+              const inputs = [...document.querySelectorAll("input[type=text], input[type=number]")];
+              const target = inputs.find(i => !i.value);
+              if (target) { target.focus(); target.value = otp; target.dispatchEvent(new Event("input", {bubbles:true})); return true; }
+              return false;
+            }
+            el.focus(); el.value = otp; el.dispatchEvent(new Event("input", {bubbles:true})); return true;
+          }, otp, otpSel);
+          if (!filled) throw new Error("인증번호 입력창을 찾을 수 없습니다.");
+
+          await sleep(300);
+          await clickByText("확인");
+          await sleep(2000);
+
+          // 팝업 닫기 (최대 5회 시도)
+          for (let i = 0; i < 5; i++) {
+            await sleep(800);
+            const closed = await page.evaluate(() => {
+              const selectors = ["button.close", ".btn-close", "a.close", "[aria-label='close']", "[aria-label='닫기']"];
+              for (const s of selectors) { const el = document.querySelector(s); if (el) { el.click(); return true; } }
+              const btns = [...document.querySelectorAll("button, a")];
+              const closeBtn = btns.find(b => b.textContent.trim() === "닫기" &&
+                b.closest(".modal, .popup, .layer, .dimmed, [class*='modal'], [class*='popup'], [class*='layer']"));
+              if (closeBtn) { closeBtn.click(); return true; }
+              return false;
+            });
+            if (!closed) break;
+          }
+
+          session.status = "navigating"; session.progress = "미납사유 메뉴로 이동 중...";
+          await sleep(1000);
+
+          // ── 납품 > 미납사유 > 미납사유등록 네비게이션 ──
+          // 상단 납품 메뉴 클릭
+          await page.evaluate(() => {
+            const el = [...document.querySelectorAll(".gnb > li > a, .top-nav a, nav > ul > li > a, ul.menu > li > a")]
+              .find(a => a.textContent.trim() === "납품");
+            if (el) el.click();
+          });
+          await sleep(1200);
+
+          // 사이드 미납사유등록 클릭
+          await page.evaluate(() => {
+            const el = [...document.querySelectorAll(".lnb a, .side-menu a, .sub-menu a, nav a, a")]
+              .find(a => a.textContent.trim() === "미납사유등록");
+            if (el) el.click();
+          });
+          await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
+          await sleep(1500);
+
+          // 상품별 선택
+          await clickByText("상품별");
+          await sleep(500);
+
+          // 조회
+          await clickByText("조회");
+          await sleep(2500);
+
+          session.status = "collecting"; session.progress = "상품 목록 수집 중...";
+
+          // ── 상품 목록 수집 ──
+          const products = await page.evaluate(() => {
+            const rows = [...document.querySelectorAll("table tbody tr")];
+            return rows.map(tr => {
+              const tds = tr.querySelectorAll("td");
+              const link = tr.querySelector("a");
+              if (!link || tds.length < 3) return null;
+              return { code: tds[1]?.textContent.trim() || "", name: tds[2]?.textContent.trim() || "", href: link.href };
+            }).filter(r => r && r.code && r.href);
+          });
+
+          if (!products.length) {
+            session.status = "done"; session.progress = "미납 상품이 없습니다."; session.data = [];
+            browser.close().catch(() => {}); return;
+          }
+
+          session.progress = `${products.length}개 상품 발견, 상세 수집 중...`;
+
+          // ── 상품별 상세 수집 ──
+          const now = new Date().toISOString();
+          const allRows = [];
+
+          for (let i = 0; i < products.length; i++) {
+            const prod = products[i];
+            session.progress = `(${i + 1}/${products.length}) ${prod.name || prod.code} 수집 중...`;
+            try {
+              await page.goto(prod.href, { waitUntil: "networkidle2", timeout: 20000 });
+              await sleep(1000);
+
+              // 페이지네이션 포함 전체 수집
+              let pageNo = 1;
+              while (true) {
+                const rows = await page.evaluate((prod, now) => {
+                  const tables = [...document.querySelectorAll("table")];
+                  const tbl = tables.find(t => t.textContent.includes("점포명") && t.textContent.includes("미납"));
+                  if (!tbl) return [];
+                  const n = (td) => parseInt((td?.textContent || "0").replace(/[^\d]/g, "")) || 0;
+                  return [...tbl.querySelectorAll("tbody tr")].map(tr => {
+                    const tds = tr.querySelectorAll("td");
+                    if (tds.length < 8) return null;
+                    // 컬럼: NO, 점포명, 점포코드, 주문일, 입점일, 주문합계수량, 주문합계금액, 입점합계수량, 입점합계금액, 미납합계수량, 미납합계금액
+                    return {
+                      productCode: prod.code, productName: prod.name,
+                      centerName: tds[1]?.textContent.trim() || "",
+                      storeCode: tds[2]?.textContent.trim() || "",
+                      orderDate: tds[3]?.textContent.trim() || "",
+                      dueDate: tds[4]?.textContent.trim() || "",
+                      orderQty: n(tds[5]), storeInQty: n(tds[7]),
+                      officialQty: n(tds[9]) || n(tds[7]) === 0 ? n(tds[9]) : n(tds[5]) - n(tds[7]),
+                      uploadedAt: now
+                    };
+                  }).filter(r => r && r.productCode);
+                }, prod, now);
+                allRows.push(...rows);
+
+                // 다음 페이지 확인
+                const hasNext = await page.evaluate((pn) => {
+                  const pager = document.querySelector(".paging, .pagination, [class*='pager']");
+                  if (!pager) return false;
+                  const next = [...pager.querySelectorAll("a, button")].find(b =>
+                    b.textContent.trim() === ">" || b.textContent.trim() === "다음" ||
+                    b.classList.contains("next") || b.getAttribute("aria-label") === "next"
+                  );
+                  return next && !next.disabled && !next.classList.contains("disabled");
+                }, pageNo);
+                if (!hasNext) break;
+                await page.evaluate(() => {
+                  const pager = document.querySelector(".paging, .pagination, [class*='pager']");
+                  const next = pager && [...pager.querySelectorAll("a, button")].find(b =>
+                    b.textContent.trim() === ">" || b.textContent.trim() === "다음" || b.classList.contains("next")
+                  );
+                  if (next) next.click();
+                });
+                await sleep(1200); pageNo++;
+              }
+
+              // 목록으로 복귀
+              await page.goBack({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+              await sleep(700);
+            } catch (e2) {
+              console.error(`[eCvan] 상품 ${prod.code} 수집 오류:`, e2.message);
+            }
+          }
+
+          // DB 저장
+          session.data = allRows;
+          const db2 = readDb();
+          db2.unshipCompare = db2.unshipCompare || {};
+          db2.unshipCompare.emart = db2.unshipCompare.emart || { officialRows: [], adjustments: [] };
+          db2.unshipCompare.emart.officialRows = allRows;
+          writeDb(db2);
+
+          session.status = "done";
+          session.progress = `완료: ${allRows.length}건 수집 (${products.length}개 상품)`;
+          browser.close().catch(() => {});
+        } catch (e) {
+          session.status = "error"; session.error = e.message;
+          browser.close().catch(() => {});
+        }
+      })();
+
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  if (req.method === "GET" && pathname === "/api/ecvan/status") {
+    const sessionId = urlObj.searchParams.get("sessionId") || "";
+    const session = ecvanSessions.get(sessionId);
+    if (!session) return sendJson(res, 200, { status: "not_found" });
+    return sendJson(res, 200, { status: session.status, progress: session.progress || "", error: session.error || null, rowCount: session.data ? session.data.length : 0 });
   }
 
   return sendJson(res, 404, { error: "Not found" });

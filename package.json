@@ -8,6 +8,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "puppeteer-core": "^24.43.1",
     "xlsx": "^0.18.5"
   }
 }

@@ -3316,15 +3316,51 @@ async function renderOutboundPartnerUpload(partner, key) {
       ${key === "emart" ? `
       <!-- 미출 대조 패널 (이마트 전용) -->
       <div id="outbound-compare-panel-${key}" class="ob-panel hidden">
-        <!-- 업로드 툴바 -->
+
+        <!-- eCvan 자동수집 섹션 -->
+        <div class="ecvan-section">
+          <div class="ecvan-section-head">
+            <span class="ecvan-logo">eCvan</span>
+            <span class="ecvan-label">자동 미출 수집</span>
+            <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="ecvan-start-${key}">로그인 &amp; 수집 시작</button>
+            <div id="ecvan-status-${key}" class="ecvan-status-bar hidden"></div>
+          </div>
+        </div>
+
+        <!-- eCvan 로그인/OTP 모달 -->
+        <div id="ecvan-modal-${key}" class="ecvan-modal hidden">
+          <div class="ecvan-modal-box">
+            <div class="ecvan-modal-head">
+              <span class="ecvan-logo">eCvan</span>&nbsp;로그인
+              <button type="button" class="ecvan-modal-close" id="ecvan-close-${key}">✕</button>
+            </div>
+            <div id="ecvan-login-step-${key}">
+              <div class="ecvan-field"><label>아이디</label><input type="text" id="ecvan-id-${key}" placeholder="eCvan 아이디" autocomplete="username" /></div>
+              <div class="ecvan-field"><label>비밀번호</label><input type="password" id="ecvan-pw-${key}" placeholder="비밀번호" autocomplete="current-password" /></div>
+              <button type="button" class="bh-btn bh-btn-primary" style="width:100%;margin-top:8px;" id="ecvan-login-btn-${key}">로그인 &amp; SMS 발송</button>
+            </div>
+            <div id="ecvan-otp-step-${key}" class="hidden">
+              <p class="ecvan-otp-hint">휴대폰으로 발송된 인증번호를 입력하세요.</p>
+              <div class="ecvan-field"><label>인증번호</label><input type="text" id="ecvan-otp-${key}" placeholder="6자리 인증번호" maxlength="6" inputmode="numeric" /></div>
+              <button type="button" class="bh-btn bh-btn-primary" style="width:100%;margin-top:8px;" id="ecvan-otp-btn-${key}">확인 &amp; 수집 시작</button>
+            </div>
+            <div id="ecvan-progress-${key}" class="ecvan-progress hidden">
+              <div class="ecvan-spinner"></div>
+              <div id="ecvan-progress-text-${key}" class="ecvan-progress-text">처리 중...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 수동 업로드 툴바 -->
         <div class="ob-toolbar">
+          <span class="ob-toolbar-hint" style="color:var(--t3);font-size:11.5px;">또는 직접 업로드:</span>
           <label class="ob-file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             이마트 미출 파일
             <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
           </label>
-          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="uc-upload-${key}">업로드</button>
-          <span class="ob-toolbar-hint" id="uc-upload-hint-${key}">이마트에서 받은 공식 미출 내역 파일을 업로드합니다.</span>
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-upload-${key}">업로드</button>
+          <span class="ob-toolbar-hint" id="uc-upload-hint-${key}"></span>
           <div class="ob-divider"></div>
           <input type="date" class="uc-date-input" id="uc-start-${key}" />
           <span class="ob-pi-arrow">~</span>
@@ -3641,6 +3677,93 @@ async function renderOutboundPartnerUpload(partner, key) {
       if (!confirm("이마트 공식 미출 데이터와 조정 기록을 모두 초기화합니다. 계속하시겠습니까?")) return;
       await api("/api/unship-compare/clear", "POST", { partnerType: key });
       await loadCompare();
+    });
+
+    // ── eCvan 자동수집 ────────────────────────────────────────────
+    const ecvanStartBtn = qs(`#ecvan-start-${key}`);
+    const ecvanModal = qs(`#ecvan-modal-${key}`);
+    const ecvanCloseBtn = qs(`#ecvan-close-${key}`);
+    const ecvanLoginStep = qs(`#ecvan-login-step-${key}`);
+    const ecvanOtpStep = qs(`#ecvan-otp-step-${key}`);
+    const ecvanProgressEl = qs(`#ecvan-progress-${key}`);
+    const ecvanProgressText = qs(`#ecvan-progress-text-${key}`);
+    const ecvanLoginBtn = qs(`#ecvan-login-btn-${key}`);
+    const ecvanOtpBtn = qs(`#ecvan-otp-btn-${key}`);
+    const ecvanStatusBar = qs(`#ecvan-status-${key}`);
+    let ecvanSessionId = null;
+    let ecvanPollTimer = null;
+
+    const ecvanShowStep = (step) => {
+      ecvanLoginStep?.classList.toggle("hidden", step !== "login");
+      ecvanOtpStep?.classList.toggle("hidden", step !== "otp");
+      ecvanProgressEl?.classList.toggle("hidden", step !== "progress");
+    };
+
+    const ecvanPollStatus = () => {
+      if (!ecvanSessionId) return;
+      ecvanPollTimer = setInterval(async () => {
+        try {
+          const res = await api(`/api/ecvan/status?sessionId=${ecvanSessionId}`);
+          if (ecvanProgressText) ecvanProgressText.textContent = res.progress || res.status;
+          if (ecvanStatusBar) {
+            ecvanStatusBar.classList.remove("hidden");
+            ecvanStatusBar.textContent = res.progress || res.status;
+          }
+          if (res.status === "waiting_otp") {
+            clearInterval(ecvanPollTimer);
+            ecvanShowStep("otp");
+          } else if (res.status === "done") {
+            clearInterval(ecvanPollTimer);
+            ecvanModal?.classList.add("hidden");
+            if (ecvanStatusBar) ecvanStatusBar.textContent = `✅ ${res.progress}`;
+            await loadCompare();
+            switchTopTab("compare");
+          } else if (res.status === "error") {
+            clearInterval(ecvanPollTimer);
+            ecvanShowStep("login");
+            alert(`오류: ${res.error}`);
+          }
+        } catch (e) { /* 네트워크 오류 무시 */ }
+      }, 1500);
+    };
+
+    ecvanStartBtn?.addEventListener("click", () => {
+      ecvanShowStep("login");
+      ecvanModal?.classList.remove("hidden");
+    });
+    ecvanCloseBtn?.addEventListener("click", () => {
+      ecvanModal?.classList.add("hidden");
+      clearInterval(ecvanPollTimer);
+    });
+
+    ecvanLoginBtn?.addEventListener("click", async () => {
+      const id = qs(`#ecvan-id-${key}`)?.value.trim();
+      const pw = qs(`#ecvan-pw-${key}`)?.value.trim();
+      if (!id || !pw) { alert("아이디와 비밀번호를 입력해주세요."); return; }
+      ecvanShowStep("progress");
+      if (ecvanProgressText) ecvanProgressText.textContent = "로그인 중... (브라우저 자동 실행)";
+      try {
+        const res = await api("/api/ecvan/start", "POST", { id, pw });
+        ecvanSessionId = res.sessionId;
+        ecvanPollStatus();
+      } catch (e) {
+        ecvanShowStep("login");
+        alert(`로그인 실패: ${e.message}`);
+      }
+    });
+
+    ecvanOtpBtn?.addEventListener("click", async () => {
+      const otp = qs(`#ecvan-otp-${key}`)?.value.trim();
+      if (!otp) { alert("인증번호를 입력해주세요."); return; }
+      ecvanShowStep("progress");
+      if (ecvanProgressText) ecvanProgressText.textContent = "인증 후 데이터 수집 중...";
+      try {
+        await api("/api/ecvan/otp", "POST", { sessionId: ecvanSessionId, otp });
+        ecvanPollStatus();
+      } catch (e) {
+        ecvanShowStep("otp");
+        alert(`인증 실패: ${e.message}`);
+      }
     });
   }
 
