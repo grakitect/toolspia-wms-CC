@@ -1479,6 +1479,199 @@ tbody tr:last-child td { border-bottom: 0; }
   height: 1px;
 }
 
+/* ── Outbound Partner Upload (ob-*) ─────────────────────────── */
+.ob-page-header {
+  margin-bottom: 16px;
+  padding: 20px 24px 16px;
+}
+.ob-page-header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.ob-page-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ob-page-header-title h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.ob-partner-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r-pill);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.ob-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+.ob-status-idle { background: #F3F4F6; color: #6B7280; }
+.ob-status-running { background: #EFF6FF; color: var(--accent); }
+.ob-status-ok { background: #ECFDF5; color: #059669; }
+.ob-status-error { background: #FEF2F2; color: #DC2626; }
+
+.ob-pipeline {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-wrap: wrap;
+  gap: 4px 0;
+}
+.ob-pipeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 64px;
+}
+.ob-pipeline-step span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.ob-pipeline-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--border-2);
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px var(--border-2);
+}
+.ob-pipeline-arrow {
+  color: var(--border-2);
+  font-size: 0.9rem;
+  padding: 0 2px;
+  margin-bottom: 16px;
+  line-height: 1;
+}
+
+.ob-main-card {
+  padding: 0;
+  overflow: hidden;
+}
+.ob-tab-bar {
+  padding: 14px 20px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.ob-tab-bar .seg-tabs {
+  margin-bottom: -1px;
+}
+.ob-panel {
+  padding: 20px 20px 16px;
+}
+.ob-panel-section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ob-panel-section:last-child { border-bottom: none; }
+.ob-panel-section-danger .ob-section-label { color: #DC2626; }
+.ob-section-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 10px;
+}
+.ob-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ob-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: 0.83rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.ob-file-label:hover { border-color: var(--accent); background: #EFF6FF; color: var(--accent); }
+.ob-file-label svg { flex-shrink: 0; }
+.hidden-file { display: none; }
+.ob-divider {
+  width: 1px;
+  height: 22px;
+  background: var(--border);
+  margin: 0 2px;
+  align-self: center;
+}
+.ob-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ob-action-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.ob-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ob-panel-desc {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 10px 12px;
+  background: #F8FAFC;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.ob-panel-desc svg { flex-shrink: 0; margin-top: 2px; color: var(--accent); }
+.ob-batches-wrap {
+  margin: 12px 0 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.ob-line-tabs {
+  margin: 12px 0 4px;
+}
+.ob-line-tools {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+.ob-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--r-sm);
+}
+.ob-table-wrap table { min-width: 600px; }
+
 /* ── Scrollbar ───────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }

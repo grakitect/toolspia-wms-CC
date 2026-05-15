@@ -3196,96 +3196,186 @@ async function renderOutboundPartnerUpload(partner, key) {
   const wrap = qs(`#view-outbound-upload-${key}`);
   if (!wrap) return;
   wrap.innerHTML = `
-    <div class="card">
-      <h2>판매처별 업로드 - ${esc(partner)}</h2>
-      <p class="muted">공통 파이프라인: 업로드 → 검증 → 전표생성 → 미출계산(주문-출고확인) → 출고확정 → 판매입력 전송</p>
-      <div class="seg-tabs" style="margin-bottom:10px;">
-        <button type="button" class="seg-tab active" id="outbound-tab-orders-${key}">주문서</button>
-        <button type="button" class="seg-tab" id="outbound-tab-master-${key}">마스터</button>
-        <button type="button" class="seg-tab" id="outbound-tab-slip-${key}">전표관리</button>
-        <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">확정리스트</button>
-        <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
-        <span class="muted">판매처별 파일 형식은 다르지만 내부 저장은 공통 스키마로 통일됩니다.</span>
+    <!-- 페이지 헤더 -->
+    <div class="ob-page-header card">
+      <div class="ob-page-header-top">
+        <div class="ob-page-header-title">
+          <span class="ob-partner-badge">${esc(partner)}</span>
+          <h2>판매처별 업로드</h2>
+        </div>
+        <span id="outbound-upload-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
       </div>
-      <div id="outbound-orders-panel-${key}">
-        <div class="row" style="grid-template-columns: 260px 100px 100px 130px 130px 1fr;">
-          <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" />
-          <button type="button" class="primary" id="outbound-upload-run-${key}">업로드</button>
-          <button type="button" class="cancel-btn" id="outbound-upload-refresh-${key}">새로고침</button>
-          <button type="button" class="cancel-btn" id="outbound-upload-template-${key}">엑셀 템플릿</button>
-          <button type="button" class="cancel-btn" id="outbound-upload-batch-open-${key}">업로드 파일 리스트</button>
-          <span id="outbound-upload-status-${key}" class="muted">대기 중</span>
+      <div class="ob-pipeline">
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>업로드</span>
         </div>
-        <div class="row" style="grid-template-columns: 140px 140px 1fr; margin-top:8px;">
-          <button type="button" class="cancel-btn" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
-          <button type="button" class="cancel-btn" id="outbound-batch-delete-all-${key}">전체 삭제</button>
-          <span class="muted">주문서 업로드 이력(배치) 기준 삭제입니다.</span>
+        <div class="ob-pipeline-arrow">→</div>
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>검증</span>
         </div>
-        <div id="outbound-upload-batches-${key}" class="hidden" style="margin-top:8px;"></div>
-        <div id="outbound-line-tabs-${key}" style="margin-top:10px;"></div>
-        <div id="outbound-line-tools-${key}" class="row" style="grid-template-columns: 1fr 280px 220px 120px 150px; margin-top:8px;"></div>
-        <div id="outbound-line-table-${key}" style="margin-top:8px;"></div>
-      </div>
-      <div id="outbound-master-panel-${key}" class="hidden">
-        <div class="row" style="grid-template-columns: 260px 140px 1fr;">
-          <input type="file" id="outbound-master-file-${key}" accept=".xlsx,.xls,.csv" />
-          <button type="button" class="cancel-btn" id="outbound-master-run-${key}">코드마스터 업로드</button>
-          <span id="outbound-master-status-${key}" class="muted">코드마스터 대기</span>
+        <div class="ob-pipeline-arrow">→</div>
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>전표생성</span>
         </div>
-        <div id="outbound-master-table-${key}" style="margin-top:10px;"></div>
-      </div>
-      <div id="outbound-slip-panel-${key}" class="hidden">
-        <p class="muted" style="margin:0 0 8px;">전표 목록 조회·선택은 여기서 하고, <strong>출고확정/판매입력 전송</strong>은 확정리스트 탭에서 진행합니다.</p>
-        <div id="outbound-upload-table-${key}" style="margin-top:4px;"></div>
-      </div>
-      <div id="outbound-confirmlist-panel-${key}" class="hidden">
-        <div class="row" style="grid-template-columns: 260px 1fr; gap:8px; align-items:center; margin:0 0 8px 0;">
-          <button type="button" class="cancel-btn" id="outbound-confirmlist-refresh-${key}">새로고침</button>
-          <span class="muted" id="outbound-confirmlist-status-${key}">확정 저장 내역을 불러옵니다.</span>
+        <div class="ob-pipeline-arrow">→</div>
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>미출계산</span>
         </div>
-        <div class="row" style="grid-template-columns: 260px 1fr; gap:8px; align-items:center; margin:0 0 10px 0;">
-          <button type="button" class="primary" id="outbound-confirm-all-${key}">전체 출고확정</button>
-          <span class="muted" id="outbound-confirm-all-hint-${key}">선택 전표(없으면 전체) 기준으로 출고확정합니다.</span>
+        <div class="ob-pipeline-arrow">→</div>
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>출고확정</span>
         </div>
-        <p class="muted" style="margin:4px 0 8px;"><strong>센터 통합 전표</strong> (센터·저장일·점입점일 기준)</p>
-        <div id="outbound-confirmlist-table-${key}" style="margin-top:4px;"></div>
-      </div>
-      <div id="outbound-unship-panel-${key}" class="hidden">
-        <p class="muted" style="margin:0 0 10px;">출고상태가 <strong>미출</strong>인 라인만 표시합니다. 납기일·센터명 등으로 확인할 수 있습니다.</p>
-        <div class="row" style="grid-template-columns: 260px 1fr; gap:8px; align-items:center; margin:0 0 8px 0;">
-          <button type="button" class="cancel-btn" id="outbound-unship-refresh-${key}">새로고침</button>
-          <span class="muted" id="outbound-unship-status-${key}">미출 라인을 불러옵니다.</span>
+        <div class="ob-pipeline-arrow">→</div>
+        <div class="ob-pipeline-step">
+          <div class="ob-pipeline-dot"></div>
+          <span>판매입력 전송</span>
         </div>
-        <div id="outbound-unship-tabs-${key}" style="margin-bottom:8px;"></div>
-        <div id="outbound-unship-tools-${key}" class="row" style="grid-template-columns: 1fr 280px; margin-bottom:8px;"></div>
-        <div id="outbound-unship-table-${key}"></div>
       </div>
     </div>
+
+    <!-- 탭 + 패널 -->
+    <div class="card ob-main-card">
+      <div class="ob-tab-bar">
+        <div class="seg-tabs">
+          <button type="button" class="seg-tab active" id="outbound-tab-orders-${key}">📄 주문서</button>
+          <button type="button" class="seg-tab" id="outbound-tab-master-${key}">🗂 마스터</button>
+          <button type="button" class="seg-tab" id="outbound-tab-slip-${key}">📋 전표관리</button>
+          <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">✅ 확정리스트</button>
+          <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">🚚 미출내역</button>
+        </div>
+      </div>
+
+      <!-- 주문서 패널 -->
+      <div id="outbound-orders-panel-${key}" class="ob-panel">
+        <div class="ob-panel-section">
+          <div class="ob-section-label">파일 업로드</div>
+          <div class="ob-upload-row">
+            <label class="ob-file-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              파일 선택
+              <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+            </label>
+            <button type="button" class="bh-btn bh-btn-primary" id="outbound-upload-run-${key}">업로드</button>
+            <div class="ob-divider"></div>
+            <button type="button" class="bh-btn" id="outbound-upload-refresh-${key}">새로고침</button>
+            <button type="button" class="bh-btn" id="outbound-upload-template-${key}">엑셀 템플릿</button>
+            <button type="button" class="bh-btn" id="outbound-upload-batch-open-${key}">파일 리스트</button>
+          </div>
+        </div>
+        <div class="ob-panel-section ob-panel-section-danger">
+          <div class="ob-section-label">업로드 이력 삭제</div>
+          <div class="ob-action-row">
+            <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
+            <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-all-${key}">전체 삭제</button>
+            <span class="muted">배치(업로드 이력) 기준으로 삭제합니다.</span>
+          </div>
+        </div>
+        <div id="outbound-upload-batches-${key}" class="hidden ob-batches-wrap"></div>
+        <div id="outbound-line-tabs-${key}" class="ob-line-tabs"></div>
+        <div id="outbound-line-tools-${key}" class="ob-line-tools"></div>
+        <div id="outbound-line-table-${key}" class="ob-table-wrap"></div>
+      </div>
+
+      <!-- 마스터 패널 -->
+      <div id="outbound-master-panel-${key}" class="ob-panel hidden">
+        <div class="ob-panel-desc">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          상품코드 매핑을 위한 코드마스터 파일을 업로드합니다.
+        </div>
+        <div class="ob-panel-section">
+          <div class="ob-section-label">코드마스터 업로드</div>
+          <div class="ob-upload-row">
+            <label class="ob-file-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              파일 선택
+              <input type="file" id="outbound-master-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+            </label>
+            <button type="button" class="bh-btn bh-btn-primary" id="outbound-master-run-${key}">업로드</button>
+            <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
+          </div>
+        </div>
+        <div id="outbound-master-table-${key}" class="ob-table-wrap"></div>
+      </div>
+
+      <!-- 전표관리 패널 -->
+      <div id="outbound-slip-panel-${key}" class="ob-panel hidden">
+        <div class="ob-panel-desc">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          전표 목록 조회·선택은 여기서 하고, <strong>출고확정·판매입력 전송</strong>은 확정리스트 탭에서 진행합니다.
+        </div>
+        <div id="outbound-upload-table-${key}" class="ob-table-wrap"></div>
+      </div>
+
+      <!-- 확정리스트 패널 -->
+      <div id="outbound-confirmlist-panel-${key}" class="ob-panel hidden">
+        <div class="ob-action-toolbar">
+          <div class="ob-action-group">
+            <button type="button" class="bh-btn bh-btn-primary" id="outbound-confirm-all-${key}">전체 출고확정</button>
+            <span class="muted" id="outbound-confirm-all-hint-${key}">선택 전표(없으면 전체) 기준으로 출고확정합니다.</span>
+          </div>
+          <div class="ob-action-group" style="margin-left:auto;">
+            <button type="button" class="bh-btn" id="outbound-confirmlist-refresh-${key}">새로고침</button>
+            <span class="muted" id="outbound-confirmlist-status-${key}">확정 저장 내역을 불러옵니다.</span>
+          </div>
+        </div>
+        <div class="ob-panel-desc" style="margin-bottom:12px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+          <strong>센터 통합 전표</strong> 기준 (센터·저장일·점입점일)
+        </div>
+        <div id="outbound-confirmlist-table-${key}" class="ob-table-wrap"></div>
+      </div>
+
+      <!-- 미출내역 패널 -->
+      <div id="outbound-unship-panel-${key}" class="ob-panel hidden">
+        <div class="ob-action-toolbar">
+          <div class="ob-panel-desc" style="margin:0; flex:1;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            출고 상태가 <strong>미출</strong>인 라인만 표시합니다.
+          </div>
+          <button type="button" class="bh-btn" id="outbound-unship-refresh-${key}">새로고침</button>
+          <span class="muted" id="outbound-unship-status-${key}">미출 라인을 불러옵니다.</span>
+        </div>
+        <div id="outbound-unship-tabs-${key}" class="ob-line-tabs"></div>
+        <div id="outbound-unship-tools-${key}" class="ob-line-tools"></div>
+        <div id="outbound-unship-table-${key}" class="ob-table-wrap"></div>
+      </div>
+    </div>
+
+    <!-- 모달: 전표 상세 -->
     <div id="outbound-upload-detail-overlay-${key}" class="modal-overlay hidden">
       <div class="modal large">
-        <div class="row" style="grid-template-columns:1fr auto; align-items:center;">
+        <div class="modal-header">
           <h3 id="outbound-upload-detail-title-${key}">전표 상세</h3>
           <button type="button" class="cancel-btn del-small" id="outbound-upload-detail-close-${key}">닫기</button>
         </div>
-        <div id="outbound-upload-detail-body-${key}" style="max-height: 65vh; overflow:auto;"></div>
+        <div id="outbound-upload-detail-body-${key}" style="max-height:65vh; overflow:auto;"></div>
       </div>
     </div>
+
+    <!-- 모달: 업로드 파일 리스트 -->
     <div id="outbound-batch-overlay-${key}" class="modal-overlay hidden">
       <div class="modal large">
-        <div class="row" style="grid-template-columns:1fr auto; align-items:center;">
+        <div class="modal-header">
           <h3>업로드 파일 리스트</h3>
           <button type="button" class="cancel-btn del-small" id="outbound-batch-overlay-close-${key}">닫기</button>
         </div>
-        <div id="outbound-batch-overlay-body-${key}" style="max-height: 60vh; overflow:auto;"></div>
+        <div id="outbound-batch-overlay-body-${key}" style="max-height:60vh; overflow:auto;"></div>
       </div>
     </div>
+
+    <!-- 모달: 확정 목록 상세 -->
     <div id="outbound-confirmlist-detail-overlay-${key}" class="modal-overlay hidden" role="dialog" aria-modal="true">
       <div class="modal large">
-        <div class="row" style="grid-template-columns:1fr auto; align-items:center;">
+        <div class="modal-header">
           <h3 id="outbound-confirmlist-detail-title-${key}">확정 목록</h3>
           <button type="button" class="cancel-btn del-small" id="outbound-confirmlist-detail-close-${key}">닫기</button>
         </div>
-        <div id="outbound-confirmlist-detail-body-${key}" style="max-height: 65vh; overflow:auto;"></div>
+        <div id="outbound-confirmlist-detail-body-${key}" style="max-height:65vh; overflow:auto;"></div>
       </div>
     </div>
   `;
