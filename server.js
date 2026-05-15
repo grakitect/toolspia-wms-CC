@@ -4693,19 +4693,25 @@ async function handleApi(req, res, urlObj) {
         await el.click({ clickCount: 3 });
         await sleep(80);
         await el.evaluate(node => { node.value = ""; node.dispatchEvent(new Event("input", { bubbles: true })); });
+        await activeFrame.evaluate((v) => {}, value); // frame context 유지
         await page.keyboard.type(value, { delay: 50 });
         await sleep(80);
       };
 
-      // 여러 selector 중 첫 번째로 찾은 element 반환
+      // 여러 selector 중 첫 번째로 찾은 element 반환 (iframe 포함)
+      let activeFrame = page;
       const findEl = async (selectors, timeout = 8000) => {
         const deadline = Date.now() + timeout;
         while (Date.now() < deadline) {
-          for (const sel of selectors) {
-            try {
-              const el = await page.$(sel);
-              if (el) return el;
-            } catch {}
+          // 모든 frame (메인 + iframe) 탐색
+          const frames = [page, ...page.frames().filter(f => f !== page)];
+          for (const frame of frames) {
+            for (const sel of selectors) {
+              try {
+                const el = await frame.$(sel);
+                if (el) { activeFrame = frame; return el; }
+              } catch {}
+            }
           }
           await sleep(300);
         }
@@ -4754,7 +4760,7 @@ async function handleApi(req, res, urlObj) {
           session.progress = "로그인 버튼 클릭 중...";
           await sleep(300);
 
-          const loginBtnClicked = await page.evaluate(() => {
+          const loginBtnClicked = await activeFrame.evaluate(() => {
             const candidates = [...document.querySelectorAll("button,input[type='submit'],input[type='button'],a")];
             const btn = candidates.find(e => {
               const t = (e.textContent || e.value || "").trim();
@@ -4769,23 +4775,32 @@ async function handleApi(req, res, urlObj) {
           await sleep(2000);
           await snap("03-after-login");
 
-          // 현재 페이지 텍스트 확인
-          const pageTextAfterLogin = await page.evaluate(() => document.body.innerText).catch(() => "");
-          session.progress = `페이지 확인 중... (${pageTextAfterLogin.slice(0, 50)})`;
+          // 로그인 후 현재 텍스트 (frame 포함) 수집
+          const getAllText = async () => {
+            const texts = await Promise.all(
+              [page, ...page.frames()].map(f => f.evaluate(() => document.body?.innerText || "").catch(() => ""))
+            );
+            return texts.join("\n");
+          };
 
-          // OTP 화면 대기: 인증번호 입력 UI 등장 대기 (최대 30초)
-          const otpReached = await page.waitForFunction(
-            () => {
-              const t = document.body.innerText;
-              return t.includes("인증번호 입력") || t.includes("인증번호를 입력") || t.includes("휴대폰 인증") || t.includes("인증 번호");
-            },
-            { timeout: 30000 }
-          ).then(() => true).catch(() => false);
+          const textAfterLogin = await getAllText();
+          session.progress = `로그인 후 화면: ${textAfterLogin.slice(0, 80)}`;
+
+          // OTP 화면 대기: 모든 frame에서 키워드 탐지 (최대 30초)
+          let otpReached = false;
+          const otpDeadline = Date.now() + 30000;
+          while (Date.now() < otpDeadline) {
+            const t = await getAllText();
+            if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호")) {
+              otpReached = true; break;
+            }
+            await sleep(1000);
+          }
 
           await snap("04-otp-check");
 
           if (!otpReached) {
-            const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 500)).catch(() => "");
+            const bodyText = await getAllText();
             const isLoginFail = bodyText.includes("비밀번호") && (bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀") || bodyText.includes("잘못"));
             throw new Error(isLoginFail
               ? `아이디/비밀번호 오류. 화면: ${bodyText.slice(0, 150)}`
