@@ -3727,9 +3727,19 @@ async function renderOutboundPartnerUpload(partner, key) {
       }, 1500);
     };
 
-    ecvanStartBtn?.addEventListener("click", () => {
+    ecvanStartBtn?.addEventListener("click", async () => {
       ecvanShowStep("login");
       ecvanModal?.classList.remove("hidden");
+      try {
+        const creds = await api("/api/ecvan/credentials");
+        const idEl = qs(`#ecvan-id-${key}`);
+        const pwEl = qs(`#ecvan-pw-${key}`);
+        if (idEl && creds.id) idEl.value = creds.id;
+        if (pwEl && creds.hasPw) {
+          pwEl.placeholder = "저장된 비밀번호 사용 (변경 시 입력)";
+          pwEl.dataset.hasSaved = "1";
+        }
+      } catch {}
     });
     ecvanCloseBtn?.addEventListener("click", () => {
       ecvanModal?.classList.add("hidden");
@@ -3737,13 +3747,18 @@ async function renderOutboundPartnerUpload(partner, key) {
     });
 
     ecvanLoginBtn?.addEventListener("click", async () => {
-      const id = qs(`#ecvan-id-${key}`)?.value.trim();
-      const pw = qs(`#ecvan-pw-${key}`)?.value.trim();
-      if (!id || !pw) { alert("아이디와 비밀번호를 입력해주세요."); return; }
+      const idEl = qs(`#ecvan-id-${key}`);
+      const pwEl = qs(`#ecvan-pw-${key}`);
+      const id = idEl?.value.trim();
+      const pw = pwEl?.value.trim();
+      const useSaved = !pw && pwEl?.dataset.hasSaved === "1";
+      if (!id) { alert("아이디를 입력해주세요."); return; }
+      if (!pw && !useSaved) { alert("비밀번호를 입력해주세요."); return; }
       ecvanShowStep("progress");
       if (ecvanProgressText) ecvanProgressText.textContent = "로그인 중... (브라우저 자동 실행)";
       try {
-        const res = await api("/api/ecvan/start", "POST", { id, pw });
+        const body = useSaved ? { id } : { id, pw };
+        const res = await api("/api/ecvan/start", "POST", body);
         ecvanSessionId = res.sessionId;
         ecvanPollStatus();
       } catch (e) {

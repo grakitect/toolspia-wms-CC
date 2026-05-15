@@ -231,6 +231,7 @@ function normalizeDb(db) {
     if (!Array.isArray(db.unshipCompare[pt].officialRows)) db.unshipCompare[pt].officialRows = [];
     if (!Array.isArray(db.unshipCompare[pt].adjustments)) db.unshipCompare[pt].adjustments = [];
   }
+  if (!db.ecvanCredentials || typeof db.ecvanCredentials !== "object") db.ecvanCredentials = { id: "", pw: "" };
 }
 
 function sendJson(res, code, payload) {
@@ -4623,71 +4624,146 @@ async function handleApi(req, res, urlObj) {
     }
   }
 
+  // ── eCvan 자격증명 저장/조회 ────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/ecvan/credentials") {
+    const db2 = readDb();
+    return sendJson(res, 200, { id: db2.ecvanCredentials?.id || "", hasPw: !!(db2.ecvanCredentials?.pw) });
+  }
+  if (req.method === "POST" && pathname === "/api/ecvan/credentials") {
+    try {
+      const body = await parseBody(req);
+      const db2 = readDb();
+      if (!db2.ecvanCredentials) db2.ecvanCredentials = {};
+      if (body.id !== undefined) db2.ecvanCredentials.id = String(body.id).trim();
+      if (body.pw !== undefined) db2.ecvanCredentials.pw = String(body.pw);
+      writeDb(db2);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
   // ── eCvan 자동수집 ───────────────────────────────────────────────
   if (req.method === "POST" && pathname === "/api/ecvan/start") {
     try {
       const body = await parseBody(req);
-      const ecvanId = String(body.id || "").trim();
-      const ecvanPw = String(body.pw || "").trim();
+      const db2 = readDb();
+      const ecvanId = String(body.id || db2.ecvanCredentials?.id || "").trim();
+      const ecvanPw = String(body.pw || db2.ecvanCredentials?.pw || "").trim();
       if (!ecvanId || !ecvanPw) throw new Error("아이디와 비밀번호를 입력해주세요.");
+
+      // 자격증명 저장
+      db2.ecvanCredentials = { id: ecvanId, pw: ecvanPw };
+      writeDb(db2);
 
       let pup;
       try { pup = require("puppeteer-core"); } catch { throw new Error("puppeteer-core가 설치되어 있지 않습니다. npm install puppeteer-core 실행 후 재시작해주세요."); }
 
-      // Chrome 경로 탐색 (Windows 우선)
+      // Chrome 경로 탐색
       const chromePaths = [
         process.env.CHROME_PATH,
         "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+        String(process.env.LOCALAPPDATA || "") + "\\Google\\Chrome\\Application\\chrome.exe",
         "/usr/bin/google-chrome", "/usr/bin/chromium-browser", "/usr/bin/chromium"
       ].filter(Boolean);
-      let chromePath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
-      if (!chromePath) throw new Error("Chrome을 찾을 수 없습니다. .env에 CHROME_PATH=C:\\...\\chrome.exe 를 추가해주세요.");
+      const chromePath = chromePaths.find(p => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!chromePath) throw new Error("Chrome을 찾을 수 없습니다. .env에 CHROME_PATH=경로 를 추가해주세요.");
 
       const sessionId = `ecvan-${Date.now()}`;
       const browser = await pup.launch({
         executablePath: chromePath,
-        headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled"]
+        headless: "new",
+        args: [
+          "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+          "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
+          "--window-size=1366,768"
+        ]
       });
       const page = await browser.newPage();
       await page.setViewport({ width: 1366, height: 768 });
+      await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
 
-      const session = { browser, page, status: "logging_in", progress: "로그인 중...", data: null, error: null, startedAt: new Date().toISOString() };
+      const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
       ecvanSessions.set(sessionId, session);
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+      // 텍스트로 요소 클릭 (여러 방법 순차 시도)
       const clickByText = async (text, sel = "button,a,input[type=button],input[type=submit]") => {
         return page.evaluate((t, s) => {
-          const el = [...document.querySelectorAll(s)].find(e => (e.textContent || e.value || "").trim() === t);
+          const el = [...document.querySelectorAll(s)].find(e =>
+            (e.textContent || "").trim() === t || (e.value || "") === t || (e.innerText || "").trim() === t
+          );
           if (el) { el.click(); return true; } return false;
         }, text, sel);
+      };
+
+      // input에 값을 확실하게 채우는 함수
+      const fillInput = async (sel, value) => {
+        const el = await page.$(sel);
+        if (!el) throw new Error(`입력창을 찾을 수 없음: ${sel}`);
+        await el.click({ clickCount: 3 });
+        await sleep(100);
+        await el.evaluate((node, v) => { node.value = ""; node.focus(); }, value);
+        await page.keyboard.type(value, { delay: 60 });
+        await sleep(100);
       };
 
       // 비동기 로그인
       (async () => {
         try {
-          page.on("dialog", async dlg => { await sleep(200); await dlg.accept().catch(() => {}); });
-          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", { waitUntil: "networkidle2", timeout: 30000 });
-          await sleep(1000);
+          // 팝업/다이얼로그 자동 처리
+          page.on("dialog", async dlg => {
+            try { await sleep(150); await dlg.accept(); } catch {}
+          });
 
-          // ID 입력
-          const idSel = "input[placeholder*='아이디'], input[name='id'], #id";
-          await page.waitForSelector(idSel, { timeout: 10000 });
-          await page.click(idSel, { clickCount: 3 });
-          await page.type(idSel, ecvanId, { delay: 50 });
+          session.progress = "eCvan 접속 중...";
+          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
+            waitUntil: "domcontentloaded", timeout: 30000
+          });
+          await sleep(2000);
+
+          session.progress = "아이디/비밀번호 입력 중...";
+
+          // ID 입력 - 여러 selector 시도
+          let idFilled = false;
+          for (const sel of ["#id", "input[name='id']", "input[placeholder*='아이디']", "input[type='text']:first-of-type"]) {
+            try {
+              await page.waitForSelector(sel, { timeout: 3000 });
+              await fillInput(sel, ecvanId);
+              idFilled = true; break;
+            } catch {}
+          }
+          if (!idFilled) throw new Error("아이디 입력창을 찾지 못했습니다.");
 
           // PW 입력
-          const pwSel = "input[type='password'], input[name='pw'], #pw";
-          await page.waitForSelector(pwSel, { timeout: 5000 });
-          await page.click(pwSel, { clickCount: 3 });
-          await page.type(pwSel, ecvanPw, { delay: 50 });
+          let pwFilled = false;
+          for (const sel of ["#pw", "input[name='pw']", "input[type='password']"]) {
+            try {
+              await page.waitForSelector(sel, { timeout: 3000 });
+              await fillInput(sel, ecvanPw);
+              pwFilled = true; break;
+            } catch {}
+          }
+          if (!pwFilled) throw new Error("비밀번호 입력창을 찾지 못했습니다.");
 
-          // 로그인 클릭
-          await clickByText("로그인");
-          await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
-          await sleep(1000);
+          session.progress = "로그인 버튼 클릭 중...";
+          await sleep(300);
+
+          // 로그인 버튼 클릭 - 여러 방법 시도
+          let clicked = await clickByText("로그인");
+          if (!clicked) {
+            // Enter 키 시도
+            await page.keyboard.press("Enter");
+          }
+
+          session.progress = "SMS 인증 대기 중...";
+          // OTP 페이지 로드 대기 (URL 변경 또는 특정 텍스트 등장)
+          await page.waitForFunction(
+            () => document.body.innerText.includes("인증번호") || document.body.innerText.includes("휴대폰"),
+            { timeout: 20000 }
+          ).catch(() => {});
+          await sleep(800);
 
           session.status = "waiting_otp";
           session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
