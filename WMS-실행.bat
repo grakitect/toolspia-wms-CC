@@ -19,6 +19,13 @@ echo [업데이트 확인 중...]
 git pull origin claude/redesign-wms-ui-VRvSQ
 echo.
 
+:: 패키지 설치 확인
+if not exist "node_modules\puppeteer-core" (
+  echo [패키지 설치 중... 잠시 기다려주세요]
+  npm install
+  echo.
+)
+
 :: 30초마다 git pull 백그라운드 실행
 start /min powershell -WindowStyle Hidden -Command ^
   "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/redesign-wms-ui-VRvSQ 2>$null }"
