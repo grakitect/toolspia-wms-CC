@@ -3755,7 +3755,7 @@ async function renderOutboundPartnerUpload(partner, key) {
       const pw = qs(`#ecvan-pw-${key}`)?.value.trim();
       if (!id) { alert("아이디를 입력해주세요."); return; }
       try {
-        await api("/api/ecvan/credentials", "POST", { id, pw: pw || undefined });
+        await api("/api/ecvan/credentials", { method: "POST", body: JSON.stringify({ id, pw: pw || undefined }) });
         const pwEl = qs(`#ecvan-pw-${key}`);
         if (pwEl) {
           pwEl.value = "";
@@ -3780,7 +3780,7 @@ async function renderOutboundPartnerUpload(partner, key) {
       if (ecvanProgressText) ecvanProgressText.textContent = "로그인 중... (브라우저 자동 실행)";
       try {
         const body = useSaved ? { id } : { id, pw };
-        const res = await api("/api/ecvan/start", "POST", body);
+        const res = await api("/api/ecvan/start", { method: "POST", body: JSON.stringify(body) });
         ecvanSessionId = res.sessionId;
         ecvanPollStatus();
       } catch (e) {
@@ -3795,7 +3795,7 @@ async function renderOutboundPartnerUpload(partner, key) {
       ecvanShowStep("progress");
       if (ecvanProgressText) ecvanProgressText.textContent = "인증 후 데이터 수집 중...";
       try {
-        await api("/api/ecvan/otp", "POST", { sessionId: ecvanSessionId, otp });
+        await api("/api/ecvan/otp", { method: "POST", body: JSON.stringify({ sessionId: ecvanSessionId, otp }) });
         ecvanPollStatus();
       } catch (e) {
         ecvanShowStep("otp");
