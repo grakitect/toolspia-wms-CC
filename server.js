@@ -4679,6 +4679,7 @@ async function handleApi(req, res, urlObj) {
         executablePath: chromePath,
         headless: false,
         userDataDir,
+        defaultViewport: null,
         args: [
           "--no-sandbox", "--disable-setuid-sandbox",
           "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
