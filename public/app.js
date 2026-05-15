@@ -3726,6 +3726,10 @@ async function renderOutboundPartnerUpload(partner, key) {
             clearInterval(ecvanPollTimer);
             ecvanShowStep("login");
             alert(`오류: ${res.error}`);
+          } else if (res.status === "not_found") {
+            clearInterval(ecvanPollTimer);
+            ecvanShowStep("login");
+            alert("서버가 재시작되어 세션이 만료됐습니다. 다시 로그인해주세요.");
           }
         } catch (e) { /* 네트워크 오류 무시 */ }
       }, 1500);

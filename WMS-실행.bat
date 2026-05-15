@@ -30,5 +30,5 @@ if not exist "node_modules\puppeteer-core" (
 start /min powershell -WindowStyle Hidden -Command ^
   "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/redesign-wms-ui-VRvSQ 2>$null }"
 
-node --watch --watch-path=./public --watch-path=./server.js server.js
+node --watch --watch-path=./server.js server.js
 pause
