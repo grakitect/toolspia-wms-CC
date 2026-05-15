@@ -4671,7 +4671,7 @@ async function handleApi(req, res, urlObj) {
       const sessionId = `ecvan-${Date.now()}`;
       const browser = await pup.launch({
         executablePath: chromePath,
-        headless: "new",
+        headless: true,
         args: [
           "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
           "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
@@ -4680,7 +4680,7 @@ async function handleApi(req, res, urlObj) {
       });
       const page = await browser.newPage();
       await page.setViewport({ width: 1366, height: 768 });
-      await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+      await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
 
       const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
@@ -4688,31 +4688,33 @@ async function handleApi(req, res, urlObj) {
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-      // 텍스트로 요소 클릭 (여러 방법 순차 시도)
-      const clickByText = async (text, sel = "button,a,input[type=button],input[type=submit]") => {
-        return page.evaluate((t, s) => {
-          const el = [...document.querySelectorAll(s)].find(e =>
-            (e.textContent || "").trim() === t || (e.value || "") === t || (e.innerText || "").trim() === t
-          );
-          if (el) { el.click(); return true; } return false;
-        }, text, sel);
+      // input에 값을 확실하게 채우는 함수 (클릭→value초기화→type)
+      const fillInput = async (el, value) => {
+        await el.click({ clickCount: 3 });
+        await sleep(80);
+        await el.evaluate(node => { node.value = ""; node.dispatchEvent(new Event("input", { bubbles: true })); });
+        await page.keyboard.type(value, { delay: 50 });
+        await sleep(80);
       };
 
-      // input에 값을 확실하게 채우는 함수
-      const fillInput = async (sel, value) => {
-        const el = await page.$(sel);
-        if (!el) throw new Error(`입력창을 찾을 수 없음: ${sel}`);
-        await el.click({ clickCount: 3 });
-        await sleep(100);
-        await el.evaluate((node, v) => { node.value = ""; node.focus(); }, value);
-        await page.keyboard.type(value, { delay: 60 });
-        await sleep(100);
+      // 여러 selector 중 첫 번째로 찾은 element 반환
+      const findEl = async (selectors, timeout = 8000) => {
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          for (const sel of selectors) {
+            try {
+              const el = await page.$(sel);
+              if (el) return el;
+            } catch {}
+          }
+          await sleep(300);
+        }
+        return null;
       };
 
       // 비동기 로그인
       (async () => {
         try {
-          // 팝업/다이얼로그 자동 처리
           page.on("dialog", async dlg => {
             try { await sleep(150); await dlg.accept(); } catch {}
           });
@@ -4721,50 +4723,71 @@ async function handleApi(req, res, urlObj) {
           await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
             waitUntil: "domcontentloaded", timeout: 30000
           });
-          await sleep(2000);
+          // 페이지가 완전히 로드될 때까지 추가 대기
+          await sleep(3000);
 
-          session.progress = "아이디/비밀번호 입력 중...";
-
-          // ID 입력 - 여러 selector 시도
-          let idFilled = false;
-          for (const sel of ["#id", "input[name='id']", "input[placeholder*='아이디']", "input[type='text']:first-of-type"]) {
-            try {
-              await page.waitForSelector(sel, { timeout: 3000 });
-              await fillInput(sel, ecvanId);
-              idFilled = true; break;
-            } catch {}
+          // iframe 안에 로그인 폼이 있을 수 있으니 frame도 확인
+          const frames = page.frames();
+          let targetFrame = page;
+          for (const f of frames) {
+            const hasInput = await f.$("input[type='password']").catch(() => null);
+            if (hasInput) { targetFrame = f; break; }
           }
-          if (!idFilled) throw new Error("아이디 입력창을 찾지 못했습니다.");
 
-          // PW 입력
-          let pwFilled = false;
-          for (const sel of ["#pw", "input[name='pw']", "input[type='password']"]) {
-            try {
-              await page.waitForSelector(sel, { timeout: 3000 });
-              await fillInput(sel, ecvanPw);
-              pwFilled = true; break;
-            } catch {}
+          session.progress = "아이디 입력 중...";
+          const idEl = await findEl(
+            ["#id", "input[name='id']", "input[name='userId']", "input[placeholder*='아이디']", "input[placeholder*='ID']", "input[type='text']"],
+            8000
+          );
+          if (!idEl) {
+            // 현재 페이지 텍스트를 에러 메시지에 포함해 진단
+            const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => "");
+            throw new Error(`아이디 입력창을 찾지 못했습니다. 페이지 내용: ${bodyText}`);
           }
-          if (!pwFilled) throw new Error("비밀번호 입력창을 찾지 못했습니다.");
+          await fillInput(idEl, ecvanId);
+
+          session.progress = "비밀번호 입력 중...";
+          const pwEl = await findEl(["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"], 5000);
+          if (!pwEl) throw new Error("비밀번호 입력창을 찾지 못했습니다.");
+          await fillInput(pwEl, ecvanPw);
 
           session.progress = "로그인 버튼 클릭 중...";
           await sleep(300);
 
-          // 로그인 버튼 클릭 - 여러 방법 시도
-          let clicked = await clickByText("로그인");
-          if (!clicked) {
-            // Enter 키 시도
-            await page.keyboard.press("Enter");
+          // 로그인 버튼 클릭
+          const loginBtnClicked = await page.evaluate(() => {
+            const candidates = [...document.querySelectorAll("button,input[type='submit'],input[type='button'],a")];
+            const btn = candidates.find(e => {
+              const t = (e.textContent || e.value || "").trim();
+              return t === "로그인" || t === "LOGIN" || t === "Log In" || t === "login";
+            });
+            if (btn) { btn.click(); return true; }
+            return false;
+          });
+          if (!loginBtnClicked) await page.keyboard.press("Enter");
+
+          session.progress = "SMS 인증 대기 중... (로그인 처리 중)";
+
+          // OTP 화면 대기: 최대 25초
+          const otpReached = await page.waitForFunction(
+            () => {
+              const t = document.body.innerText;
+              return t.includes("인증번호") || t.includes("휴대폰") || t.includes("OTP") || t.includes("SMS");
+            },
+            { timeout: 25000 }
+          ).then(() => true).catch(() => false);
+
+          if (!otpReached) {
+            // 로그인 실패인지 확인
+            const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 400)).catch(() => "");
+            const isLoginFail = bodyText.includes("비밀번호") || bodyText.includes("아이디") || bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀");
+            throw new Error(isLoginFail
+              ? `아이디/비밀번호가 올바르지 않습니다. (${bodyText.slice(0, 100)})`
+              : `OTP 화면으로 이동하지 못했습니다. 현재 화면: ${bodyText.slice(0, 150)}`
+            );
           }
 
-          session.progress = "SMS 인증 대기 중...";
-          // OTP 페이지 로드 대기 (URL 변경 또는 특정 텍스트 등장)
-          await page.waitForFunction(
-            () => document.body.innerText.includes("인증번호") || document.body.innerText.includes("휴대폰"),
-            { timeout: 20000 }
-          ).catch(() => {});
-          await sleep(800);
-
+          await sleep(500);
           session.status = "waiting_otp";
           session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
         } catch (e) {
