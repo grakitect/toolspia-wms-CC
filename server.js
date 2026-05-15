@@ -4701,8 +4701,8 @@ async function handleApi(req, res, urlObj) {
           if (el) { el.click(); return true; } return false;
         }, text);
         const _closePopups = async () => {
-          const deadline = Date.now() + 8000;
-          while (Date.now() < deadline) {
+          for (let i = 0; i < 3; i++) {
+            await _sleep(500);
             const closed = await page.evaluate(() => {
               const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
               const btns = [...document.querySelectorAll("button,a,input[type=button]")];
@@ -4713,7 +4713,6 @@ async function handleApi(req, res, urlObj) {
               });
               return any;
             }).catch(() => false);
-            await _sleep(600);
             if (!closed) break;
           }
         };
@@ -5017,12 +5016,12 @@ async function handleApi(req, res, urlObj) {
           await sleep(300);
           await clickByText("확인");
 
-          // 확인 후 팝업 모두 닫기 (최대 10초, 0.8초 간격)
+          // 확인 후 팝업 닫기 (닫힐 때까지만, 최대 3회)
           session.progress = "팝업 닫는 중...";
-          const popupDeadline = Date.now() + 10000;
-          while (Date.now() < popupDeadline) {
+          for (let i = 0; i < 3; i++) {
+            await sleep(600);
             const closed = await page.evaluate(() => {
-              const keywords = ["닫기", "확인", "close", "Close", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
               const btns = [...document.querySelectorAll("button,a,input[type=button]")];
               let any = false;
               btns.forEach(b => {
@@ -5031,10 +5030,8 @@ async function handleApi(req, res, urlObj) {
               });
               return any;
             }).catch(() => false);
-            await sleep(800);
             if (!closed) break;
           }
-          await sleep(500);
 
           await session.collect();
         } catch (e) {
