@@ -4690,6 +4690,121 @@ async function handleApi(req, res, urlObj) {
       const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
       ecvanSessions.set(sessionId, session);
 
+      // ── 수집 로직 (OTP 후 또는 직접 로그인 후 공통) ──
+      session.collect = async () => {
+        const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        const _click = async (text) => page.evaluate((t) => {
+          const el = [...document.querySelectorAll("button,a,input[type=button],input[type=submit]")]
+            .find(e => (e.textContent || e.value || "").trim() === t);
+          if (el) { el.click(); return true; } return false;
+        }, text);
+
+        session.status = "navigating"; session.progress = "미납사유 메뉴로 이동 중...";
+        await _sleep(1000);
+
+        // 납품 메뉴 클릭
+        await page.evaluate(() => {
+          const el = [...document.querySelectorAll("a")].find(a => a.textContent.trim() === "납품");
+          if (el) el.click();
+        });
+        await _sleep(1200);
+
+        // 미납사유등록 클릭
+        await page.evaluate(() => {
+          const el = [...document.querySelectorAll("a")].find(a => a.textContent.trim() === "미납사유등록");
+          if (el) el.click();
+        });
+        await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
+        await _sleep(1500);
+
+        await _click("상품별"); await _sleep(500);
+        await _click("조회"); await _sleep(2500);
+
+        session.status = "collecting"; session.progress = "상품 목록 수집 중...";
+
+        const products = await page.evaluate(() => {
+          const rows = [...document.querySelectorAll("table tbody tr")];
+          return rows.map(tr => {
+            const tds = tr.querySelectorAll("td");
+            const link = tr.querySelector("a");
+            if (!link || tds.length < 3) return null;
+            return { code: tds[1]?.textContent.trim() || "", name: tds[2]?.textContent.trim() || "", href: link.href };
+          }).filter(r => r && r.code && r.href);
+        });
+
+        if (!products.length) {
+          session.status = "done"; session.progress = "미납 상품이 없습니다."; session.data = [];
+          browser.close().catch(() => {}); return;
+        }
+
+        session.progress = `${products.length}개 상품 발견, 상세 수집 중...`;
+        const now = new Date().toISOString();
+        const allRows = [];
+
+        for (let i = 0; i < products.length; i++) {
+          const prod = products[i];
+          session.progress = `(${i + 1}/${products.length}) ${prod.name || prod.code} 수집 중...`;
+          try {
+            await page.goto(prod.href, { waitUntil: "networkidle2", timeout: 20000 });
+            await _sleep(1000);
+            let pageNo = 1;
+            while (true) {
+              const rows = await page.evaluate((prod, now) => {
+                const tables = [...document.querySelectorAll("table")];
+                const tbl = tables.find(t => t.textContent.includes("점포명") && t.textContent.includes("미납"));
+                if (!tbl) return [];
+                const n = (td) => parseInt((td?.textContent || "0").replace(/[^\d]/g, "")) || 0;
+                return [...tbl.querySelectorAll("tbody tr")].map(tr => {
+                  const tds = tr.querySelectorAll("td");
+                  if (tds.length < 8) return null;
+                  return {
+                    productCode: prod.code, productName: prod.name,
+                    centerName: tds[1]?.textContent.trim() || "",
+                    storeCode: tds[2]?.textContent.trim() || "",
+                    orderDate: tds[3]?.textContent.trim() || "",
+                    dueDate: tds[4]?.textContent.trim() || "",
+                    orderQty: n(tds[5]), storeInQty: n(tds[7]),
+                    officialQty: n(tds[9]) || (n(tds[7]) === 0 ? n(tds[9]) : n(tds[5]) - n(tds[7])),
+                    uploadedAt: now
+                  };
+                }).filter(r => r && r.productCode);
+              }, prod, now);
+              allRows.push(...rows);
+              const hasNext = await page.evaluate(() => {
+                const pager = document.querySelector(".paging, .pagination, [class*='pager']");
+                if (!pager) return false;
+                const next = [...pager.querySelectorAll("a, button")].find(b =>
+                  b.textContent.trim() === ">" || b.textContent.trim() === "다음" || b.classList.contains("next")
+                );
+                return next && !next.disabled && !next.classList.contains("disabled");
+              });
+              if (!hasNext) break;
+              await page.evaluate(() => {
+                const pager = document.querySelector(".paging, .pagination, [class*='pager']");
+                const next = pager && [...pager.querySelectorAll("a, button")].find(b =>
+                  b.textContent.trim() === ">" || b.textContent.trim() === "다음" || b.classList.contains("next")
+                );
+                if (next) next.click();
+              });
+              await _sleep(1200); pageNo++;
+            }
+            await page.goBack({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+            await _sleep(700);
+          } catch (e2) { console.error(`[eCvan] ${prod.code} 수집 오류:`, e2.message); }
+        }
+
+        session.data = allRows;
+        const db2 = readDb();
+        db2.unshipCompare = db2.unshipCompare || {};
+        db2.unshipCompare.emart = db2.unshipCompare.emart || {};
+        db2.unshipCompare.emart.officialRows = allRows;
+        db2.unshipCompare.emart.uploadedAt = now;
+        writeDb(db2);
+        session.status = "done";
+        session.progress = `수집 완료: ${allRows.length}건`;
+        browser.close().catch(() => {});
+      };
+
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
       // input에 값을 확실하게 채우는 함수 (클릭→value초기화→type)
@@ -4787,34 +4902,57 @@ async function handleApi(req, res, urlObj) {
             return texts.join("\n");
           };
 
+          // 팝업(HTML 모달) 자동 닫기 헬퍼
+          const closePopups = async () => {
+            await page.evaluate(() => {
+              const btns = [...document.querySelectorAll("button,a")];
+              const close = btns.find(b => ["닫기","닫 기","close","Close","X","✕"].includes((b.textContent||b.value||"").trim()));
+              if (close) close.click();
+            }).catch(() => {});
+          };
+
           const textAfterLogin = await getAllText();
           session.progress = `로그인 후 화면: ${textAfterLogin.slice(0, 80)}`;
 
-          // OTP 화면 대기: 모든 frame에서 키워드 탐지 (최대 30초)
+          // 대시보드 진입 감지 키워드 (로그인 성공 시 OTP 없이 바로 들어올 수 있음)
+          const isDashboard = (t) => t.includes("납품") || t.includes("EMART PARTNERS") || t.includes("미납사유") || t.includes("로그아웃");
+
+          // OTP 또는 대시보드 대기 (최대 30초)
           let otpReached = false;
-          const otpDeadline = Date.now() + 30000;
-          while (Date.now() < otpDeadline) {
+          let dashboardReached = false;
+          const deadline = Date.now() + 30000;
+          while (Date.now() < deadline) {
             const t = await getAllText();
             if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호")) {
               otpReached = true; break;
+            }
+            if (isDashboard(t)) {
+              dashboardReached = true; break;
             }
             await sleep(1000);
           }
 
           await snap("04-otp-check");
 
-          if (!otpReached) {
+          if (dashboardReached) {
+            // OTP 없이 바로 로그인 성공 → 팝업 닫고 데이터 수집
+            session.progress = "로그인 성공 (OTP 없음) — 데이터 수집 시작...";
+            await sleep(1000);
+            await closePopups();
+            await sleep(500);
+            await session.collect();
+          } else if (otpReached) {
+            await sleep(500);
+            session.status = "waiting_otp";
+            session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
+          } else {
             const bodyText = await getAllText();
             const isLoginFail = bodyText.includes("비밀번호") && (bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀") || bodyText.includes("잘못"));
             throw new Error(isLoginFail
               ? `아이디/비밀번호 오류. 화면: ${bodyText.slice(0, 150)}`
-              : `OTP 화면 미도달. 현재 화면: ${bodyText.slice(0, 200)}`
+              : `로그인 후 화면 감지 실패. 현재 화면: ${bodyText.slice(0, 200)}`
             );
           }
-
-          await sleep(500);
-          session.status = "waiting_otp";
-          session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
         } catch (e) {
           const url = await page.url().catch(() => "");
           session.status = "error";
@@ -4870,149 +5008,11 @@ async function handleApi(req, res, urlObj) {
           await clickByText("확인");
           await sleep(2000);
 
-          // 팝업 닫기 (최대 5회 시도)
-          for (let i = 0; i < 5; i++) {
-            await sleep(800);
-            const closed = await page.evaluate(() => {
-              const selectors = ["button.close", ".btn-close", "a.close", "[aria-label='close']", "[aria-label='닫기']"];
-              for (const s of selectors) { const el = document.querySelector(s); if (el) { el.click(); return true; } }
-              const btns = [...document.querySelectorAll("button, a")];
-              const closeBtn = btns.find(b => b.textContent.trim() === "닫기" &&
-                b.closest(".modal, .popup, .layer, .dimmed, [class*='modal'], [class*='popup'], [class*='layer']"));
-              if (closeBtn) { closeBtn.click(); return true; }
-              return false;
-            });
-            if (!closed) break;
-          }
-
-          session.status = "navigating"; session.progress = "미납사유 메뉴로 이동 중...";
-          await sleep(1000);
-
-          // ── 납품 > 미납사유 > 미납사유등록 네비게이션 ──
-          // 상단 납품 메뉴 클릭
-          await page.evaluate(() => {
-            const el = [...document.querySelectorAll(".gnb > li > a, .top-nav a, nav > ul > li > a, ul.menu > li > a")]
-              .find(a => a.textContent.trim() === "납품");
-            if (el) el.click();
-          });
-          await sleep(1200);
-
-          // 사이드 미납사유등록 클릭
-          await page.evaluate(() => {
-            const el = [...document.querySelectorAll(".lnb a, .side-menu a, .sub-menu a, nav a, a")]
-              .find(a => a.textContent.trim() === "미납사유등록");
-            if (el) el.click();
-          });
-          await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
-          await sleep(1500);
-
-          // 상품별 선택
-          await clickByText("상품별");
-          await sleep(500);
-
-          // 조회
-          await clickByText("조회");
-          await sleep(2500);
-
-          session.status = "collecting"; session.progress = "상품 목록 수집 중...";
-
-          // ── 상품 목록 수집 ──
-          const products = await page.evaluate(() => {
-            const rows = [...document.querySelectorAll("table tbody tr")];
-            return rows.map(tr => {
-              const tds = tr.querySelectorAll("td");
-              const link = tr.querySelector("a");
-              if (!link || tds.length < 3) return null;
-              return { code: tds[1]?.textContent.trim() || "", name: tds[2]?.textContent.trim() || "", href: link.href };
-            }).filter(r => r && r.code && r.href);
-          });
-
-          if (!products.length) {
-            session.status = "done"; session.progress = "미납 상품이 없습니다."; session.data = [];
-            browser.close().catch(() => {}); return;
-          }
-
-          session.progress = `${products.length}개 상품 발견, 상세 수집 중...`;
-
-          // ── 상품별 상세 수집 ──
-          const now = new Date().toISOString();
-          const allRows = [];
-
-          for (let i = 0; i < products.length; i++) {
-            const prod = products[i];
-            session.progress = `(${i + 1}/${products.length}) ${prod.name || prod.code} 수집 중...`;
-            try {
-              await page.goto(prod.href, { waitUntil: "networkidle2", timeout: 20000 });
-              await sleep(1000);
-
-              // 페이지네이션 포함 전체 수집
-              let pageNo = 1;
-              while (true) {
-                const rows = await page.evaluate((prod, now) => {
-                  const tables = [...document.querySelectorAll("table")];
-                  const tbl = tables.find(t => t.textContent.includes("점포명") && t.textContent.includes("미납"));
-                  if (!tbl) return [];
-                  const n = (td) => parseInt((td?.textContent || "0").replace(/[^\d]/g, "")) || 0;
-                  return [...tbl.querySelectorAll("tbody tr")].map(tr => {
-                    const tds = tr.querySelectorAll("td");
-                    if (tds.length < 8) return null;
-                    // 컬럼: NO, 점포명, 점포코드, 주문일, 입점일, 주문합계수량, 주문합계금액, 입점합계수량, 입점합계금액, 미납합계수량, 미납합계금액
-                    return {
-                      productCode: prod.code, productName: prod.name,
-                      centerName: tds[1]?.textContent.trim() || "",
-                      storeCode: tds[2]?.textContent.trim() || "",
-                      orderDate: tds[3]?.textContent.trim() || "",
-                      dueDate: tds[4]?.textContent.trim() || "",
-                      orderQty: n(tds[5]), storeInQty: n(tds[7]),
-                      officialQty: n(tds[9]) || n(tds[7]) === 0 ? n(tds[9]) : n(tds[5]) - n(tds[7]),
-                      uploadedAt: now
-                    };
-                  }).filter(r => r && r.productCode);
-                }, prod, now);
-                allRows.push(...rows);
-
-                // 다음 페이지 확인
-                const hasNext = await page.evaluate((pn) => {
-                  const pager = document.querySelector(".paging, .pagination, [class*='pager']");
-                  if (!pager) return false;
-                  const next = [...pager.querySelectorAll("a, button")].find(b =>
-                    b.textContent.trim() === ">" || b.textContent.trim() === "다음" ||
-                    b.classList.contains("next") || b.getAttribute("aria-label") === "next"
-                  );
-                  return next && !next.disabled && !next.classList.contains("disabled");
-                }, pageNo);
-                if (!hasNext) break;
-                await page.evaluate(() => {
-                  const pager = document.querySelector(".paging, .pagination, [class*='pager']");
-                  const next = pager && [...pager.querySelectorAll("a, button")].find(b =>
-                    b.textContent.trim() === ">" || b.textContent.trim() === "다음" || b.classList.contains("next")
-                  );
-                  if (next) next.click();
-                });
-                await sleep(1200); pageNo++;
-              }
-
-              // 목록으로 복귀
-              await page.goBack({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
-              await sleep(700);
-            } catch (e2) {
-              console.error(`[eCvan] 상품 ${prod.code} 수집 오류:`, e2.message);
-            }
-          }
-
-          // DB 저장
-          session.data = allRows;
-          const db2 = readDb();
-          db2.unshipCompare = db2.unshipCompare || {};
-          db2.unshipCompare.emart = db2.unshipCompare.emart || { officialRows: [], adjustments: [] };
-          db2.unshipCompare.emart.officialRows = allRows;
-          writeDb(db2);
-
-          session.status = "done";
-          session.progress = `완료: ${allRows.length}건 수집 (${products.length}개 상품)`;
-          browser.close().catch(() => {});
+          await session.collect();
         } catch (e) {
-          session.status = "error"; session.error = e.message;
+          const url = await page.url().catch(() => "");
+          session.status = "error";
+          session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
           browser.close().catch(() => {});
         }
       })();
