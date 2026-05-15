@@ -4893,11 +4893,11 @@ async function handleApi(req, res, urlObj) {
           });
           if (!loginBtnClicked) await page.keyboard.press("Enter");
 
-          session.progress = "로그인 처리 중... (OTP 화면 대기)";
+          session.progress = "로그인 처리 중...";
           await sleep(2000);
           await snap("03-after-login");
 
-          // 로그인 후 현재 텍스트 (frame 포함) 수집
+          // 모든 frame 텍스트 수집
           const getAllText = async () => {
             const texts = await Promise.all(
               [page, ...page.frames()].map(f => f.evaluate(() => document.body?.innerText || "").catch(() => ""))
@@ -4905,20 +4905,24 @@ async function handleApi(req, res, urlObj) {
             return texts.join("\n");
           };
 
-          // 팝업(HTML 모달) 자동 닫기 헬퍼
+          // 팝업 닫기 (닫기/확인/오늘하루보지않기 등 버튼 모두 클릭)
           const closePopups = async () => {
             await page.evaluate(() => {
-              const btns = [...document.querySelectorAll("button,a")];
-              const close = btns.find(b => ["닫기","닫 기","close","Close","X","✕"].includes((b.textContent||b.value||"").trim()));
-              if (close) close.click();
+              const keywords = ["닫기", "닫 기", "확인", "close", "Close", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+              btns.forEach(b => {
+                const t = (b.textContent || b.value || "").trim();
+                if (keywords.some(k => t === k || t.includes(k))) b.click();
+              });
             }).catch(() => {});
           };
 
-          // OTP 화면 대기 (최대 40초)
-          session.progress = "SMS 인증번호 발송 대기 중...";
+          // OTP 화면 대기 (최대 40초, 매 초마다 팝업 닫기 시도)
+          session.progress = "SMS 발송 대기 중... (팝업이 있으면 자동으로 닫습니다)";
           let otpReached = false;
           const deadline = Date.now() + 40000;
           while (Date.now() < deadline) {
+            await closePopups();
             const t = await getAllText();
             if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호") || t.includes("인증코드")) {
               otpReached = true; break;
