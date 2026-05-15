@@ -3337,7 +3337,10 @@ async function renderOutboundPartnerUpload(partner, key) {
             <div id="ecvan-login-step-${key}">
               <div class="ecvan-field"><label>아이디</label><input type="text" id="ecvan-id-${key}" placeholder="eCvan 아이디" autocomplete="username" /></div>
               <div class="ecvan-field"><label>비밀번호</label><input type="password" id="ecvan-pw-${key}" placeholder="비밀번호" autocomplete="current-password" /></div>
-              <button type="button" class="bh-btn bh-btn-primary" style="width:100%;margin-top:8px;" id="ecvan-login-btn-${key}">로그인 &amp; SMS 발송</button>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <button type="button" class="bh-btn bh-btn-secondary" style="flex:0 0 auto;" id="ecvan-save-btn-${key}">저장</button>
+                <button type="button" class="bh-btn bh-btn-primary" style="flex:1;" id="ecvan-login-btn-${key}">로그인 &amp; SMS 발송</button>
+              </div>
             </div>
             <div id="ecvan-otp-step-${key}" class="hidden">
               <p class="ecvan-otp-hint">휴대폰으로 발송된 인증번호를 입력하세요.</p>
@@ -3687,6 +3690,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     const ecvanOtpStep = qs(`#ecvan-otp-step-${key}`);
     const ecvanProgressEl = qs(`#ecvan-progress-${key}`);
     const ecvanProgressText = qs(`#ecvan-progress-text-${key}`);
+    const ecvanSaveBtn = qs(`#ecvan-save-btn-${key}`);
     const ecvanLoginBtn = qs(`#ecvan-login-btn-${key}`);
     const ecvanOtpBtn = qs(`#ecvan-otp-btn-${key}`);
     const ecvanStatusBar = qs(`#ecvan-status-${key}`);
@@ -3744,6 +3748,24 @@ async function renderOutboundPartnerUpload(partner, key) {
     ecvanCloseBtn?.addEventListener("click", () => {
       ecvanModal?.classList.add("hidden");
       clearInterval(ecvanPollTimer);
+    });
+
+    ecvanSaveBtn?.addEventListener("click", async () => {
+      const id = qs(`#ecvan-id-${key}`)?.value.trim();
+      const pw = qs(`#ecvan-pw-${key}`)?.value.trim();
+      if (!id) { alert("아이디를 입력해주세요."); return; }
+      try {
+        await api("/api/ecvan/credentials", "POST", { id, pw: pw || undefined });
+        const pwEl = qs(`#ecvan-pw-${key}`);
+        if (pwEl) {
+          pwEl.value = "";
+          pwEl.placeholder = "저장된 비밀번호 사용 (변경 시 입력)";
+          pwEl.dataset.hasSaved = "1";
+        }
+        alert("저장됐습니다.");
+      } catch (e) {
+        alert(`저장 실패: ${e.message}`);
+      }
     });
 
     ecvanLoginBtn?.addEventListener("click", async () => {
