@@ -4729,12 +4729,35 @@ async function handleApi(req, res, urlObj) {
           if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
           const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`) }).catch(() => {});
 
-          session.progress = "eCvan 접속 중...";
-          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
-            waitUntil: "domcontentloaded", timeout: 30000
-          });
-          await sleep(3000);
+          // eCvan 직접 로그인 URL 후보 순서대로 시도
+          const loginUrls = [
+            "https://emart.ecvan.co.kr/ecvan_ui/login.jsp",
+            "https://emart.ecvan.co.kr/ecvan_ui/loginForm.jsp",
+            "https://emart.ecvan.co.kr/ecvan_ui/index.jsp",
+            "https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=",
+            "https://emart.ecvan.co.kr/",
+          ];
+
+          let loginFound = false;
+          for (const url of loginUrls) {
+            session.progress = `접속 시도: ${url}`;
+            try {
+              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+              await sleep(2000);
+              const hasPwInput = await findEl(["input[type='password']"], 2000);
+              if (hasPwInput) { loginFound = true; break; }
+            } catch {}
+          }
+
           await snap("01-loaded");
+
+          if (!loginFound) {
+            const bodyText = await (async () => {
+              const texts = await Promise.all([page, ...page.frames()].map(f => f.evaluate(() => document.body?.innerText || "").catch(() => "")));
+              return texts.join("\n").slice(0, 300);
+            })();
+            throw new Error(`로그인 페이지를 찾지 못했습니다. 페이지 내용: ${bodyText}`);
+          }
 
           session.progress = "로그인 폼 탐색 중...";
           const idEl = await findEl(
