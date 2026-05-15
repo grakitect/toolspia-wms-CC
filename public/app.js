@@ -422,14 +422,31 @@ function switchView(name) {
   if (name !== "products") delete TABLE_FILTER_MEMORY["#products-table"];
   for (const v of views) qs(`#view-${v}`).classList.add("hidden");
   qs(`#view-${name}`).classList.remove("hidden");
-  document.querySelectorAll(".sidebar button").forEach((b) => {
+  document.querySelectorAll(".sidebar button[data-view]").forEach((b) => {
     b.classList.toggle("active", b.dataset.view === name);
   });
+  // 해당 버튼이 속한 그룹을 자동으로 열기
+  const activeBtn = document.querySelector(`.sidebar button[data-view="${name}"]`);
+  if (activeBtn) {
+    const group = activeBtn.closest(".sidebar-group");
+    if (group && !group.classList.contains("open")) group.classList.add("open");
+  }
   try {
     localStorage.setItem(LAST_VIEW_KEY, name);
-  } catch (_) {
-    // ignore storage errors
-  }
+  } catch (_) {}
+}
+
+function initSidebarAccordion() {
+  document.querySelectorAll(".sidebar-group-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const group = btn.closest(".sidebar-group");
+      if (!group) return;
+      const isOpen = group.classList.contains("open");
+      // 다른 그룹 닫기
+      document.querySelectorAll(".sidebar-group.open").forEach((g) => g.classList.remove("open"));
+      if (!isOpen) group.classList.add("open");
+    });
+  });
 }
 
 function parseSheet(file) {
@@ -4970,7 +4987,9 @@ async function afterMovementDone() {
 }
 
 async function init() {
-  document.querySelectorAll(".sidebar button").forEach((btn) => {
+  initSidebarAccordion();
+
+  document.querySelectorAll(".sidebar button[data-view]").forEach((btn) => {
     btn.onclick = async () => {
       const v = btn.dataset.view;
       switchView(v);

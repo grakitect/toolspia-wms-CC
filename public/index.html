@@ -32,69 +32,105 @@
             <span>대시보드</span>
           </button>
 
-          <div class="sidebar-label">마스터</div>
-          <button data-view="master">
-            <i data-lucide="building-2"></i>
-            <span>기본 정보</span>
-          </button>
-          <button data-view="products">
-            <i data-lucide="package"></i>
-            <span>상품 정보</span>
-          </button>
-          <button data-view="stock">
-            <i data-lucide="boxes"></i>
-            <span>재고현황</span>
-          </button>
+          <!-- 마스터 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="master">
+              <i data-lucide="database"></i>
+              <span>기준 정보</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-view="master" class="sidebar-sub">
+                <i data-lucide="building-2"></i>
+                <span>기본 정보</span>
+              </button>
+              <button data-view="products" class="sidebar-sub">
+                <i data-lucide="package"></i>
+                <span>상품 정보</span>
+              </button>
+              <button data-view="stock" class="sidebar-sub">
+                <i data-lucide="boxes"></i>
+                <span>재고현황</span>
+              </button>
+            </div></div>
+          </div>
 
-          <div class="sidebar-label">입고</div>
-          <button data-view="inbound">
-            <i data-lucide="package-plus"></i>
-            <span>입고 등록</span>
-          </button>
-          <button data-view="inbound-plan" class="sidebar-sub">
-            <i data-lucide="clipboard-list"></i>
-            <span>입고예정 1</span>
-          </button>
-          <button data-view="inbound-plan-2" class="sidebar-sub">
-            <i data-lucide="clipboard-check"></i>
-            <span>입고예정 2</span>
-          </button>
+          <!-- 입고 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="inbound">
+              <i data-lucide="package-plus"></i>
+              <span>입고</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-view="inbound" class="sidebar-sub">
+                <i data-lucide="package-plus"></i>
+                <span>입고 등록</span>
+              </button>
+              <button data-view="inbound-plan" class="sidebar-sub">
+                <i data-lucide="clipboard-list"></i>
+                <span>입고예정 1</span>
+              </button>
+              <button data-view="inbound-plan-2" class="sidebar-sub">
+                <i data-lucide="clipboard-check"></i>
+                <span>입고예정 2</span>
+              </button>
+            </div></div>
+          </div>
 
-          <div class="sidebar-label">출고</div>
-          <button data-view="outbound">
-            <i data-lucide="package-minus"></i>
-            <span>출고 등록</span>
-          </button>
-          <button data-view="outbound-plan" class="sidebar-sub">
-            <i data-lucide="truck"></i>
-            <span>출고예정 관리</span>
-          </button>
-          <button data-view="outbound-upload-daiso" class="sidebar-sub">
-            <i data-lucide="store"></i>
-            <span>다이소</span>
-          </button>
-          <button data-view="outbound-upload-emart" class="sidebar-sub">
-            <i data-lucide="store"></i>
-            <span>이마트</span>
-          </button>
-          <button data-view="outbound-upload-lotte" class="sidebar-sub">
-            <i data-lucide="store"></i>
-            <span>롯데마트</span>
-          </button>
+          <!-- 출고 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="outbound">
+              <i data-lucide="package-minus"></i>
+              <span>출고</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-view="outbound" class="sidebar-sub">
+                <i data-lucide="package-minus"></i>
+                <span>출고 등록</span>
+              </button>
+              <button data-view="outbound-plan" class="sidebar-sub">
+                <i data-lucide="truck"></i>
+                <span>출고예정 관리</span>
+              </button>
+              <button data-view="outbound-upload-daiso" class="sidebar-sub">
+                <i data-lucide="store"></i>
+                <span>다이소</span>
+              </button>
+              <button data-view="outbound-upload-emart" class="sidebar-sub">
+                <i data-lucide="store"></i>
+                <span>이마트</span>
+              </button>
+              <button data-view="outbound-upload-lotte" class="sidebar-sub">
+                <i data-lucide="store"></i>
+                <span>롯데마트</span>
+              </button>
+            </div></div>
+          </div>
 
-          <div class="sidebar-label">관리</div>
-          <button data-view="adjust">
-            <i data-lucide="refresh-cw"></i>
-            <span>재고 조정 / 이동</span>
-          </button>
-          <button data-view="history">
-            <i data-lucide="history"></i>
-            <span>입출고 이력</span>
-          </button>
-          <button data-view="alert">
-            <i data-lucide="bell"></i>
-            <span>알림</span>
-          </button>
+          <!-- 관리 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="manage">
+              <i data-lucide="settings-2"></i>
+              <span>관리</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-view="adjust" class="sidebar-sub">
+                <i data-lucide="refresh-cw"></i>
+                <span>재고 조정 / 이동</span>
+              </button>
+              <button data-view="history" class="sidebar-sub">
+                <i data-lucide="history"></i>
+                <span>입출고 이력</span>
+              </button>
+              <button data-view="alert" class="sidebar-sub">
+                <i data-lucide="bell"></i>
+                <span>알림</span>
+              </button>
+            </div></div>
+          </div>
         </nav>
       </aside>
 

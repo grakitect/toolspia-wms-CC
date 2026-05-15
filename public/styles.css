@@ -224,6 +224,45 @@ body {
 }
 .sidebar button span { flex: 1; }
 
+/* Accordion groups */
+.sidebar-group { display: flex; flex-direction: column; }
+
+.sidebar-group-btn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.sidebar-chevron {
+  width: 14px !important;
+  height: 14px !important;
+  margin-left: auto;
+  flex-shrink: 0;
+  opacity: .5 !important;
+  transition: transform .22s ease, opacity .14s !important;
+}
+.sidebar-group.open .sidebar-chevron {
+  transform: rotate(180deg);
+  opacity: .8 !important;
+}
+.sidebar-group.open > .sidebar-group-btn {
+  color: var(--sb-text-hi);
+  background: var(--sb-hover);
+}
+
+.sidebar-group-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease;
+}
+.sidebar-group.open .sidebar-group-body {
+  grid-template-rows: 1fr;
+}
+.sidebar-group-body > div {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Sub-items */
 .sidebar .sidebar-sub {
   padding-left: 30px;
