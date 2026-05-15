@@ -23,5 +23,5 @@ echo.
 start /min powershell -WindowStyle Hidden -Command ^
   "while($true) { Start-Sleep 30; Set-Location '%~dp0'; git pull origin claude/redesign-wms-ui-VRvSQ 2>$null }"
 
-node --watch server.js
+node --watch --watch-path=./public --watch-path=./server.js server.js
 pause
