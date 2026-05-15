@@ -4682,7 +4682,7 @@ async function handleApi(req, res, urlObj) {
         args: [
           "--no-sandbox", "--disable-setuid-sandbox",
           "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
-          "--window-size=1024,768", "--window-position=100,100",
+          "--start-maximized",
         ],
       });
       const page = await browser.newPage();
@@ -4899,10 +4899,26 @@ async function handleApi(req, res, urlObj) {
           await snap("01-loaded");
 
           session.progress = "로그인 폼 탐색 중...";
-          const idEl = await findEl(
-            ["#id", "input[name='id']", "input[name='userId']", "input[placeholder*='아이디']", "input[placeholder*='ID']", "input[type='text']"],
-            8000
+          // 로그인 폼이 바로 없으면 로그인 링크/버튼 클릭 후 다시 탐색
+          let idEl = await findEl(
+            ["#id", "input[name='id']", "input[name='userId']", "input[placeholder*='아이디']", "input[placeholder*='ID']"],
+            3000
           );
+          if (!idEl) {
+            // 로그인 링크 클릭 시도
+            await page.evaluate(() => {
+              const el = [...document.querySelectorAll("a,button")].find(e => {
+                const t = (e.textContent || "").trim();
+                return t === "로그인" || t === "LOGIN" || t === "Log In";
+              });
+              if (el) el.click();
+            });
+            await sleep(1500);
+            idEl = await findEl(
+              ["#id", "input[name='id']", "input[name='userId']", "input[placeholder*='아이디']", "input[placeholder*='ID']", "input[type='text']"],
+              8000
+            );
+          }
           if (!idEl) {
             await snap("err-no-id");
             const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => "");
