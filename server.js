@@ -4719,42 +4719,41 @@ async function handleApi(req, res, urlObj) {
             try { await sleep(150); await dlg.accept(); } catch {}
           });
 
+          const screenshotDir = path.join(__dirname, "ecvan-debug");
+          if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
+          const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`) }).catch(() => {});
+
           session.progress = "eCvan 접속 중...";
           await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
             waitUntil: "domcontentloaded", timeout: 30000
           });
-          // 페이지가 완전히 로드될 때까지 추가 대기
           await sleep(3000);
+          await snap("01-loaded");
 
-          // iframe 안에 로그인 폼이 있을 수 있으니 frame도 확인
-          const frames = page.frames();
-          let targetFrame = page;
-          for (const f of frames) {
-            const hasInput = await f.$("input[type='password']").catch(() => null);
-            if (hasInput) { targetFrame = f; break; }
-          }
-
-          session.progress = "아이디 입력 중...";
+          session.progress = "로그인 폼 탐색 중...";
           const idEl = await findEl(
             ["#id", "input[name='id']", "input[name='userId']", "input[placeholder*='아이디']", "input[placeholder*='ID']", "input[type='text']"],
             8000
           );
           if (!idEl) {
-            // 현재 페이지 텍스트를 에러 메시지에 포함해 진단
+            await snap("err-no-id");
             const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 300)).catch(() => "");
-            throw new Error(`아이디 입력창을 찾지 못했습니다. 페이지 내용: ${bodyText}`);
+            throw new Error(`아이디 입력창을 찾지 못했습니다. 페이지: ${bodyText}`);
           }
+
+          session.progress = "아이디 입력 중...";
           await fillInput(idEl, ecvanId);
 
-          session.progress = "비밀번호 입력 중...";
           const pwEl = await findEl(["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"], 5000);
-          if (!pwEl) throw new Error("비밀번호 입력창을 찾지 못했습니다.");
+          if (!pwEl) { await snap("err-no-pw"); throw new Error("비밀번호 입력창을 찾지 못했습니다."); }
+
+          session.progress = "비밀번호 입력 중...";
           await fillInput(pwEl, ecvanPw);
+          await snap("02-filled");
 
           session.progress = "로그인 버튼 클릭 중...";
           await sleep(300);
 
-          // 로그인 버튼 클릭
           const loginBtnClicked = await page.evaluate(() => {
             const candidates = [...document.querySelectorAll("button,input[type='submit'],input[type='button'],a")];
             const btn = candidates.find(e => {
@@ -4766,24 +4765,31 @@ async function handleApi(req, res, urlObj) {
           });
           if (!loginBtnClicked) await page.keyboard.press("Enter");
 
-          session.progress = "SMS 인증 대기 중... (로그인 처리 중)";
+          session.progress = "로그인 처리 중... (OTP 화면 대기)";
+          await sleep(2000);
+          await snap("03-after-login");
 
-          // OTP 화면 대기: 최대 25초
+          // 현재 페이지 텍스트 확인
+          const pageTextAfterLogin = await page.evaluate(() => document.body.innerText).catch(() => "");
+          session.progress = `페이지 확인 중... (${pageTextAfterLogin.slice(0, 50)})`;
+
+          // OTP 화면 대기: 인증번호 입력 UI 등장 대기 (최대 30초)
           const otpReached = await page.waitForFunction(
             () => {
               const t = document.body.innerText;
-              return t.includes("인증번호") || t.includes("휴대폰") || t.includes("OTP") || t.includes("SMS");
+              return t.includes("인증번호 입력") || t.includes("인증번호를 입력") || t.includes("휴대폰 인증") || t.includes("인증 번호");
             },
-            { timeout: 25000 }
+            { timeout: 30000 }
           ).then(() => true).catch(() => false);
 
+          await snap("04-otp-check");
+
           if (!otpReached) {
-            // 로그인 실패인지 확인
-            const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 400)).catch(() => "");
-            const isLoginFail = bodyText.includes("비밀번호") || bodyText.includes("아이디") || bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀");
+            const bodyText = await page.evaluate(() => document.body.innerText.slice(0, 500)).catch(() => "");
+            const isLoginFail = bodyText.includes("비밀번호") && (bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀") || bodyText.includes("잘못"));
             throw new Error(isLoginFail
-              ? `아이디/비밀번호가 올바르지 않습니다. (${bodyText.slice(0, 100)})`
-              : `OTP 화면으로 이동하지 못했습니다. 현재 화면: ${bodyText.slice(0, 150)}`
+              ? `아이디/비밀번호 오류. 화면: ${bodyText.slice(0, 150)}`
+              : `OTP 화면 미도달. 현재 화면: ${bodyText.slice(0, 200)}`
             );
           }
 
