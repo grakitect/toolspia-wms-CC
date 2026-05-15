@@ -4827,14 +4827,11 @@ async function handleApi(req, res, urlObj) {
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-      // input에 값을 직접 주입 (iframe 내 요소도 안전하게 처리)
+      // input에 값을 채우는 함수 - 클릭 후 실제 타이핑
       const fillInput = async (el, value) => {
-        await el.evaluate((node, v) => {
-          node.focus();
-          node.value = v;
-          node.dispatchEvent(new Event("input",  { bubbles: true }));
-          node.dispatchEvent(new Event("change", { bubbles: true }));
-        }, value);
+        await el.click({ clickCount: 3 });   // 기존 값 선택
+        await sleep(80);
+        await page.keyboard.type(value, { delay: 40 });
         await sleep(80);
       };
 
