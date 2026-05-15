@@ -4705,12 +4705,30 @@ async function renderHistory() {
       .join("");
 
     qs("#history-table").innerHTML = `
-      <table id="history-table-list">
-        <thead><tr><th>ID</th><th>구분</th><th>전표번호</th><th>상품코드</th><th>품목코드</th><th>상품명</th><th>수량</th><th>창고</th><th>이동창고</th><th>구매처</th><th>판매처</th><th>담당</th><th>메모</th><th>일시</th><th>시점재고</th><th>액션</th></tr></thead>
-        <tbody>${rows}</tbody>
-        <tfoot><tr><td colspan="16"><strong>현재고(검색 기준): </strong>${esc(matchedStocks)}</td></tr></tfoot>
-      </table>
+      <div class="history-table-outer">
+        <div class="history-table-scroll" id="history-table-scroll">
+          <table id="history-table-list">
+            <thead><tr><th>ID</th><th>구분</th><th>전표번호</th><th>상품코드</th><th>품목코드</th><th>상품명</th><th>수량</th><th>창고</th><th>이동창고</th><th>구매처</th><th>판매처</th><th>담당</th><th>메모</th><th>일시</th><th>시점재고</th><th>액션</th></tr></thead>
+            <tbody>${rows}</tbody>
+            <tfoot><tr><td colspan="16"><strong>현재고(검색 기준): </strong>${esc(matchedStocks)}</td></tr></tfoot>
+          </table>
+        </div>
+        <div class="history-scroll-proxy-wrap" id="history-scroll-proxy-wrap">
+          <div class="history-scroll-proxy-inner" id="history-scroll-proxy-inner"></div>
+        </div>
+      </div>
     `;
+
+    /* 하단 스크롤바 ↔ 테이블 동기화 */
+    const tblScroll = qs("#history-table-scroll");
+    const proxyWrap = qs("#history-scroll-proxy-wrap");
+    const proxyInner = qs("#history-scroll-proxy-inner");
+    if (tblScroll && proxyWrap && proxyInner) {
+      const tbl = tblScroll.querySelector("table");
+      if (tbl) proxyInner.style.width = tbl.scrollWidth + "px";
+      tblScroll.addEventListener("scroll", () => { proxyWrap.scrollLeft = tblScroll.scrollLeft; });
+      proxyWrap.addEventListener("scroll", () => { tblScroll.scrollLeft = proxyWrap.scrollLeft; });
+    }
     applyExcelLikeFilter("#history-table-list");
 
     document.querySelectorAll(".history-cancel-btn").forEach((btn) => {
