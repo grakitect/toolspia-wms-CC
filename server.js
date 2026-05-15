@@ -4670,8 +4670,10 @@ async function handleApi(req, res, urlObj) {
 
       const sessionId = `ecvan-${Date.now()}`;
 
-      // WMS 전용 임시 크롬 프로필 (실행 중인 크롬과 충돌 방지)
+      // 매번 새 세션으로 시작 (OTP 항상 요구)
       const userDataDir = path.join(__dirname, "ecvan-chrome-profile");
+      try { fs.rmSync(userDataDir, { recursive: true, force: true }); } catch {}
+      fs.mkdirSync(userDataDir, { recursive: true });
 
       const browser = await pup.launch({
         executablePath: chromePath,
@@ -4912,48 +4914,32 @@ async function handleApi(req, res, urlObj) {
             }).catch(() => {});
           };
 
-          const textAfterLogin = await getAllText();
-          session.progress = `로그인 후 화면: ${textAfterLogin.slice(0, 80)}`;
-
-          // 대시보드 진입 감지 키워드 (로그인 성공 시 OTP 없이 바로 들어올 수 있음)
-          const isDashboard = (t) => t.includes("납품") || t.includes("EMART PARTNERS") || t.includes("미납사유") || t.includes("로그아웃");
-
-          // OTP 또는 대시보드 대기 (최대 30초)
+          // OTP 화면 대기 (최대 40초)
+          session.progress = "SMS 인증번호 발송 대기 중...";
           let otpReached = false;
-          let dashboardReached = false;
-          const deadline = Date.now() + 30000;
+          const deadline = Date.now() + 40000;
           while (Date.now() < deadline) {
             const t = await getAllText();
-            if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호")) {
+            if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호") || t.includes("인증코드")) {
               otpReached = true; break;
-            }
-            if (isDashboard(t)) {
-              dashboardReached = true; break;
             }
             await sleep(1000);
           }
 
           await snap("04-otp-check");
 
-          if (dashboardReached) {
-            // OTP 없이 바로 로그인 성공 → 팝업 닫고 데이터 수집
-            session.progress = "로그인 성공 (OTP 없음) — 데이터 수집 시작...";
-            await sleep(1000);
-            await closePopups();
-            await sleep(500);
-            await session.collect();
-          } else if (otpReached) {
-            await sleep(500);
-            session.status = "waiting_otp";
-            session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
-          } else {
+          if (!otpReached) {
             const bodyText = await getAllText();
             const isLoginFail = bodyText.includes("비밀번호") && (bodyText.includes("오류") || bodyText.includes("실패") || bodyText.includes("틀") || bodyText.includes("잘못"));
             throw new Error(isLoginFail
               ? `아이디/비밀번호 오류. 화면: ${bodyText.slice(0, 150)}`
-              : `로그인 후 화면 감지 실패. 현재 화면: ${bodyText.slice(0, 200)}`
+              : `SMS 인증 화면이 나타나지 않았습니다. 현재 화면: ${bodyText.slice(0, 200)}`
             );
           }
+
+          await sleep(500);
+          session.status = "waiting_otp";
+          session.progress = "휴대폰으로 발송된 SMS 인증번호를 WMS에 입력해주세요";
         } catch (e) {
           const url = await page.url().catch(() => "");
           session.status = "error";
