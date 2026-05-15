@@ -4700,9 +4700,28 @@ async function handleApi(req, res, urlObj) {
             .find(e => (e.textContent || e.value || "").trim() === t);
           if (el) { el.click(); return true; } return false;
         }, text);
+        const _closePopups = async () => {
+          const deadline = Date.now() + 8000;
+          while (Date.now() < deadline) {
+            const closed = await page.evaluate(() => {
+              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+              let any = false;
+              btns.forEach(b => {
+                const t = (b.textContent || b.value || "").trim();
+                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
+              });
+              return any;
+            }).catch(() => false);
+            await _sleep(600);
+            if (!closed) break;
+          }
+        };
 
-        session.status = "navigating"; session.progress = "미납사유 메뉴로 이동 중...";
-        await _sleep(1000);
+        session.status = "navigating"; session.progress = "팝업 닫는 중...";
+        await _closePopups();
+        await _sleep(500);
+        session.progress = "미납사유 메뉴로 이동 중...";
 
         // 납품 메뉴 클릭
         await page.evaluate(() => {
@@ -4997,7 +5016,25 @@ async function handleApi(req, res, urlObj) {
 
           await sleep(300);
           await clickByText("확인");
-          await sleep(2000);
+
+          // 확인 후 팝업 모두 닫기 (최대 10초, 0.8초 간격)
+          session.progress = "팝업 닫는 중...";
+          const popupDeadline = Date.now() + 10000;
+          while (Date.now() < popupDeadline) {
+            const closed = await page.evaluate(() => {
+              const keywords = ["닫기", "확인", "close", "Close", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+              let any = false;
+              btns.forEach(b => {
+                const t = (b.textContent || b.value || "").trim();
+                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
+              });
+              return any;
+            }).catch(() => false);
+            await sleep(800);
+            if (!closed) break;
+          }
+          await sleep(500);
 
           await session.collect();
         } catch (e) {
