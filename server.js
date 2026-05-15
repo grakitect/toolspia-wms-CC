@@ -4827,11 +4827,11 @@ async function handleApi(req, res, urlObj) {
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-      // input에 값을 채우는 함수 - 클릭 후 실제 타이핑
+      // input에 값을 채우는 함수
       const fillInput = async (el, value) => {
-        await el.click({ clickCount: 3 });   // 기존 값 선택
-        await sleep(80);
-        await page.keyboard.type(value, { delay: 40 });
+        await el.click({ clickCount: 3 });  // 기존 값 전체 선택
+        await sleep(50);
+        await el.type(value, { delay: 40 }); // 요소에 직접 타이핑
         await sleep(80);
       };
 
@@ -4925,8 +4925,6 @@ async function handleApi(req, res, urlObj) {
           session.progress = "아이디 입력 중...";
           await fillInput(idEl, ecvanId);
 
-          // 비밀번호 필드가 스크롤 아래 있을 수 있으므로 스크롤 후 탐색
-          await page.evaluate(() => window.scrollBy(0, 300)).catch(() => {});
           const pwEl = await findEl(["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"], 5000);
           if (!pwEl) { await snap("err-no-pw"); throw new Error("비밀번호 입력창을 찾지 못했습니다."); }
 
