@@ -4875,22 +4875,27 @@ async function handleApi(req, res, urlObj) {
           });
           await sleep(2000);
 
-          // 페이지 로드 후 팝업 닫기 (최대 3회)
+          // 페이지 로드 후 팝업 닫기 - puppeteer 실제 클릭 사용
           session.progress = "팝업 닫는 중...";
-          for (let i = 0; i < 3; i++) {
-            const closed = await page.evaluate(() => {
-              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-              let any = false;
-              btns.forEach(b => {
+          for (let i = 0; i < 5; i++) {
+            await sleep(600);
+            // 팝업 닫기 버튼 후보 (텍스트 또는 X 아이콘)
+            const closeEl = await page.evaluateHandle(() => {
+              const btns = [...document.querySelectorAll("button,a,input[type=button],span[role='button'],.close,svg")];
+              const byText = btns.find(b => {
                 const t = (b.textContent || b.value || "").trim();
-                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
+                return t === "닫기" || t === "×" || t === "✕" || t === "X" || t === "close";
               });
-              return any;
-            }).catch(() => false);
-            await sleep(500);
-            if (!closed) break;
+              if (byText) return byText;
+              // X 모양 버튼 찾기 (클래스에 close, btn-close 포함)
+              return document.querySelector(".close, .btn-close, [class*='close'], [class*='Close'], [aria-label*='닫'], [title*='닫']");
+            });
+            const el = closeEl.asElement();
+            if (el) {
+              await el.click().catch(() => {});
+            } else break;
           }
+          await sleep(300);
           await snap("01-loaded");
 
           session.progress = "로그인 폼 탐색 중...";
