@@ -3213,84 +3213,52 @@ async function renderOutboundPartnerUpload(partner, key) {
   const wrap = qs(`#view-outbound-upload-${key}`);
   if (!wrap) return;
   wrap.innerHTML = `
-    <!-- 페이지 헤더 -->
-    <div class="ob-page-header card">
-      <div class="ob-page-header-top">
-        <div class="ob-page-header-title">
-          <span class="ob-partner-badge">${esc(partner)}</span>
-          <h2>판매처별 업로드</h2>
-        </div>
-        <span id="outbound-upload-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
-      </div>
-      <div class="ob-pipeline">
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
-          <span>업로드</span>
-        </div>
-        <div class="ob-pipeline-arrow">→</div>
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
-          <span>검증</span>
-        </div>
-        <div class="ob-pipeline-arrow">→</div>
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
-          <span>전표생성</span>
-        </div>
-        <div class="ob-pipeline-arrow">→</div>
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
-          <span>미출계산</span>
-        </div>
-        <div class="ob-pipeline-arrow">→</div>
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
-          <span>출고확정</span>
-        </div>
-        <div class="ob-pipeline-arrow">→</div>
-        <div class="ob-pipeline-step">
-          <div class="ob-pipeline-dot"></div>
+    <!-- 컴팩트 헤더 -->
+    <div class="ob-topbar card">
+      <div class="ob-topbar-left">
+        <span class="ob-partner-badge">${esc(partner)}</span>
+        <span class="ob-topbar-title">판매처별 업로드</span>
+        <div class="ob-pipeline-inline">
+          <span>업로드</span><span class="ob-pi-arrow">›</span>
+          <span>검증</span><span class="ob-pi-arrow">›</span>
+          <span>전표생성</span><span class="ob-pi-arrow">›</span>
+          <span>미출계산</span><span class="ob-pi-arrow">›</span>
+          <span>출고확정</span><span class="ob-pi-arrow">›</span>
           <span>판매입력 전송</span>
         </div>
       </div>
+      <span id="outbound-upload-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
     </div>
 
     <!-- 탭 + 패널 -->
     <div class="card ob-main-card">
       <div class="ob-tab-bar">
         <div class="seg-tabs">
-          <button type="button" class="seg-tab active" id="outbound-tab-orders-${key}">📄 주문서</button>
-          <button type="button" class="seg-tab" id="outbound-tab-master-${key}">🗂 마스터</button>
-          <button type="button" class="seg-tab" id="outbound-tab-slip-${key}">📋 전표관리</button>
-          <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">✅ 확정리스트</button>
-          <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">🚚 미출내역</button>
+          <button type="button" class="seg-tab active" id="outbound-tab-orders-${key}">주문서</button>
+          <button type="button" class="seg-tab" id="outbound-tab-master-${key}">마스터</button>
+          <button type="button" class="seg-tab" id="outbound-tab-slip-${key}">전표관리</button>
+          <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">확정리스트</button>
+          <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
         </div>
       </div>
 
       <!-- 주문서 패널 -->
       <div id="outbound-orders-panel-${key}" class="ob-panel">
-        <div class="ob-panel-section">
-          <div class="ob-section-label">파일 업로드</div>
-          <div class="ob-upload-row">
-            <label class="ob-file-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              파일 선택
-              <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
-            </label>
-            <button type="button" class="bh-btn bh-btn-primary" id="outbound-upload-run-${key}">업로드</button>
-            <div class="ob-divider"></div>
-            <button type="button" class="bh-btn" id="outbound-upload-refresh-${key}">새로고침</button>
-            <button type="button" class="bh-btn" id="outbound-upload-template-${key}">엑셀 템플릿</button>
-            <button type="button" class="bh-btn" id="outbound-upload-batch-open-${key}">파일 리스트</button>
-          </div>
-        </div>
-        <div class="ob-panel-section ob-panel-section-danger">
-          <div class="ob-section-label">업로드 이력 삭제</div>
-          <div class="ob-action-row">
-            <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
-            <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-all-${key}">전체 삭제</button>
-            <span class="muted">배치(업로드 이력) 기준으로 삭제합니다.</span>
-          </div>
+        <!-- 통합 툴바 -->
+        <div class="ob-toolbar">
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            파일 선택
+            <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-run-${key}">업로드</button>
+          <div class="ob-divider"></div>
+          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-refresh-${key}">새로고침</button>
+          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-template-${key}">엑셀 템플릿</button>
+          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-batch-open-${key}">파일 리스트</button>
+          <div class="ob-divider"></div>
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-all-${key}">전체 삭제</button>
         </div>
         <div id="outbound-upload-batches-${key}" class="hidden ob-batches-wrap"></div>
         <div id="outbound-line-tabs-${key}" class="ob-line-tabs"></div>
@@ -3300,62 +3268,44 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       <!-- 마스터 패널 -->
       <div id="outbound-master-panel-${key}" class="ob-panel hidden">
-        <div class="ob-panel-desc">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          상품코드 매핑을 위한 코드마스터 파일을 업로드합니다.
-        </div>
-        <div class="ob-panel-section">
-          <div class="ob-section-label">코드마스터 업로드</div>
-          <div class="ob-upload-row">
-            <label class="ob-file-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              파일 선택
-              <input type="file" id="outbound-master-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
-            </label>
-            <button type="button" class="bh-btn bh-btn-primary" id="outbound-master-run-${key}">업로드</button>
-            <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
-          </div>
+        <div class="ob-toolbar">
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            파일 선택
+            <input type="file" id="outbound-master-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-master-run-${key}">업로드</button>
+          <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
+          <span class="ob-toolbar-hint">상품코드 매핑용 코드마스터 파일을 업로드합니다.</span>
         </div>
         <div id="outbound-master-table-${key}" class="ob-table-wrap"></div>
       </div>
 
       <!-- 전표관리 패널 -->
       <div id="outbound-slip-panel-${key}" class="ob-panel hidden">
-        <div class="ob-panel-desc">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          전표 목록 조회·선택은 여기서 하고, <strong>출고확정·판매입력 전송</strong>은 확정리스트 탭에서 진행합니다.
+        <div class="ob-toolbar">
+          <span class="ob-toolbar-hint">전표 목록 조회·선택 후 <strong>확정리스트</strong> 탭에서 출고확정·판매입력 전송을 진행합니다.</span>
         </div>
         <div id="outbound-upload-table-${key}" class="ob-table-wrap"></div>
       </div>
 
       <!-- 확정리스트 패널 -->
       <div id="outbound-confirmlist-panel-${key}" class="ob-panel hidden">
-        <div class="ob-action-toolbar">
-          <div class="ob-action-group">
-            <button type="button" class="bh-btn bh-btn-primary" id="outbound-confirm-all-${key}">전체 출고확정</button>
-            <span class="muted" id="outbound-confirm-all-hint-${key}">선택 전표(없으면 전체) 기준으로 출고확정합니다.</span>
-          </div>
-          <div class="ob-action-group" style="margin-left:auto;">
-            <button type="button" class="bh-btn" id="outbound-confirmlist-refresh-${key}">새로고침</button>
-            <span class="muted" id="outbound-confirmlist-status-${key}">확정 저장 내역을 불러옵니다.</span>
-          </div>
-        </div>
-        <div class="ob-panel-desc" style="margin-bottom:12px;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
-          <strong>센터 통합 전표</strong> 기준 (센터·저장일·점입점일)
+        <div class="ob-toolbar">
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-confirm-all-${key}">전체 출고확정</button>
+          <span class="ob-toolbar-hint" id="outbound-confirm-all-hint-${key}">선택 전표(없으면 전체) 기준으로 출고확정합니다. · <strong>센터 통합 전표</strong> 기준 (센터·저장일·점입점일)</span>
+          <button type="button" class="bh-btn bh-btn-sm" style="margin-left:auto;" id="outbound-confirmlist-refresh-${key}">새로고침</button>
+          <span class="muted" id="outbound-confirmlist-status-${key}"></span>
         </div>
         <div id="outbound-confirmlist-table-${key}" class="ob-table-wrap"></div>
       </div>
 
       <!-- 미출내역 패널 -->
       <div id="outbound-unship-panel-${key}" class="ob-panel hidden">
-        <div class="ob-action-toolbar">
-          <div class="ob-panel-desc" style="margin:0; flex:1;">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            출고 상태가 <strong>미출</strong>인 라인만 표시합니다.
-          </div>
-          <button type="button" class="bh-btn" id="outbound-unship-refresh-${key}">새로고침</button>
-          <span class="muted" id="outbound-unship-status-${key}">미출 라인을 불러옵니다.</span>
+        <div class="ob-toolbar">
+          <span class="ob-toolbar-hint">출고 상태가 <strong>미출</strong>인 라인만 표시합니다.</span>
+          <button type="button" class="bh-btn bh-btn-sm" style="margin-left:auto;" id="outbound-unship-refresh-${key}">새로고침</button>
+          <span class="muted" id="outbound-unship-status-${key}"></span>
         </div>
         <div id="outbound-unship-tabs-${key}" class="ob-line-tabs"></div>
         <div id="outbound-unship-tools-${key}" class="ob-line-tools"></div>
