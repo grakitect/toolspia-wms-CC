@@ -4670,24 +4670,19 @@ async function handleApi(req, res, urlObj) {
 
       const sessionId = `ecvan-${Date.now()}`;
 
-      // 사용자 크롬 프로필 경로 (기존 eCvan 쿠키/세션 재사용)
-      const userDataDir = process.env.CHROME_USER_DATA ||
-        (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "User Data") : null);
+      // WMS 전용 임시 크롬 프로필 (실행 중인 크롬과 충돌 방지)
+      const userDataDir = path.join(__dirname, "ecvan-chrome-profile");
 
-      const launchOpts = {
+      const browser = await pup.launch({
         executablePath: chromePath,
-        headless: false,   // 실제 창 띄우기 (SSO 쿠키 필요)
+        headless: false,
+        userDataDir,
         args: [
           "--no-sandbox", "--disable-setuid-sandbox",
           "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
           "--window-size=1024,768", "--window-position=100,100",
-          "--profile-directory=Default",
         ],
-      };
-      // 크롬 프로필이 있으면 사용 (없으면 임시 프로필)
-      if (userDataDir && fs.existsSync(userDataDir)) launchOpts.userDataDir = userDataDir;
-
-      const browser = await pup.launch(launchOpts);
+      });
       const page = await browser.newPage();
       await page.setViewport({ width: 1024, height: 768 });
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
@@ -4739,7 +4734,7 @@ async function handleApi(req, res, urlObj) {
           const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`), fullPage: true }).catch(() => {});
 
           session.progress = "eCvan 접속 중... (크롬 창이 열립니다)";
-          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
+          await page.goto("https://emart.ecvan.co.kr/pre_ecvan_ui/index.jsp", {
             waitUntil: "domcontentloaded", timeout: 30000
           });
           await sleep(3000);
