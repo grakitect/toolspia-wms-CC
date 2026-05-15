@@ -1661,10 +1661,26 @@ tbody tr:last-child td { border-bottom: 0; }
   margin: 12px 0 4px;
 }
 .ob-line-tools {
-  display: grid;
+  display: flex;
+  align-items: center;
   gap: 8px;
   margin-bottom: 10px;
   flex-wrap: wrap;
+}
+.ob-line-tools input[type="text"] {
+  flex: 0 0 220px;
+  min-width: 0;
+}
+.ob-line-tools select {
+  flex: 0 0 180px;
+  min-width: 0;
+}
+.ob-line-tools .cancel-btn,
+.ob-line-tools .primary {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 80px;
+  white-space: nowrap;
 }
 .ob-table-wrap {
   overflow-x: auto;
