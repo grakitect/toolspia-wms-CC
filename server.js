@@ -4807,13 +4807,14 @@ async function handleApi(req, res, urlObj) {
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-      // input에 값을 확실하게 채우는 함수 (클릭→value초기화→type)
+      // input에 값을 직접 주입 (iframe 내 요소도 안전하게 처리)
       const fillInput = async (el, value) => {
-        await el.click({ clickCount: 3 });
-        await sleep(80);
-        await el.evaluate(node => { node.value = ""; node.dispatchEvent(new Event("input", { bubbles: true })); });
-        await activeFrame.evaluate((v) => {}, value); // frame context 유지
-        await page.keyboard.type(value, { delay: 50 });
+        await el.evaluate((node, v) => {
+          node.focus();
+          node.value = v;
+          node.dispatchEvent(new Event("input",  { bubbles: true }));
+          node.dispatchEvent(new Event("change", { bubbles: true }));
+        }, value);
         await sleep(80);
       };
 
