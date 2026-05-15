@@ -3729,7 +3729,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           } else if (res.status === "not_found") {
             clearInterval(ecvanPollTimer);
             ecvanShowStep("login");
-            alert("서버가 재시작되어 세션이 만료됐습니다. 다시 로그인해주세요.");
+            alert("세션이 만료됐습니다. 다시 로그인해주세요. (서버 재시작 또는 30분 초과)");
           }
         } catch (e) { /* 네트워크 오류 무시 */ }
       }, 1500);

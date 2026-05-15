@@ -4791,8 +4791,11 @@ async function handleApi(req, res, urlObj) {
           session.status = "waiting_otp";
           session.progress = "SMS 인증번호를 WMS에서 입력해주세요";
         } catch (e) {
-          session.status = "error"; session.error = e.message;
-          browser.close().catch(() => {}); ecvanSessions.delete(sessionId);
+          const url = await page.url().catch(() => "");
+          session.status = "error";
+          session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
+          browser.close().catch(() => {});
+          // 세션은 클라이언트가 에러를 읽을 수 있도록 유지 (30분 후 자동 정리)
         }
       })();
 
