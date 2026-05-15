@@ -4669,18 +4669,27 @@ async function handleApi(req, res, urlObj) {
       if (!chromePath) throw new Error("Chrome을 찾을 수 없습니다. .env에 CHROME_PATH=경로 를 추가해주세요.");
 
       const sessionId = `ecvan-${Date.now()}`;
-      const browser = await pup.launch({
+
+      // 사용자 크롬 프로필 경로 (기존 eCvan 쿠키/세션 재사용)
+      const userDataDir = process.env.CHROME_USER_DATA ||
+        (process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Google", "Chrome", "User Data") : null);
+
+      const launchOpts = {
         executablePath: chromePath,
-        headless: true,
+        headless: false,   // 실제 창 띄우기 (SSO 쿠키 필요)
         args: [
-          "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+          "--no-sandbox", "--disable-setuid-sandbox",
           "--lang=ko-KR,ko", "--disable-blink-features=AutomationControlled",
-          "--window-size=1366,768"
-        ]
-      });
+          "--window-size=1024,768", "--window-position=100,100",
+          "--profile-directory=Default",
+        ],
+      };
+      // 크롬 프로필이 있으면 사용 (없으면 임시 프로필)
+      if (userDataDir && fs.existsSync(userDataDir)) launchOpts.userDataDir = userDataDir;
+
+      const browser = await pup.launch(launchOpts);
       const page = await browser.newPage();
-      await page.setViewport({ width: 1366, height: 768 });
-      await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+      await page.setViewport({ width: 1024, height: 768 });
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
 
       const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
@@ -4727,37 +4736,14 @@ async function handleApi(req, res, urlObj) {
 
           const screenshotDir = path.join(__dirname, "ecvan-debug");
           if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
-          const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`) }).catch(() => {});
+          const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`), fullPage: true }).catch(() => {});
 
-          // eCvan 직접 로그인 URL 후보 순서대로 시도
-          const loginUrls = [
-            "https://emart.ecvan.co.kr/ecvan_ui/login.jsp",
-            "https://emart.ecvan.co.kr/ecvan_ui/loginForm.jsp",
-            "https://emart.ecvan.co.kr/ecvan_ui/index.jsp",
-            "https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=",
-            "https://emart.ecvan.co.kr/",
-          ];
-
-          let loginFound = false;
-          for (const url of loginUrls) {
-            session.progress = `접속 시도: ${url}`;
-            try {
-              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
-              await sleep(2000);
-              const hasPwInput = await findEl(["input[type='password']"], 2000);
-              if (hasPwInput) { loginFound = true; break; }
-            } catch {}
-          }
-
+          session.progress = "eCvan 접속 중... (크롬 창이 열립니다)";
+          await page.goto("https://emart.ecvan.co.kr/ecvan_ui/ssoindex.jsp?c3NvPVk=", {
+            waitUntil: "domcontentloaded", timeout: 30000
+          });
+          await sleep(3000);
           await snap("01-loaded");
-
-          if (!loginFound) {
-            const bodyText = await (async () => {
-              const texts = await Promise.all([page, ...page.frames()].map(f => f.evaluate(() => document.body?.innerText || "").catch(() => "")));
-              return texts.join("\n").slice(0, 300);
-            })();
-            throw new Error(`로그인 페이지를 찾지 못했습니다. 페이지 내용: ${bodyText}`);
-          }
 
           session.progress = "로그인 폼 탐색 중...";
           const idEl = await findEl(
