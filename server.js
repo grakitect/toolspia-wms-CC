@@ -4928,6 +4928,8 @@ async function handleApi(req, res, urlObj) {
           session.progress = "아이디 입력 중...";
           await fillInput(idEl, ecvanId);
 
+          // 비밀번호 필드가 스크롤 아래 있을 수 있으므로 스크롤 후 탐색
+          await page.evaluate(() => window.scrollBy(0, 300)).catch(() => {});
           const pwEl = await findEl(["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"], 5000);
           if (!pwEl) { await snap("err-no-pw"); throw new Error("비밀번호 입력창을 찾지 못했습니다."); }
 
