@@ -3239,6 +3239,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           <button type="button" class="seg-tab" id="outbound-tab-slip-${key}">전표관리</button>
           <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">확정리스트</button>
           <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
+          ${key === "emart" ? `<button type="button" class="seg-tab" id="outbound-tab-compare-${key}">미출 대조</button>` : ""}
         </div>
       </div>
 
@@ -3311,6 +3312,43 @@ async function renderOutboundPartnerUpload(partner, key) {
         <div id="outbound-unship-tools-${key}" class="ob-line-tools"></div>
         <div id="outbound-unship-table-${key}" class="ob-table-wrap"></div>
       </div>
+
+      ${key === "emart" ? `
+      <!-- 미출 대조 패널 (이마트 전용) -->
+      <div id="outbound-compare-panel-${key}" class="ob-panel hidden">
+        <!-- 업로드 툴바 -->
+        <div class="ob-toolbar">
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            이마트 미출 파일
+            <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="uc-upload-${key}">업로드</button>
+          <span class="ob-toolbar-hint" id="uc-upload-hint-${key}">이마트에서 받은 공식 미출 내역 파일을 업로드합니다.</span>
+          <div class="ob-divider"></div>
+          <input type="date" class="uc-date-input" id="uc-start-${key}" />
+          <span class="ob-pi-arrow">~</span>
+          <input type="date" class="uc-date-input" id="uc-end-${key}" />
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-search-${key}">조회</button>
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" style="margin-left:auto;" id="uc-clear-${key}">초기화</button>
+        </div>
+
+        <!-- 컬럼 매핑 안내 -->
+        <div class="uc-guide" id="uc-guide-${key}">
+          <div class="uc-guide-title">📋 엑셀 컬럼 매핑 안내</div>
+          <div class="uc-guide-cols">
+            <span><strong>납기일</strong> 납기일자 / 납기일 / DueDate</span>
+            <span><strong>상품코드</strong> 상품코드 / ItemCode / 품목코드</span>
+            <span><strong>상품명</strong> 상품명 / ItemName / 품목명</span>
+            <span><strong>센터</strong> 센터 / 물류센터 / 센터명 / Center</span>
+            <span><strong>미출수량</strong> 미출수량 / 미납수량 / UnshipQty / 미출</span>
+          </div>
+        </div>
+
+        <!-- 대조 테이블 -->
+        <div id="uc-table-${key}"></div>
+      </div>
+      ` : ""}
     </div>
 
     <!-- 모달: 전표 상세 -->
@@ -3385,6 +3423,8 @@ async function renderOutboundPartnerUpload(partner, key) {
   const tabSlipBtn = qs(`#outbound-tab-slip-${key}`);
   const tabConfirmListBtn = qs(`#outbound-tab-confirmlist-${key}`);
   const tabUnshipBtn = qs(`#outbound-tab-unship-${key}`);
+  const tabCompareBtn = qs(`#outbound-tab-compare-${key}`);
+  const comparePanel = qs(`#outbound-compare-panel-${key}`);
   const confirmAllBtn = qs(`#outbound-confirm-all-${key}`);
   let slipItems = [];
   let selectedSlipKeys = new Set();
@@ -3403,16 +3443,19 @@ async function renderOutboundPartnerUpload(partner, key) {
     const isSlip = tab === "slip";
     const isConfirmList = tab === "confirmlist";
     const isUnship = tab === "unship";
+    const isCompare = tab === "compare";
     ordersPanel?.classList.toggle("hidden", !isOrders);
     masterPanel?.classList.toggle("hidden", !isMaster);
     slipPanel?.classList.toggle("hidden", !isSlip);
     confirmListPanel?.classList.toggle("hidden", !isConfirmList);
     unshipPanel?.classList.toggle("hidden", !isUnship);
+    comparePanel?.classList.toggle("hidden", !isCompare);
     if (tabOrdersBtn) tabOrdersBtn.className = isOrders ? "seg-tab active" : "seg-tab";
     if (tabMasterBtn) tabMasterBtn.className = isMaster ? "seg-tab active" : "seg-tab";
     if (tabSlipBtn) tabSlipBtn.className = isSlip ? "seg-tab active" : "seg-tab";
     if (tabConfirmListBtn) tabConfirmListBtn.className = isConfirmList ? "seg-tab active" : "seg-tab";
     if (tabUnshipBtn) tabUnshipBtn.className = isUnship ? "seg-tab active" : "seg-tab";
+    if (tabCompareBtn) tabCompareBtn.className = isCompare ? "seg-tab active" : "seg-tab";
   };
   tabOrdersBtn?.addEventListener("click", () => switchTopTab("orders"));
   tabMasterBtn?.addEventListener("click", async () => {
@@ -3434,6 +3477,173 @@ async function renderOutboundPartnerUpload(partner, key) {
   unshipRefreshBtn?.addEventListener("click", async () => {
     await loadUnshipLines();
   });
+
+  // ── 미출 대조 (이마트 전용) ──────────────────────────────────────
+  if (key === "emart" && tabCompareBtn) {
+    const ucFile = qs(`#uc-file-${key}`);
+    const ucUploadBtn = qs(`#uc-upload-${key}`);
+    const ucUploadHint = qs(`#uc-upload-hint-${key}`);
+    const ucStartInput = qs(`#uc-start-${key}`);
+    const ucEndInput = qs(`#uc-end-${key}`);
+    const ucSearchBtn = qs(`#uc-search-${key}`);
+    const ucClearBtn = qs(`#uc-clear-${key}`);
+    const ucTableEl = qs(`#uc-table-${key}`);
+    const ucGuide = qs(`#uc-guide-${key}`);
+
+    // 날짜 기본값: 오늘 기준 -14일 ~ +14일
+    const today = new Date();
+    const fmt = (d) => d.toISOString().slice(0, 10);
+    const d14 = new Date(today); d14.setDate(today.getDate() - 14);
+    if (ucStartInput) ucStartInput.value = fmt(d14);
+    if (ucEndInput) ucEndInput.value = fmt(today);
+
+    const ucActionLabels = { modify_qty: "수량변경", add_product: "추가", confirmed: "확인완료", none: "보류" };
+
+    const renderCompareTable = (rows) => {
+      if (!ucTableEl) return;
+      if (!rows.length) {
+        ucTableEl.innerHTML = `<div class="uc-empty">조회된 대조 데이터가 없습니다. 날짜 범위를 확인하거나 이마트 미출 파일을 업로드해주세요.</div>`;
+        return;
+      }
+      // 납기일 그룹핑
+      const byDate = new Map();
+      for (const r of rows) {
+        if (!byDate.has(r.dueDate)) byDate.set(r.dueDate, []);
+        byDate.get(r.dueDate).push(r);
+      }
+      let html = `<div class="uc-table-wrap"><table class="uc-table"><thead><tr>
+        <th>납기일</th><th>상품코드</th><th>상품명</th><th>센터</th>
+        <th class="num">WMS 미출</th><th class="num">이마트 미출</th>
+        <th class="num uc-diff-col">차이</th><th>처리상태</th><th>액션</th>
+      </tr></thead><tbody>`;
+      for (const [dueDate, dateRows] of byDate) {
+        for (let i = 0; i < dateRows.length; i++) {
+          const r = dateRows[i];
+          const diff = r.diff;
+          const diffClass = diff > 0 ? "uc-diff-plus" : diff < 0 ? "uc-diff-minus" : "uc-diff-zero";
+          const diffText = diff > 0 ? `+${diff}` : String(diff);
+          const adj = r.adjustment;
+          const adjLabel = adj ? (ucActionLabels[adj.action] || adj.action) : "";
+          const adjClass = adj ? `uc-adj-${adj.action}` : "";
+          const rowKey = `${esc(r.dueDate)}|||${esc(r.productCode)}|||${esc(r.centerName)}`;
+          html += `<tr data-rowkey="${rowKey}" class="${diff === 0 ? "" : "uc-row-diff"}">
+            ${i === 0 ? `<td rowspan="${dateRows.length}" class="uc-date-cell">${esc(dueDate)}</td>` : ""}
+            <td class="mono">${esc(r.productCode)}</td>
+            <td>${esc(r.productName)}</td>
+            <td>${esc(r.centerName)}</td>
+            <td class="num">${r.wmsQty.toLocaleString()}</td>
+            <td class="num">${r.officialQty > 0 ? r.officialQty.toLocaleString() : '<span class="muted">-</span>'}</td>
+            <td class="num ${diffClass}">${r.officialQty > 0 || r.wmsQty > 0 ? diffText : '<span class="muted">-</span>'}</td>
+            <td>${adj ? `<span class="uc-adj-badge ${adjClass}">${esc(adjLabel)}</span><br><span class="muted" style="font-size:11px;">${adj.newQty != null ? adj.newQty + "개" : ""}</span>` : '<span class="muted">미처리</span>'}</td>
+            <td class="uc-actions">
+              ${diff < 0 ? `<button class="bh-btn bh-btn-sm" data-act="modify_qty" data-row='${JSON.stringify({dueDate:r.dueDate,productCode:r.productCode,productName:r.productName,centerName:r.centerName,wmsQty:r.wmsQty,officialQty:r.officialQty})}'>수량변경</button>` : ""}
+              ${r.wmsQty === 0 && r.officialQty > 0 ? `<button class="bh-btn bh-btn-sm bh-btn-primary" data-act="add_product" data-row='${JSON.stringify({dueDate:r.dueDate,productCode:r.productCode,productName:r.productName,centerName:r.centerName,officialQty:r.officialQty})}'>추가</button>` : ""}
+              ${diff > 0 ? `<button class="bh-btn bh-btn-sm bh-btn-primary" data-act="modify_qty" data-row='${JSON.stringify({dueDate:r.dueDate,productCode:r.productCode,productName:r.productName,centerName:r.centerName,wmsQty:r.wmsQty,officialQty:r.officialQty})}'>수량변경</button>` : ""}
+              <button class="bh-btn bh-btn-sm" data-act="confirmed" data-row='${JSON.stringify({dueDate:r.dueDate,productCode:r.productCode,productName:r.productName,centerName:r.centerName})}'>확인</button>
+            </td>
+          </tr>`;
+        }
+      }
+      html += `</tbody></table></div>`;
+      ucTableEl.innerHTML = html;
+
+      // 액션 버튼 이벤트
+      ucTableEl.querySelectorAll("button[data-act]").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const act = btn.dataset.act;
+          let rowData;
+          try { rowData = JSON.parse(btn.dataset.row); } catch { return; }
+          let newQty = null;
+          let note = "";
+          if (act === "modify_qty") {
+            const v = prompt(`[${rowData.productCode}] ${rowData.productName}\n센터: ${rowData.centerName}\n납기일: ${rowData.dueDate}\n\nWMS 미출: ${rowData.wmsQty}개 / 이마트 미출: ${rowData.officialQty}개\n\n조정할 수량을 입력하세요:`);
+            if (v === null) return;
+            newQty = parseInt(v, 10);
+            if (!Number.isFinite(newQty) || newQty < 0) { alert("올바른 수량을 입력해주세요."); return; }
+          } else if (act === "add_product") {
+            const v = prompt(`[${rowData.productCode}] ${rowData.productName}\n센터: ${rowData.centerName}\n납기일: ${rowData.dueDate}\n\n이마트 미출 수량: ${rowData.officialQty}개\n\n추가할 수량을 입력하세요:`);
+            if (v === null) return;
+            newQty = parseInt(v, 10);
+            if (!Number.isFinite(newQty) || newQty <= 0) { alert("올바른 수량을 입력해주세요."); return; }
+          }
+          try {
+            await api("/api/unship-compare/adjust", "POST", {
+              partnerType: key,
+              dueDate: rowData.dueDate, productCode: rowData.productCode,
+              productName: rowData.productName, centerName: rowData.centerName,
+              action: act, newQty, note
+            });
+            await loadCompare();
+          } catch (e) { alert(e.message); }
+        });
+      });
+    };
+
+    const loadCompare = async () => {
+      if (!ucTableEl) return;
+      const start = ucStartInput?.value || "";
+      const end = ucEndInput?.value || "";
+      try {
+        ucTableEl.innerHTML = `<div class="uc-empty">불러오는 중...</div>`;
+        const res = await api(`/api/unship-compare?partnerType=${key}&startDate=${start}&endDate=${end}`);
+        if (ucGuide) ucGuide.classList.toggle("hidden", res.hasOfficial);
+        if (ucUploadHint) {
+          ucUploadHint.textContent = res.hasOfficial
+            ? `이마트 공식 미출 ${res.officialRowCount}건 로드됨`
+            : "이마트에서 받은 공식 미출 내역 파일을 업로드합니다.";
+        }
+        renderCompareTable(res.rows || []);
+      } catch (e) {
+        ucTableEl.innerHTML = `<div class="uc-empty" style="color:var(--red);">${esc(e.message)}</div>`;
+      }
+    };
+
+    tabCompareBtn.addEventListener("click", async () => {
+      switchTopTab("compare");
+      await loadCompare();
+    });
+
+    ucSearchBtn?.addEventListener("click", loadCompare);
+    ucStartInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") loadCompare(); });
+    ucEndInput?.addEventListener("keydown", (e) => { if (e.key === "Enter") loadCompare(); });
+
+    ucUploadBtn?.addEventListener("click", async () => {
+      const file = ucFile?.files?.[0];
+      if (!file) { alert("파일을 선택해주세요."); return; }
+      try {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+        if (!raw.length) throw new Error("파일에 데이터가 없습니다.");
+        const headers = Object.keys(raw[0]);
+        const findCol = (...aliases) => headers.find((h) => aliases.some((a) => String(h).includes(a))) || null;
+        const colDueDate = findCol("납기일자", "납기일", "DueDate", "dueDate", "납기");
+        const colCode = findCol("상품코드", "품목코드", "ItemCode", "itemcode", "코드");
+        const colName = findCol("상품명", "품목명", "ItemName", "itemname", "상품");
+        const colCenter = findCol("물류센터", "센터명", "센터", "Center", "center");
+        const colQty = findCol("미출수량", "미납수량", "UnshipQty", "미출", "미납", "수량");
+        if (!colCode || !colQty) throw new Error(`필수 컬럼을 찾을 수 없습니다.\n상품코드: ${colCode||"없음"} / 미출수량: ${colQty||"없음"}`);
+        const rows = raw.map((r) => ({
+          dueDate: String(r[colDueDate] ?? "").trim(),
+          productCode: String(r[colCode] ?? "").trim(),
+          productName: String(r[colName] ?? "").trim(),
+          centerName: String(r[colCenter] ?? "").trim(),
+          officialQty: Number(String(r[colQty] ?? "0").replace(/,/g, ""))
+        })).filter((r) => r.productCode);
+        const res = await api(`/api/unship-compare/upload?partnerType=${key}`, "POST", { rows });
+        alert(`${res.count}건 업로드 완료`);
+        if (ucFile) ucFile.value = "";
+        await loadCompare();
+      } catch (e) { alert(`업로드 오류: ${e.message}`); }
+    });
+
+    ucClearBtn?.addEventListener("click", async () => {
+      if (!confirm("이마트 공식 미출 데이터와 조정 기록을 모두 초기화합니다. 계속하시겠습니까?")) return;
+      await api("/api/unship-compare/clear", "POST", { partnerType: key });
+      await loadCompare();
+    });
+  }
+
   switchTopTab("orders");
 
   const renderBatchList = (batches = [], appliedId = "") => {

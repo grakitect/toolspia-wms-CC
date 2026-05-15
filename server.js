@@ -210,6 +210,14 @@ function normalizeDb(db) {
     db.outboundOrderUpload.confirmedLists = {};
   }
   if (!Array.isArray(db.outboundCodeMasters)) db.outboundCodeMasters = [];
+  if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
+  for (const pt of ["emart", "daiso", "lotte"]) {
+    if (!db.unshipCompare[pt] || typeof db.unshipCompare[pt] !== "object") {
+      db.unshipCompare[pt] = { officialRows: [], adjustments: [] };
+    }
+    if (!Array.isArray(db.unshipCompare[pt].officialRows)) db.unshipCompare[pt].officialRows = [];
+    if (!Array.isArray(db.unshipCompare[pt].adjustments)) db.unshipCompare[pt].adjustments = [];
+  }
 }
 
 function sendJson(res, code, payload) {
@@ -4465,6 +4473,141 @@ async function handleApi(req, res, urlObj) {
       lowStock,
       todayMoves
     });
+  }
+
+  // ── 미출 대조 ────────────────────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/unship-compare") {
+    const partnerType = normalizeOutboundPartnerType(urlObj.searchParams.get("partnerType") || "");
+    if (!partnerType) return sendJson(res, 400, { error: "partnerType 필요" });
+    const startDate = String(urlObj.searchParams.get("startDate") || "").trim();
+    const endDate = String(urlObj.searchParams.get("endDate") || "").trim();
+
+    // WMS 미출 집계 (dueDate + productCode + centerName)
+    const wmsLines = (db.outboundOrderUpload.lines || []).filter(
+      (x) => x.partnerType === partnerType && String(x.unshipStatus || "").trim() === "미출"
+    );
+    const wmsMap = new Map();
+    for (const x of wmsLines) {
+      const dd = String(x.dueDate || "").trim();
+      if (startDate && dd < startDate) continue;
+      if (endDate && dd > endDate) continue;
+      const k = `${dd}|||${String(x.productCode || "").trim()}|||${String(x.centerName || "").trim()}`;
+      if (!wmsMap.has(k)) wmsMap.set(k, { dueDate: dd, productCode: String(x.productCode || "").trim(), productName: String(x.productName || "").trim(), centerName: String(x.centerName || "").trim(), wmsQty: 0 });
+      wmsMap.get(k).wmsQty += Number(x.orderQty) || 0;
+    }
+
+    // 이마트 공식 미출 집계
+    const officialRows = (db.unshipCompare[partnerType]?.officialRows || []);
+    const officialMap = new Map();
+    for (const r of officialRows) {
+      const dd = String(r.dueDate || "").trim();
+      if (startDate && dd < startDate) continue;
+      if (endDate && dd > endDate) continue;
+      const k = `${dd}|||${String(r.productCode || "").trim()}|||${String(r.centerName || "").trim()}`;
+      if (!officialMap.has(k)) officialMap.set(k, { dueDate: dd, productCode: String(r.productCode || "").trim(), productName: String(r.productName || "").trim(), centerName: String(r.centerName || "").trim(), officialQty: 0 });
+      officialMap.get(k).officialQty += Number(r.officialQty) || 0;
+    }
+
+    // 조정 기록 (최신 1건)
+    const adjMap = new Map();
+    for (const a of (db.unshipCompare[partnerType]?.adjustments || [])) {
+      const k = `${String(a.dueDate||"").trim()}|||${String(a.productCode||"").trim()}|||${String(a.centerName||"").trim()}`;
+      if (!adjMap.has(k) || a.appliedAt > adjMap.get(k).appliedAt) adjMap.set(k, a);
+    }
+
+    // 전체 키 합집합
+    const allKeys = new Set([...wmsMap.keys(), ...officialMap.keys()]);
+    const rows = [];
+    for (const k of allKeys) {
+      const wms = wmsMap.get(k) || {};
+      const off = officialMap.get(k) || {};
+      const adj = adjMap.get(k) || null;
+      const dueDate = wms.dueDate || off.dueDate || "";
+      const productCode = wms.productCode || off.productCode || "";
+      const productName = wms.productName || off.productName || "";
+      const centerName = wms.centerName || off.centerName || "";
+      const wmsQty = wms.wmsQty || 0;
+      const officialQty = off.officialQty || 0;
+      const diff = officialQty - wmsQty;
+      rows.push({ dueDate, productCode, productName, centerName, wmsQty, officialQty, diff, adjustment: adj });
+    }
+    rows.sort((a, b) => {
+      const dd = String(a.dueDate || "").localeCompare(String(b.dueDate || ""));
+      if (dd !== 0) return dd;
+      return String(a.productCode || "").localeCompare(String(b.productCode || ""), "ko");
+    });
+
+    const hasOfficial = officialRows.length > 0;
+    return sendJson(res, 200, { rows, hasOfficial, officialRowCount: officialRows.length });
+  }
+
+  if (req.method === "POST" && pathname === "/api/unship-compare/upload") {
+    try {
+      const partnerType = normalizeOutboundPartnerType(urlObj.searchParams.get("partnerType") || "");
+      if (!partnerType) throw new Error("partnerType 필요");
+      const body = await parseBody(req);
+      const rows = Array.isArray(body.rows) ? body.rows : [];
+      if (!rows.length) throw new Error("업로드할 데이터가 없습니다.");
+      const now = new Date().toISOString();
+      const parsed = rows.map((r) => ({
+        dueDate: String(r.dueDate || "").trim(),
+        productCode: String(r.productCode || "").trim(),
+        productName: String(r.productName || "").trim(),
+        centerName: String(r.centerName || "").trim(),
+        officialQty: Math.max(0, Math.trunc(Number(String(r.officialQty || "0").replace(/,/g, "")) || 0)),
+        uploadedAt: now
+      })).filter((r) => r.productCode && r.officialQty > 0);
+      if (!parsed.length) throw new Error("유효한 행이 없습니다. 상품코드·미출수량을 확인해주세요.");
+      db.unshipCompare[partnerType].officialRows = parsed;
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, count: parsed.length });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/unship-compare/adjust") {
+    try {
+      const body = await parseBody(req);
+      const partnerType = normalizeOutboundPartnerType(body.partnerType || "");
+      if (!partnerType) throw new Error("partnerType 필요");
+      const { dueDate, productCode, productName, centerName, action, newQty, note } = body;
+      if (!dueDate || !productCode || !action) throw new Error("dueDate, productCode, action 필요");
+      const validActions = ["modify_qty", "add_product", "confirmed", "none"];
+      if (!validActions.includes(action)) throw new Error("action 값 오류");
+      const now = new Date().toISOString();
+      const adj = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        dueDate: String(dueDate).trim(),
+        productCode: String(productCode).trim(),
+        productName: String(productName || "").trim(),
+        centerName: String(centerName || "").trim(),
+        action,
+        newQty: action !== "confirmed" ? Math.max(0, Math.trunc(Number(newQty) || 0)) : null,
+        note: String(note || "").trim(),
+        appliedAt: now
+      };
+      db.unshipCompare[partnerType].adjustments = db.unshipCompare[partnerType].adjustments || [];
+      // 이전 동일 키 기록 유지 + 신규 추가
+      db.unshipCompare[partnerType].adjustments.push(adj);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, adj });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/unship-compare/clear") {
+    try {
+      const body = await parseBody(req);
+      const partnerType = normalizeOutboundPartnerType(body.partnerType || "");
+      if (!partnerType) throw new Error("partnerType 필요");
+      db.unshipCompare[partnerType] = { officialRows: [], adjustments: [] };
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
   }
 
   return sendJson(res, 404, { error: "Not found" });
