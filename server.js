@@ -4931,7 +4931,7 @@ async function handleApi(req, res, urlObj) {
           await sleep(200);
           await snap("02-id-filled");
 
-          // PW 필드 - 모든 frame 재탐색 (activeFrame 포함)
+          // PW 필드 - 모든 frame 재탐색
           session.progress = "비밀번호 입력 중...";
           const pwSels = ["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"];
           let pwEl = null;
@@ -4950,19 +4950,28 @@ async function handleApi(req, res, urlObj) {
             throw new Error(`비밀번호 입력창을 찾지 못했습니다. 현재 화면: ${bodyText}`);
           }
 
-          // PW 입력 - 방법1: click + keyboard.type (에러 무시)
+          // PW 입력 - 방법1: 마우스 좌표로 직접 클릭 후 keyboard.type
           let pwVal = "";
           try {
-            await pwEl.click({ clickCount: 3 });
-            await sleep(150);
-            await page.keyboard.type(ecvanPw, { delay: 30 });
-            await sleep(200);
-            pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+            const box = await pwEl.boundingBox();
+            if (box) {
+              await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+              await sleep(150);
+              // 실제로 PW 필드에 포커스 됐는지 확인
+              const focused = await page.evaluate(() => {
+                const a = document.activeElement;
+                return a ? (a.type === "password" || a.name === "pw" || a.id === "pw") : false;
+              }).catch(() => false);
+              session.progress = `비밀번호 시도1: 클릭${focused ? "(포커스OK)" : "(포커스실패)"} 타이핑 중...`;
+              await page.keyboard.type(ecvanPw, { delay: 30 });
+              await sleep(200);
+              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+            }
           } catch (_) {}
           session.progress = `비밀번호 시도1: ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도2"}`;
 
           if (!pwVal) {
-            // 방법2: elementHandle.type() - 내부적으로 focus 후 키 입력
+            // 방법2: elementHandle.type() (내부적으로 focus 처리)
             try {
               await pwEl.type(ecvanPw, { delay: 30 });
               await sleep(200);
@@ -4972,12 +4981,12 @@ async function handleApi(req, res, urlObj) {
           }
 
           if (!pwVal) {
-            // 방법3: JS evaluate로 직접 value 설정 (React/Vue 호환)
+            // 방법3: React/Vue 호환 native setter
             try {
               await pwEl.evaluate((el, pw) => {
                 const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
                 if (setter) setter.call(el, pw); else el.value = pw;
-                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new InputEvent("input", { bubbles: true, data: pw }));
                 el.dispatchEvent(new Event("change", { bubbles: true }));
               }, ecvanPw);
               await sleep(100);
