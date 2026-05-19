@@ -5262,49 +5262,42 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // OTP 확인 후 팝업 닫기 - 최대 12초 대기, 다양한 방법 시도
-          session.progress = "인증 완료 팝업 닫는 중...";
-          await sleep(1500); // 팝업 뜰 때까지 대기
+          // OTP 확인 후: 팝업 닫기 대신 페이지 이동 대기
+          // "인증되었습니다" 팝업의 확인 버튼을 클릭하면 대시보드로 이동
+          session.progress = "인증 완료 - 대시보드 이동 대기 중...";
+          await sleep(1500);
           await snap("06-after-otp");
 
-          for (let i = 0; i < 10; i++) {
-            await sleep(800);
+          // 최대 15초: 팝업이 있으면 닫고, 페이지 이동을 기다림
+          const otpUrl = page.url();
+          for (let i = 0; i < 15; i++) {
+            await sleep(1000);
 
-            // "확인" / "닫기" 버튼 탐색 - elementHandle.click()
-            let clicked = false;
-            for (const frame of allFrames()) {
-              try {
+            // 팝업 닫기 시도 (try-catch로 안전하게)
+            try {
+              for (const frame of [page, ...page.frames()]) {
                 const btnEl = await frame.evaluateHandle(() => {
                   const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
                   return all.find(e => {
                     const t = (e.textContent || e.value || "").replace(/\s/g,"").trim();
-                    return t === "확인" || t === "닫기" || t === "확인하기" || t === "닫기";
+                    return t === "확인" || t === "닫기";
                   }) || null;
-                });
+                }).catch(() => ({ asElement: () => null }));
                 const btn = btnEl.asElement();
-                if (btn) { await btn.click(); clicked = true; break; }
-              } catch {}
-            }
-
-            // X 버튼 시도
-            if (!clicked) {
-              for (const frame of allFrames()) {
-                try {
-                  for (const sel of [".close","[class*='close']","[class*='Close']","button[aria-label*='닫']"]) {
-                    const xEl = await frame.$(sel);
-                    if (xEl) { await xEl.click(); clicked = true; break; }
-                  }
-                } catch {}
-                if (clicked) break;
+                if (btn) { await btn.click().catch(() => {}); break; }
               }
-            }
+            } catch {}
 
-            // 팝업이 사라졌는지 확인
-            const stillOpen = await getAllText().then(t => t.includes("인증되었습니다")).catch(() => false);
-            session.progress = `팝업 닫기 시도${i+1}: ${clicked ? "클릭됨" : "버튼없음"} / ${stillOpen ? "아직열림" : "닫힘"}`;
-            if (!stillOpen) break;
+            // 페이지 이동 감지 → 팝업 닫힌 것으로 간주
+            const currentUrl = page.url();
+            const pageText = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
+            const popupGone = !pageText.includes("인증되었습니다") && !pageText.includes("휴대폰 번호 인증");
+
+            session.progress = `인증 후 대기 ${i+1}초: ${popupGone ? "팝업닫힘→수집시작" : "팝업대기중"}`;
+            if (popupGone) break;
           }
 
+          await snap("07-before-collect");
           await session.collect();
         } catch (e) {
           const url = await page.url().catch(() => "");
