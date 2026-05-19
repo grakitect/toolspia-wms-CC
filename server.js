@@ -4989,30 +4989,60 @@ async function handleApi(req, res, urlObj) {
           await snap("03-pw-filled");
           if (!pwVal) throw new Error("비밀번호 입력 실패 (3가지 방법 모두 값이 설정되지 않았습니다)");
 
-          session.progress = "로그인 버튼 클릭 중...";
-          // 로그인 버튼 - activeFrame에서 elementHandle.click()
-          const loginBtnEl = await activeFrame.evaluateHandle(() => {
-            return [...document.querySelectorAll("button,input[type='submit'],a")]
-              .find(e => (e.textContent || e.value || "").trim() === "로그인") || null;
-          });
-          const loginEl = loginBtnEl.asElement();
-          if (loginEl) {
-            await loginEl.click();
-          } else {
-            await page.keyboard.press("Enter");
-          }
-
-          session.progress = "로그인 처리 중... (페이지 이동 대기)";
-          await sleep(3000);
-          await snap("04-after-login");
-
-          // 모든 frame 텍스트 수집
+          // 모든 frame 텍스트 수집 (여러 곳에서 사용)
           const getAllText = async () => {
             const texts = await Promise.all(
               [page, ...page.frames()].map(f => f.evaluate(() => document.body?.innerText || "").catch(() => ""))
             );
             return texts.join("\n");
           };
+
+          session.progress = "로그인 버튼 클릭 중...";
+          const loginUrl = page.url();
+
+          // 로그인 버튼 찾기 - 텍스트 공백 무시, 여러 방법 시도
+          const loginBtnEl = await activeFrame.evaluateHandle(() => {
+            const all = [...document.querySelectorAll("button,input[type='submit'],input[type='button'],a")];
+            return all.find(e => {
+              const t = (e.textContent || e.value || "").replace(/\s+/g, "").trim();
+              return t === "로그인" || t === "LOGIN" || t === "login";
+            }) || null;
+          });
+          const loginEl = loginBtnEl.asElement();
+          if (loginEl) {
+            await loginEl.click();
+            session.progress = "로그인 버튼 클릭 완료, 페이지 이동 대기 중...";
+          } else {
+            // 버튼을 못 찾으면 PW 필드에서 Enter
+            await page.keyboard.press("Enter");
+            session.progress = "Enter 키로 로그인 시도 중...";
+          }
+
+          // 페이지가 실제로 이동했는지 확인 (최대 8초)
+          let navigated = false;
+          for (let i = 0; i < 8; i++) {
+            await sleep(1000);
+            const currentUrl = page.url();
+            if (currentUrl !== loginUrl) { navigated = true; break; }
+          }
+          await snap("04-after-login");
+
+          if (!navigated) {
+            // URL이 안 바뀌었으면 로그인 버튼 클릭이 실패한 것 → Enter로 재시도
+            session.progress = "페이지 이동 없음, Enter로 재시도...";
+            await page.keyboard.press("Enter");
+            for (let i = 0; i < 8; i++) {
+              await sleep(1000);
+              if (page.url() !== loginUrl) { navigated = true; break; }
+            }
+          }
+
+          if (!navigated) {
+            const bodyText = await getAllText();
+            throw new Error(`로그인 후 페이지 이동이 없습니다. 로그인 버튼을 찾지 못했거나 자격증명 오류. 화면: ${bodyText.slice(0, 200)}`);
+          }
+
+          session.progress = "페이지 이동 확인, SMS 인증 화면 대기 중...";
 
           // 팝업 닫기 (닫기/확인/오늘하루보지않기 등 버튼 모두 클릭)
           const closePopups = async () => {
@@ -5026,31 +5056,16 @@ async function handleApi(req, res, urlObj) {
             }).catch(() => {});
           };
 
-          // OTP 화면 대기:
-          // 조건 1: 로그인 폼(PW 필드)이 사라졌는지 확인 → 실제로 로그인 후 페이지 이동됨
-          // 조건 2: OTP 관련 텍스트 확인
-          session.progress = "SMS 인증 화면 대기 중...";
+          // OTP 화면 대기: URL이 이미 바뀐 상태이므로 텍스트와 OTP 입력란 존재 여부 확인
           let otpReached = false;
           const deadline = Date.now() + 45000;
           while (Date.now() < deadline) {
             await closePopups();
-
-            // 로그인 폼이 남아있으면 아직 로그인 전
-            const pwStillPresent = await (async () => {
-              for (const frame of [page, ...page.frames()]) {
-                for (const sel of pwSels) {
-                  try { if (await frame.$(sel)) return true; } catch {}
-                }
-              }
-              return false;
-            })();
-
-            if (!pwStillPresent) {
-              const t = await getAllText();
-              if (t.includes("인증번호") || t.includes("휴대폰 인증") || t.includes("OTP") || t.includes("인증 번호") || t.includes("인증코드")) {
-                otpReached = true; break;
-              }
-              // 로그인 폼은 사라졌지만 OTP 화면도 아닌 경우 (대시보드 등) - 계속 대기
+            const t = await getAllText();
+            // OTP 입력 필드가 실제로 있는지 확인 (6자리 숫자 입력란)
+            const hasOtpInput = await page.$("input[maxlength='6'],input[maxlength='8'],input[name*='otp'],input[name*='auth'],input[id*='otp'],input[id*='auth'],input[id*='certNo'],input[name*='certNo']").catch(() => null);
+            if (hasOtpInput || t.includes("인증번호를 입력") || t.includes("인증번호 입력") || t.includes("휴대폰 인증") || t.includes("인증코드를 입력")) {
+              otpReached = true; break;
             }
             await sleep(1000);
           }
