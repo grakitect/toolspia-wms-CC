@@ -5222,20 +5222,23 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // 확인 후 팝업 닫기 (닫힐 때까지만, 최대 3회)
+          // 확인 후 팝업 닫기 - elementHandle.click() 사용 (isTrusted 보장), 최대 5회
           session.progress = "팝업 닫는 중...";
-          for (let i = 0; i < 3; i++) {
-            await sleep(600);
-            const closed = await page.evaluate(() => {
-              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-              let any = false;
-              btns.forEach(b => {
-                const t = (b.textContent || b.value || "").trim();
-                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
-              });
-              return any;
-            }).catch(() => false);
+          const popupKeywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기", "확 인", "닫 기"];
+          for (let i = 0; i < 5; i++) {
+            await sleep(800);
+            let closed = false;
+            for (const frame of allFrames()) {
+              const btnEl = await frame.evaluateHandle((kws) => {
+                const all = [...document.querySelectorAll("button,a,input[type=button],input[type=submit]")];
+                return all.find(e => {
+                  const t = (e.textContent || e.value || "").trim();
+                  return kws.some(k => t === k || t.includes(k));
+                }) || null;
+              }, popupKeywords);
+              const btn = btnEl.asElement();
+              if (btn) { await btn.click().catch(() => {}); closed = true; break; }
+            }
             if (!closed) break;
           }
 
