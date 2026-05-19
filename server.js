@@ -5072,49 +5072,65 @@ async function handleApi(req, res, urlObj) {
             session.progress = "페이지 이동 확인, SMS 인증 화면 대기 중...";
           }
 
-          // 팝업 닫기 (닫기/확인/오늘하루보지않기 등 버튼 모두 클릭)
+          // 팝업 닫기 - elementHandle.click() 사용 (isTrusted 보장)
           const closePopups = async () => {
-            await page.evaluate(() => {
-              const keywords = ["닫기", "닫 기", "확인", "close", "Close", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-              btns.forEach(b => {
-                const t = (b.textContent || b.value || "").trim();
-                if (keywords.some(k => t === k || t.includes(k))) b.click();
-              });
-            }).catch(() => {});
+            const kws = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+            for (const frame of [page, ...page.frames()]) {
+              try {
+                const btnEl = await frame.evaluateHandle((kws) => {
+                  const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
+                  return all.find(e => {
+                    const t = (e.textContent || e.value || "").trim();
+                    return kws.some(k => t === k || t.includes(k));
+                  }) || null;
+                }, kws);
+                const btn = btnEl.asElement();
+                if (btn) { await btn.click().catch(() => {}); break; }
+              } catch {}
+            }
           };
 
-          // OTP 화면 대기: 텍스트 + 입력 필드 폭넓게 탐색
+          // OTP 화면 대기: 팝업 닫은 후 OTP 입력 필드 확인
           let otpReached = false;
-          const otpTextKeywords = ["인증번호", "인증 번호", "인증코드", "휴대폰 인증", "OTP", "otp", "SMS 인증", "문자 인증", "핀번호", "인증하기", "번호를 입력", "코드를 입력"];
           const otpInputSel = [
             "input[maxlength='4']","input[maxlength='6']","input[maxlength='8']",
-            "input[name*='otp']","input[name*='auth']","input[name*='cert']","input[name*='pin']","input[name*='code']",
-            "input[id*='otp']","input[id*='auth']","input[id*='cert']","input[id*='pin']","input[id*='code']",
+            "input[name*='otp']","input[name*='auth']","input[name*='cert']","input[name*='pin']",
+            "input[id*='otp']","input[id*='auth']","input[id*='cert']",
             "input[placeholder*='인증']","input[placeholder*='번호']"
           ].join(",");
 
           const deadline = Date.now() + 60000;
           while (Date.now() < deadline) {
+            // 팝업 먼저 닫기
             await closePopups();
-            const t = await getAllText();
-            const currentUrl = page.url();
-            session.progress = `SMS 화면 대기 중... (${Math.ceil((deadline - Date.now()) / 1000)}초 남음)`;
+            await sleep(400);
 
-            // 텍스트 키워드 확인
-            const hasText = otpTextKeywords.some(k => t.includes(k));
-            // 모든 frame에서 OTP 입력 필드 확인
+            // OTP 입력 필드가 실제로 보이는지 확인
             let hasInput = false;
             for (const frame of [page, ...page.frames()]) {
-              try { if (await frame.$(otpInputSel)) { hasInput = true; break; } } catch {}
+              try {
+                const el = await frame.$(otpInputSel);
+                if (el) {
+                  const visible = await el.evaluate(e => {
+                    const r = e.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                  }).catch(() => false);
+                  if (visible) { hasInput = true; break; }
+                }
+              } catch {}
             }
 
-            if (hasText || hasInput) {
+            const t = await getAllText();
+            const hasText = ["인증번호", "휴대폰 번호 인증", "OTP", "인증코드"].some(k => t.includes(k));
+
+            session.progress = `OTP 화면 대기 중... 입력창:${hasInput} 텍스트:${hasText} (${Math.ceil((deadline - Date.now()) / 1000)}초)`;
+
+            if (hasInput) {
               otpReached = true;
-              session.progress = `OTP 화면 감지 (텍스트:${hasText}, 입력창:${hasInput}) - 인증번호 입력 대기`;
+              session.progress = "SMS 인증번호를 WMS에 입력해주세요";
               break;
             }
-            await sleep(1000);
+            await sleep(800);
           }
 
           await snap("05-otp-check");
@@ -5227,12 +5243,10 @@ async function handleApi(req, res, urlObj) {
           await sleep(1500); // 팝업 뜰 때까지 대기
           await snap("06-after-otp");
 
-          for (let i = 0; i < 8; i++) {
-            // 방법1: Enter 키 (팝업에 포커스 있으면 바로 닫힘)
-            await page.keyboard.press("Enter");
-            await sleep(300);
+          for (let i = 0; i < 10; i++) {
+            await sleep(800);
 
-            // 방법2: "확인" 버튼 텍스트로 탐색해서 elementHandle.click()
+            // "확인" / "닫기" 버튼 탐색 - elementHandle.click()
             let clicked = false;
             for (const frame of allFrames()) {
               try {
@@ -5240,7 +5254,7 @@ async function handleApi(req, res, urlObj) {
                   const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
                   return all.find(e => {
                     const t = (e.textContent || e.value || "").replace(/\s/g,"").trim();
-                    return t === "확인" || t === "닫기" || t === "확인하기";
+                    return t === "확인" || t === "닫기" || t === "확인하기" || t === "닫기";
                   }) || null;
                 });
                 const btn = btnEl.asElement();
@@ -5248,11 +5262,11 @@ async function handleApi(req, res, urlObj) {
               } catch {}
             }
 
-            // 방법3: X 버튼 (알림창 우상단 × 버튼)
+            // X 버튼 시도
             if (!clicked) {
               for (const frame of allFrames()) {
                 try {
-                  for (const sel of [".close","[class*='close']","[class*='Close']","button[aria-label*='닫']","button[title*='닫']"]) {
+                  for (const sel of [".close","[class*='close']","[class*='Close']","button[aria-label*='닫']"]) {
                     const xEl = await frame.$(sel);
                     if (xEl) { await xEl.click(); clicked = true; break; }
                   }
@@ -5261,15 +5275,10 @@ async function handleApi(req, res, urlObj) {
               }
             }
 
-            // 방법4: Escape
-            await page.keyboard.press("Escape");
-            await sleep(700);
-
-            // 팝업이 사라졌는지 확인 (알림창 텍스트가 없으면 닫힌 것)
+            // 팝업이 사라졌는지 확인
             const stillOpen = await getAllText().then(t => t.includes("인증되었습니다")).catch(() => false);
-            session.progress = `팝업 닫기 시도${i+1}: ${stillOpen ? "아직 열림" : "닫힘"}`;
+            session.progress = `팝업 닫기 시도${i+1}: ${clicked ? "클릭됨" : "버튼없음"} / ${stillOpen ? "아직열림" : "닫힘"}`;
             if (!stillOpen) break;
-            await sleep(500);
           }
 
           await session.collect();
