@@ -4695,50 +4695,74 @@ async function handleApi(req, res, urlObj) {
       // ── 수집 로직 (OTP 후 또는 직접 로그인 후 공통) ──
       session.collect = async () => {
         const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
-        const _click = async (text) => page.evaluate((t) => {
-          const el = [...document.querySelectorAll("button,a,input[type=button],input[type=submit]")]
-            .find(e => (e.textContent || e.value || "").trim() === t);
-          if (el) { el.click(); return true; } return false;
-        }, text);
+        const _snap = async (name) => page.screenshot({ path: path.join(__dirname, "ecvan-debug", `collect-${name}.png`), fullPage: true }).catch(() => {});
+        const _allFrames = () => [page, ...page.frames()];
+
+        // elementHandle.click()으로 텍스트 버튼 클릭
+        const _clickByText = async (text, timeout = 5000) => {
+          const deadline = Date.now() + timeout;
+          while (Date.now() < deadline) {
+            for (const frame of _allFrames()) {
+              try {
+                const el = await frame.evaluateHandle((t) => {
+                  const all = [...document.querySelectorAll("a,button,input[type=button],input[type=submit],li,span,td")];
+                  return all.find(e => (e.textContent || e.value || "").trim() === t) || null;
+                }, text);
+                const btn = el.asElement();
+                if (btn) { await btn.click(); return true; }
+              } catch {}
+            }
+            await _sleep(500);
+          }
+          return false;
+        };
+
         const _closePopups = async () => {
           for (let i = 0; i < 3; i++) {
             await _sleep(500);
-            const closed = await page.evaluate(() => {
-              const keywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-              const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-              let any = false;
-              btns.forEach(b => {
-                const t = (b.textContent || b.value || "").trim();
-                if (keywords.some(k => t === k || t.includes(k))) { b.click(); any = true; }
-              });
-              return any;
-            }).catch(() => false);
+            let closed = false;
+            for (const frame of _allFrames()) {
+              try {
+                const el = await frame.evaluateHandle(() => {
+                  const kws = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+                  const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+                  return btns.find(b => { const t = (b.textContent||b.value||"").trim(); return kws.some(k => t===k||t.includes(k)); }) || null;
+                });
+                const btn = el.asElement();
+                if (btn) { await btn.click().catch(() => {}); closed = true; break; }
+              } catch {}
+            }
             if (!closed) break;
           }
         };
 
         session.status = "navigating"; session.progress = "팝업 닫는 중...";
         await _closePopups();
-        await _sleep(500);
-        session.progress = "미납사유 메뉴로 이동 중...";
+        await _sleep(800);
+        await _snap("01-after-login");
 
         // 납품 메뉴 클릭
-        await page.evaluate(() => {
-          const el = [...document.querySelectorAll("a")].find(a => a.textContent.trim() === "납품");
-          if (el) el.click();
-        });
-        await _sleep(1200);
+        session.progress = "납품 메뉴 클릭 중...";
+        const clickedNapum = await _clickByText("납품");
+        session.progress = `납품 메뉴: ${clickedNapum ? "클릭됨" : "못찾음"} → 미납사유등록 탐색 중...`;
+        await _sleep(1500);
+        await _snap("02-napum");
 
         // 미납사유등록 클릭
-        await page.evaluate(() => {
-          const el = [...document.querySelectorAll("a")].find(a => a.textContent.trim() === "미납사유등록");
-          if (el) el.click();
-        });
+        const clickedMenu = await _clickByText("미납사유등록");
+        session.progress = `미납사유등록: ${clickedMenu ? "클릭됨" : "못찾음"} → 페이지 로딩 중...`;
         await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
         await _sleep(1500);
+        await _snap("03-minapsa");
 
-        await _click("상품별"); await _sleep(500);
-        await _click("조회"); await _sleep(2500);
+        // 상품별 탭 + 조회
+        session.progress = "상품별 탭 클릭 중...";
+        await _clickByText("상품별");
+        await _sleep(500);
+        session.progress = "조회 중...";
+        await _clickByText("조회");
+        await _sleep(2500);
+        await _snap("04-result");
 
         session.status = "collecting"; session.progress = "상품 목록 수집 중...";
 
