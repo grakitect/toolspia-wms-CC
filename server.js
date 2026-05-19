@@ -5222,24 +5222,38 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // 확인 후 팝업 닫기 - elementHandle.click() 사용 (isTrusted 보장), 최대 5회
-          session.progress = "팝업 닫는 중...";
-          const popupKeywords = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기", "확 인", "닫 기"];
-          for (let i = 0; i < 5; i++) {
-            await sleep(800);
-            let closed = false;
+          // OTP 확인 후 팝업 닫기 (인증되었습니다 등) - 최대 10초 대기 후 닫기
+          session.progress = "인증 완료 팝업 닫는 중...";
+          const popupKeywords = ["확인", "닫기", "닫 기", "확 인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+          const closeOnePopup = async () => {
             for (const frame of allFrames()) {
+              // 텍스트 버튼 탐색
               const btnEl = await frame.evaluateHandle((kws) => {
-                const all = [...document.querySelectorAll("button,a,input[type=button],input[type=submit]")];
+                const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
                 return all.find(e => {
                   const t = (e.textContent || e.value || "").trim();
                   return kws.some(k => t === k || t.includes(k));
                 }) || null;
               }, popupKeywords);
               const btn = btnEl.asElement();
-              if (btn) { await btn.click().catch(() => {}); closed = true; break; }
+              if (btn) { await btn.click().catch(() => {}); return true; }
+              // X 닫기 버튼도 시도
+              const xEl = await frame.$(".modal-close, .close, [class*='close'], [aria-label*='닫'], button[title*='닫']").catch(() => null);
+              if (xEl) { await xEl.click().catch(() => {}); return true; }
             }
-            if (!closed) break;
+            return false;
+          };
+
+          // 최대 10초 동안 팝업이 뜨면 닫기
+          for (let i = 0; i < 10; i++) {
+            await sleep(1000);
+            const closed = await closeOnePopup();
+            if (closed) {
+              await sleep(500);
+              // 추가 팝업이 있으면 한 번 더
+              await closeOnePopup();
+              break;
+            }
           }
 
           await session.collect();
