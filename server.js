@@ -5167,23 +5167,60 @@ async function handleApi(req, res, urlObj) {
 
       (async () => {
         try {
-          // OTP 입력
-          const otpSel = "input[placeholder*='인증번호'], input[name*='cert'], input[name*='otp'], input[id*='cert']";
-          try { await page.waitForSelector(otpSel, { timeout: 5000 }); } catch {}
-          const filled = await page.evaluate((otp, sel) => {
-            const el = document.querySelector(sel);
-            if (!el) { // 여러 text input 중 첫 번째 빈 것 시도
-              const inputs = [...document.querySelectorAll("input[type=text], input[type=number]")];
-              const target = inputs.find(i => !i.value);
-              if (target) { target.focus(); target.value = otp; target.dispatchEvent(new Event("input", {bubbles:true})); return true; }
-              return false;
-            }
-            el.focus(); el.value = otp; el.dispatchEvent(new Event("input", {bubbles:true})); return true;
-          }, otp, otpSel);
-          if (!filled) throw new Error("인증번호 입력창을 찾을 수 없습니다.");
+          const allFrames = () => [page, ...page.frames()];
 
+          // OTP 입력 필드 탐색 - 모든 frame
+          const otpSels = [
+            "input[placeholder*='인증번호']","input[placeholder*='인증 번호']","input[placeholder*='번호']",
+            "input[name*='cert']","input[name*='otp']","input[name*='auth']","input[name*='pin']","input[name*='code']",
+            "input[id*='cert']","input[id*='otp']","input[id*='auth']",
+            "input[maxlength='6']","input[maxlength='4']","input[maxlength='8']",
+            "input[type='number']","input[type='text']"
+          ];
+
+          let otpEl = null, otpFrame = null;
+          for (const frame of allFrames()) {
+            for (const sel of otpSels) {
+              try {
+                const el = await frame.$(sel);
+                if (el) {
+                  const visible = await el.evaluate(e => {
+                    const r = e.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0 && e.offsetParent !== null;
+                  }).catch(() => false);
+                  if (visible) { otpEl = el; otpFrame = frame; break; }
+                }
+              } catch {}
+            }
+            if (otpEl) break;
+          }
+          if (!otpEl) throw new Error("인증번호 입력창을 찾을 수 없습니다. (모든 frame 탐색 실패)");
+
+          // OTP 입력 - elementHandle.type() 사용
+          await otpEl.click({ clickCount: 3 });
+          await sleep(100);
+          await otpEl.type(otp, { delay: 50 });
           await sleep(300);
-          await clickByText("확인");
+          session.progress = `인증번호 ${otp} 입력 완료, 확인 버튼 클릭 중...`;
+
+          // 확인/인증 버튼 탐색 - 모든 frame, elementHandle.click()
+          const confirmTexts = ["확인", "인증", "확 인", "인 증", "로그인", "확인하기", "인증하기", "제출", "완료"];
+          let confirmed = false;
+          for (const frame of allFrames()) {
+            const btnEl = await frame.evaluateHandle((texts) => {
+              const all = [...document.querySelectorAll("button,input[type=button],input[type=submit],a")];
+              return all.find(e => {
+                const t = (e.textContent || e.value || "").replace(/\s+/g, "").trim();
+                return texts.some(k => t === k || t.includes(k));
+              }) || null;
+            }, confirmTexts);
+            const btn = btnEl.asElement();
+            if (btn) { await btn.click(); confirmed = true; break; }
+          }
+          if (!confirmed) {
+            // 버튼 못 찾으면 Enter
+            await page.keyboard.press("Enter");
+          }
 
           // 확인 후 팝업 닫기 (닫힐 때까지만, 최대 3회)
           session.progress = "팝업 닫는 중...";
@@ -5207,7 +5244,8 @@ async function handleApi(req, res, urlObj) {
           const url = await page.url().catch(() => "");
           session.status = "error";
           session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
-          browser.close().catch(() => {});
+          // OTP 단계 에러는 브라우저 유지 (재시도 가능하도록)
+          // browser.close() 하지 않음
         }
       })();
 
