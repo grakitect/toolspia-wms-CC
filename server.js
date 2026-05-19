@@ -5222,38 +5222,54 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // OTP 확인 후 팝업 닫기 (인증되었습니다 등) - 최대 10초 대기 후 닫기
+          // OTP 확인 후 팝업 닫기 - 최대 12초 대기, 다양한 방법 시도
           session.progress = "인증 완료 팝업 닫는 중...";
-          const popupKeywords = ["확인", "닫기", "닫 기", "확 인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-          const closeOnePopup = async () => {
-            for (const frame of allFrames()) {
-              // 텍스트 버튼 탐색
-              const btnEl = await frame.evaluateHandle((kws) => {
-                const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
-                return all.find(e => {
-                  const t = (e.textContent || e.value || "").trim();
-                  return kws.some(k => t === k || t.includes(k));
-                }) || null;
-              }, popupKeywords);
-              const btn = btnEl.asElement();
-              if (btn) { await btn.click().catch(() => {}); return true; }
-              // X 닫기 버튼도 시도
-              const xEl = await frame.$(".modal-close, .close, [class*='close'], [aria-label*='닫'], button[title*='닫']").catch(() => null);
-              if (xEl) { await xEl.click().catch(() => {}); return true; }
-            }
-            return false;
-          };
+          await sleep(1500); // 팝업 뜰 때까지 대기
+          await snap("06-after-otp");
 
-          // 최대 10초 동안 팝업이 뜨면 닫기
-          for (let i = 0; i < 10; i++) {
-            await sleep(1000);
-            const closed = await closeOnePopup();
-            if (closed) {
-              await sleep(500);
-              // 추가 팝업이 있으면 한 번 더
-              await closeOnePopup();
-              break;
+          for (let i = 0; i < 8; i++) {
+            // 방법1: Enter 키 (팝업에 포커스 있으면 바로 닫힘)
+            await page.keyboard.press("Enter");
+            await sleep(300);
+
+            // 방법2: "확인" 버튼 텍스트로 탐색해서 elementHandle.click()
+            let clicked = false;
+            for (const frame of allFrames()) {
+              try {
+                const btnEl = await frame.evaluateHandle(() => {
+                  const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
+                  return all.find(e => {
+                    const t = (e.textContent || e.value || "").replace(/\s/g,"").trim();
+                    return t === "확인" || t === "닫기" || t === "확인하기";
+                  }) || null;
+                });
+                const btn = btnEl.asElement();
+                if (btn) { await btn.click(); clicked = true; break; }
+              } catch {}
             }
+
+            // 방법3: X 버튼 (알림창 우상단 × 버튼)
+            if (!clicked) {
+              for (const frame of allFrames()) {
+                try {
+                  for (const sel of [".close","[class*='close']","[class*='Close']","button[aria-label*='닫']","button[title*='닫']"]) {
+                    const xEl = await frame.$(sel);
+                    if (xEl) { await xEl.click(); clicked = true; break; }
+                  }
+                } catch {}
+                if (clicked) break;
+              }
+            }
+
+            // 방법4: Escape
+            await page.keyboard.press("Escape");
+            await sleep(700);
+
+            // 팝업이 사라졌는지 확인 (알림창 텍스트가 없으면 닫힌 것)
+            const stillOpen = await getAllText().then(t => t.includes("인증되었습니다")).catch(() => false);
+            session.progress = `팝업 닫기 시도${i+1}: ${stillOpen ? "아직 열림" : "닫힘"}`;
+            if (!stillOpen) break;
+            await sleep(500);
           }
 
           await session.collect();
