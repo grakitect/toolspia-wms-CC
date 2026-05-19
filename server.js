@@ -4950,43 +4950,44 @@ async function handleApi(req, res, urlObj) {
             throw new Error(`비밀번호 입력창을 찾지 못했습니다. 현재 화면: ${bodyText}`);
           }
 
-          // PW 입력 - 방법1: puppeteer click + keyboard.type
-          await pwEl.click({ clickCount: 3 });
-          await sleep(150);
-          await page.keyboard.type(ecvanPw, { delay: 30 });
-          await sleep(200);
-
-          // 값이 실제로 들어갔는지 확인
-          let pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
-          session.progress = `비밀번호 입력 시도1: ${pwVal ? `성공(${pwVal.length}자)` : "실패, 방법2 시도중..."}`;
-
-          if (!pwVal) {
-            // 방법2: elementHandle.type() (내부적으로 focus 후 keyboard.type)
+          // PW 입력 - 방법1: click + keyboard.type (에러 무시)
+          let pwVal = "";
+          try {
             await pwEl.click({ clickCount: 3 });
-            await sleep(100);
-            await pwEl.type(ecvanPw, { delay: 30 }).catch(() => {});
+            await sleep(150);
+            await page.keyboard.type(ecvanPw, { delay: 30 });
             await sleep(200);
             pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
-            session.progress = `비밀번호 입력 시도2: ${pwVal ? `성공(${pwVal.length}자)` : "실패, 방법3 시도중..."}`;
+          } catch (_) {}
+          session.progress = `비밀번호 시도1: ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도2"}`;
+
+          if (!pwVal) {
+            // 방법2: elementHandle.type() - 내부적으로 focus 후 키 입력
+            try {
+              await pwEl.type(ecvanPw, { delay: 30 });
+              await sleep(200);
+              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+            } catch (_) {}
+            session.progress = `비밀번호 시도2: ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도3"}`;
           }
 
           if (!pwVal) {
-            // 방법3: React/Vue 호환 native setter + 이벤트 디스패치
-            await pwEl.evaluate((el, pw) => {
-              const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-              if (setter) setter.call(el, pw); else el.value = pw;
-              ["input", "change", "keyup"].forEach(type =>
-                el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))
-              );
-            }, ecvanPw);
-            await sleep(100);
-            pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
-            session.progress = `비밀번호 입력 시도3: ${pwVal ? `성공(${pwVal.length}자)` : "실패"}`;
+            // 방법3: JS evaluate로 직접 value 설정 (React/Vue 호환)
+            try {
+              await pwEl.evaluate((el, pw) => {
+                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                if (setter) setter.call(el, pw); else el.value = pw;
+                el.dispatchEvent(new Event("input", { bubbles: true }));
+                el.dispatchEvent(new Event("change", { bubbles: true }));
+              }, ecvanPw);
+              await sleep(100);
+              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+            } catch (_) {}
+            session.progress = `비밀번호 시도3: ${pwVal ? `성공(${pwVal.length}자)` : "실패"}`;
           }
 
-          await sleep(100);
           await snap("03-pw-filled");
-          if (!pwVal) throw new Error(`비밀번호 입력 실패. 3가지 방법 모두 값이 입력되지 않았습니다.`);
+          if (!pwVal) throw new Error("비밀번호 입력 실패 (3가지 방법 모두 값이 설정되지 않았습니다)");
 
           session.progress = "로그인 버튼 클릭 중...";
           // 로그인 버튼 - activeFrame에서 elementHandle.click()
