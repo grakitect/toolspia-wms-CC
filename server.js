@@ -5066,11 +5066,11 @@ async function handleApi(req, res, urlObj) {
           }
 
           if (!navigated) {
-            const bodyText = await getAllText();
-            throw new Error(`로그인 후 페이지 이동이 없습니다. 로그인 버튼을 찾지 못했거나 자격증명 오류. 화면: ${bodyText.slice(0, 200)}`);
+            // URL이 안 바뀌어도 OTP 화면이 뜰 수 있으므로 계속 진행
+            session.progress = "페이지 이동 미확인, OTP 화면 대기 계속...";
+          } else {
+            session.progress = "페이지 이동 확인, SMS 인증 화면 대기 중...";
           }
-
-          session.progress = "페이지 이동 확인, SMS 인증 화면 대기 중...";
 
           // 팝업 닫기 (닫기/확인/오늘하루보지않기 등 버튼 모두 클릭)
           const closePopups = async () => {
@@ -5084,16 +5084,35 @@ async function handleApi(req, res, urlObj) {
             }).catch(() => {});
           };
 
-          // OTP 화면 대기: URL이 이미 바뀐 상태이므로 텍스트와 OTP 입력란 존재 여부 확인
+          // OTP 화면 대기: 텍스트 + 입력 필드 폭넓게 탐색
           let otpReached = false;
-          const deadline = Date.now() + 45000;
+          const otpTextKeywords = ["인증번호", "인증 번호", "인증코드", "휴대폰 인증", "OTP", "otp", "SMS 인증", "문자 인증", "핀번호", "인증하기", "번호를 입력", "코드를 입력"];
+          const otpInputSel = [
+            "input[maxlength='4']","input[maxlength='6']","input[maxlength='8']",
+            "input[name*='otp']","input[name*='auth']","input[name*='cert']","input[name*='pin']","input[name*='code']",
+            "input[id*='otp']","input[id*='auth']","input[id*='cert']","input[id*='pin']","input[id*='code']",
+            "input[placeholder*='인증']","input[placeholder*='번호']"
+          ].join(",");
+
+          const deadline = Date.now() + 60000;
           while (Date.now() < deadline) {
             await closePopups();
             const t = await getAllText();
-            // OTP 입력 필드가 실제로 있는지 확인 (6자리 숫자 입력란)
-            const hasOtpInput = await page.$("input[maxlength='6'],input[maxlength='8'],input[name*='otp'],input[name*='auth'],input[id*='otp'],input[id*='auth'],input[id*='certNo'],input[name*='certNo']").catch(() => null);
-            if (hasOtpInput || t.includes("인증번호를 입력") || t.includes("인증번호 입력") || t.includes("휴대폰 인증") || t.includes("인증코드를 입력")) {
-              otpReached = true; break;
+            const currentUrl = page.url();
+            session.progress = `SMS 화면 대기 중... (${Math.ceil((deadline - Date.now()) / 1000)}초 남음)`;
+
+            // 텍스트 키워드 확인
+            const hasText = otpTextKeywords.some(k => t.includes(k));
+            // 모든 frame에서 OTP 입력 필드 확인
+            let hasInput = false;
+            for (const frame of [page, ...page.frames()]) {
+              try { if (await frame.$(otpInputSel)) { hasInput = true; break; } } catch {}
+            }
+
+            if (hasText || hasInput) {
+              otpReached = true;
+              session.progress = `OTP 화면 감지 (텍스트:${hasText}, 입력창:${hasInput}) - 인증번호 입력 대기`;
+              break;
             }
             await sleep(1000);
           }
