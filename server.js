@@ -4923,24 +4923,42 @@ async function handleApi(req, res, urlObj) {
           }
 
           session.progress = "아이디/비밀번호 입력 중...";
-          // ID 클릭 후 value 직접 설정 + Tab → PW 타이핑 → Enter
+
+          // ID 입력
           await idEl.click({ clickCount: 3 });
           await sleep(30);
-          await idEl.evaluate((el, v) => { el.value = ""; el.focus(); }, ecvanId);
           await page.keyboard.type(ecvanId, { delay: 0 });
           await sleep(100);
 
-          // Tab으로 PW 필드 이동
-          await page.keyboard.press("Tab");
-          await sleep(100);
+          // PW 필드 - ID와 같은 frame에서 탐색
+          const pwSels = ["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"];
+          let pwEl = null;
+          for (const sel of pwSels) {
+            try {
+              const el = await activeFrame.$(sel);
+              if (el) { pwEl = el; break; }
+            } catch {}
+          }
+          if (!pwEl) throw new Error("비밀번호 입력창을 찾지 못했습니다.");
+          await pwEl.click({ clickCount: 3 });
+          await sleep(50);
+          await pwEl.type(ecvanPw, { delay: 0 });
 
-          // PW 타이핑 (현재 포커스된 요소 = PW 필드)
-          await page.keyboard.type(ecvanPw, { delay: 0 });
           await sleep(100);
           await snap("02-filled");
 
           session.progress = "로그인 중...";
-          await page.keyboard.press("Enter");
+          // 로그인 버튼 - ID/PW와 같은 frame에서 탐색 후 elementHandle.click()
+          const loginBtnEl = await activeFrame.evaluateHandle(() => {
+            return [...document.querySelectorAll("button,input[type='submit'],a")]
+              .find(e => (e.textContent || e.value || "").trim() === "로그인") || null;
+          });
+          const loginEl = loginBtnEl.asElement();
+          if (loginEl) {
+            await loginEl.click();
+          } else {
+            await page.keyboard.press("Enter");
+          }
 
           session.progress = "로그인 처리 중...";
           await sleep(2000);
