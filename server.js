@@ -3,6 +3,17 @@ const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 
+// ── eCvan 자동화 로그 파일 ──
+const ecvanLogPath = path.join(__dirname, "ecvan-debug", "ecvan-run.log");
+const ecvanLog = (...args) => {
+  const line = `[${new Date().toISOString()}] ${args.join(" ")}\n`;
+  process.stdout.write(line);
+  try {
+    if (!fs.existsSync(path.join(__dirname, "ecvan-debug"))) fs.mkdirSync(path.join(__dirname, "ecvan-debug"), { recursive: true });
+    fs.appendFileSync(ecvanLogPath, line);
+  } catch {}
+};
+
 function loadEnvFile() {
   const envPath = path.join(__dirname, ".env");
   if (!fs.existsSync(envPath)) return;
@@ -4695,8 +4706,19 @@ async function handleApi(req, res, urlObj) {
         window.open = (url, ...args) => { if (url) window.location.href = url; return null; };
       });
 
-      const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
+      const _sessionData = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
+      const session = new Proxy(_sessionData, {
+        set(target, key, value) {
+          if ((key === "progress" || key === "status") && target[key] !== value) {
+            ecvanLog(`[${key.toUpperCase()}] ${value}`);
+          }
+          if (key === "error" && value) ecvanLog(`[ERROR] ${value}`);
+          target[key] = value;
+          return true;
+        }
+      });
       ecvanSessions.set(sessionId, session);
+      ecvanLog("=== eCvan 자동화 시작 ===", sessionId);
 
       // ── 수집 로직 (OTP 후 또는 직접 로그인 후 공통) ──
       session.collect = async () => {
