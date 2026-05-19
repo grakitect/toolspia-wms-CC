@@ -4923,84 +4923,93 @@ async function handleApi(req, res, urlObj) {
           }
 
           session.progress = "아이디 입력 중...";
+          const pwSels = ["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"];
 
           // ID 입력
           await idEl.click({ clickCount: 3 });
           await sleep(50);
           await page.keyboard.type(ecvanId, { delay: 20 });
-          await sleep(200);
+          await sleep(500); // re-render 대기
           await snap("02-id-filled");
 
-          // PW 필드 - 모든 frame 재탐색
+          // ID 타이핑 후 PW 필드 재탐색 (re-render로 stale handle 방지)
           session.progress = "비밀번호 입력 중...";
-          const pwSels = ["#pw", "input[name='pw']", "input[name='password']", "input[type='password']"];
-          let pwEl = null;
-          const allFramesForPw = [page, ...page.frames().filter(f => f !== page)];
-          for (const frame of allFramesForPw) {
-            for (const sel of pwSels) {
-              try {
-                const el = await frame.$(sel);
-                if (el) { pwEl = el; activeFrame = frame; break; }
-              } catch {}
+          const refindPw = async () => {
+            const frames = [page, ...page.frames().filter(f => f !== page)];
+            for (const frame of frames) {
+              for (const sel of pwSels) {
+                try {
+                  const el = await frame.$(sel);
+                  if (el) { activeFrame = frame; return el; }
+                } catch {}
+              }
             }
-            if (pwEl) break;
-          }
-          if (!pwEl) {
-            const bodyText = await page.evaluate(() => document.body?.innerText?.slice(0, 300) || "").catch(() => "");
-            throw new Error(`비밀번호 입력창을 찾지 못했습니다. 현재 화면: ${bodyText}`);
-          }
-
-          // PW 입력
-          // 핵심: focus()는 항상 신뢰된 이벤트 → keyboard.type 전에 포커스 확인 필수
-          const isPwFocused = async () => activeFrame.evaluate(() => {
-            const a = document.activeElement;
-            return !!(a && (a.type === "password" || a.name === "pw" || a.id === "pw" || a.name === "password"));
-          }).catch(() => false);
+            return null;
+          };
 
           let pwVal = "";
 
-          // 방법1: JS focus() → 포커스 확인 → keyboard.type
+          // 방법1: 재탐색한 신선한 handle로 elementHandle.click() + keyboard.type
           try {
-            await activeFrame.evaluate(() => {
-              const el = document.querySelector("#pw,input[name='pw'],input[type='password'],input[name='password']");
-              if (el) { el.focus(); el.select(); }
-            });
-            await sleep(150);
-            if (await isPwFocused()) {
-              await page.keyboard.type(ecvanPw, { delay: 30 });
-              await sleep(200);
-              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+            const freshPw = await refindPw();
+            if (freshPw) {
+              await freshPw.click({ clickCount: 3 });
+              await sleep(100);
+              // 실제 포커스 확인
+              const focused = await activeFrame.evaluate(() => {
+                const a = document.activeElement;
+                return !!(a && (a.type === "password" || a.name === "pw" || a.id === "pw" || a.name === "password"));
+              }).catch(() => false);
+              if (focused) {
+                await page.keyboard.type(ecvanPw, { delay: 30 });
+                await sleep(200);
+                pwVal = await freshPw.evaluate(el => el.value).catch(() => "");
+              }
             }
           } catch (_) {}
-          session.progress = `비밀번호 시도1(focus): ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도2"}`;
+          session.progress = `비밀번호 시도1: ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도2"}`;
 
           if (!pwVal) {
-            // 방법2: elementHandle.type() (puppeteer 내부 focus 처리)
+            // 방법2: JS evaluate로 focus() 후 타이핑 (re-render 후 신선한 셀렉터 사용)
             try {
-              await pwEl.type(ecvanPw, { delay: 30 });
-              await sleep(200);
-              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+              const focused2 = await activeFrame.evaluate((sels) => {
+                for (const s of sels) {
+                  const el = document.querySelector(s);
+                  if (el) { el.focus(); el.select(); return true; }
+                }
+                return false;
+              }, pwSels).catch(() => false);
+              if (focused2) {
+                await sleep(100);
+                await page.keyboard.type(ecvanPw, { delay: 30 });
+                await sleep(200);
+                const freshPw2 = await refindPw();
+                if (freshPw2) pwVal = await freshPw2.evaluate(el => el.value).catch(() => "");
+              }
             } catch (_) {}
-            session.progress = `비밀번호 시도2(type): ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도3"}`;
+            session.progress = `비밀번호 시도2: ${pwVal ? `성공(${pwVal.length}자)` : "실패→시도3"}`;
           }
 
           if (!pwVal) {
-            // 방법3: React/Vue 호환 native setter (포커스 없이 value 직접 설정)
+            // 방법3: native setter로 value 강제 설정 (React/Vue 호환)
             try {
-              await pwEl.evaluate((el, pw) => {
-                const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-                if (setter) setter.call(el, pw); else el.value = pw;
-                el.dispatchEvent(new InputEvent("input", { bubbles: true, data: pw }));
-                el.dispatchEvent(new Event("change", { bubbles: true }));
-              }, ecvanPw);
-              await sleep(100);
-              pwVal = await pwEl.evaluate(el => el.value).catch(() => "");
+              const freshPw3 = await refindPw();
+              if (freshPw3) {
+                await freshPw3.evaluate((el, pw) => {
+                  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+                  if (setter) setter.call(el, pw); else el.value = pw;
+                  el.dispatchEvent(new InputEvent("input", { bubbles: true, data: pw }));
+                  el.dispatchEvent(new Event("change", { bubbles: true }));
+                }, ecvanPw);
+                await sleep(100);
+                pwVal = await freshPw3.evaluate(el => el.value).catch(() => "");
+              }
             } catch (_) {}
-            session.progress = `비밀번호 시도3(setter): ${pwVal ? `성공(${pwVal.length}자)` : "실패"}`;
+            session.progress = `비밀번호 시도3: ${pwVal ? `성공(${pwVal.length}자)` : "실패"}`;
           }
 
           await snap("03-pw-filled");
-          if (!pwVal) throw new Error("비밀번호 입력 실패 (3가지 방법 모두 값이 설정되지 않았습니다)");
+          if (!pwVal) throw new Error("비밀번호 입력 실패 (stale handle 또는 PW 필드 접근 불가)");
 
           // 모든 frame 텍스트 수집 (여러 곳에서 사용)
           const getAllText = async () => {
