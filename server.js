@@ -4689,14 +4689,22 @@ async function handleApi(req, res, urlObj) {
       const page = await browser.newPage();
       await page.setExtraHTTPHeaders({ "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8" });
 
+      // window.close() 차단 - eCvan이 OTP 인증 후 팝업을 닫으려 할 때 방지
+      await page.evaluateOnNewDocument(() => {
+        window.close = () => {};
+        window.open = (url, ...args) => { if (url) window.location.href = url; return null; };
+      });
+
       const session = { browser, page, status: "logging_in", progress: "로그인 페이지 접속 중...", data: null, error: null, startedAt: new Date().toISOString() };
       ecvanSessions.set(sessionId, session);
 
       // ── 수집 로직 (OTP 후 또는 직접 로그인 후 공통) ──
       session.collect = async () => {
         const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
-        const _snap = async (name) => page.screenshot({ path: path.join(__dirname, "ecvan-debug", `collect-${name}.png`), fullPage: true }).catch(() => {});
-        const _allFrames = () => [page, ...page.frames()];
+        // 새 탭이 열렸으면 그쪽을 사용
+        const pg = session._newPage || page;
+        const _snap = async (name) => pg.screenshot({ path: path.join(__dirname, "ecvan-debug", `collect-${name}.png`), fullPage: true }).catch(() => {});
+        const _allFrames = () => [pg, ...pg.frames()];
 
         // elementHandle.click()으로 텍스트 버튼 클릭
         const _clickByText = async (text, timeout = 5000) => {
@@ -4751,7 +4759,7 @@ async function handleApi(req, res, urlObj) {
         // 미납사유등록 클릭
         const clickedMenu = await _clickByText("미납사유등록");
         session.progress = `미납사유등록: ${clickedMenu ? "클릭됨" : "못찾음"} → 페이지 로딩 중...`;
-        await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
+        await pg.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
         await _sleep(1500);
         await _snap("03-minapsa");
 
@@ -4766,7 +4774,7 @@ async function handleApi(req, res, urlObj) {
 
         session.status = "collecting"; session.progress = "상품 목록 수집 중...";
 
-        const products = await page.evaluate(() => {
+        const products = await pg.evaluate(() => {
           const rows = [...document.querySelectorAll("table tbody tr")];
           return rows.map(tr => {
             const tds = tr.querySelectorAll("td");
@@ -5262,41 +5270,53 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // OTP 확인 후: 팝업 닫기 대신 페이지 이동 대기
-          // "인증되었습니다" 팝업의 확인 버튼을 클릭하면 대시보드로 이동
+          // OTP 확인 후 처리
           session.progress = "인증 완료 - 대시보드 이동 대기 중...";
-          await sleep(1500);
+          await sleep(2000);
           await snap("06-after-otp");
 
-          // 최대 15초: 팝업이 있으면 닫고, 페이지 이동을 기다림
-          const otpUrl = page.url();
+          // 새 탭이 열리면 자동으로 그쪽으로 이동
+          const newPageHandler = async (target) => {
+            try {
+              if (target.type() === "page") {
+                const newPg = await target.page();
+                if (newPg && !newPg.isClosed()) {
+                  await newPg.bringToFront();
+                  // 원래 page 참조를 새 탭으로 교체 (collect에서 사용)
+                  session._newPage = newPg;
+                }
+              }
+            } catch {}
+          };
+          browser.on("targetcreated", newPageHandler);
+
+          // 최대 15초: "인증되었습니다" 팝업 닫기 + 대시보드 이동 대기
           for (let i = 0; i < 15; i++) {
             await sleep(1000);
 
-            // 팝업 닫기 시도 (try-catch로 안전하게)
+            // 현재 열려있는 모든 페이지 중 활성 페이지로 작업
+            const activePage = session._newPage || page;
+
+            // 팝업 닫기 시도
             try {
-              for (const frame of [page, ...page.frames()]) {
-                const btnEl = await frame.evaluateHandle(() => {
-                  const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
-                  return all.find(e => {
-                    const t = (e.textContent || e.value || "").replace(/\s/g,"").trim();
-                    return t === "확인" || t === "닫기";
-                  }) || null;
-                }).catch(() => ({ asElement: () => null }));
-                const btn = btnEl.asElement();
-                if (btn) { await btn.click().catch(() => {}); break; }
-              }
+              const btnEl = await activePage.evaluateHandle(() => {
+                const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
+                return all.find(e => ["확인","닫기"].includes((e.textContent||e.value||"").replace(/\s/g,"").trim())) || null;
+              });
+              const btn = btnEl.asElement();
+              if (btn) await btn.click().catch(() => {});
             } catch {}
 
-            // 페이지 이동 감지 → 팝업 닫힌 것으로 간주
-            const currentUrl = page.url();
-            const pageText = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
-            const popupGone = !pageText.includes("인증되었습니다") && !pageText.includes("휴대폰 번호 인증");
-
-            session.progress = `인증 후 대기 ${i+1}초: ${popupGone ? "팝업닫힘→수집시작" : "팝업대기중"}`;
-            if (popupGone) break;
+            // 페이지 이동 완료 확인
+            try {
+              const pageText = await activePage.evaluate(() => document.body?.innerText || "").catch(() => "");
+              const loginDone = !pageText.includes("인증되었습니다") && !pageText.includes("휴대폰 번호 인증") && !pageText.includes("인증번호");
+              session.progress = `인증 후 대기 ${i+1}초: ${loginDone ? "완료→수집시작" : "이동중..."}`;
+              if (loginDone && pageText.length > 100) break; // 실제 페이지 콘텐츠가 있을 때
+            } catch {}
           }
 
+          browser.off("targetcreated", newPageHandler);
           await snap("07-before-collect");
           await session.collect();
         } catch (e) {
