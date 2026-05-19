@@ -4754,7 +4754,7 @@ async function handleApi(req, res, urlObj) {
 
         if (!products.length) {
           session.status = "done"; session.progress = "미납 상품이 없습니다."; session.data = [];
-          browser.close().catch(() => {}); return;
+          setTimeout(() => browser.close().catch(() => {}), 3000); return;
         }
 
         session.progress = `${products.length}개 상품 발견, 상세 수집 중...`;
@@ -4822,7 +4822,8 @@ async function handleApi(req, res, urlObj) {
         writeDb(db2);
         session.status = "done";
         session.progress = `수집 완료: ${allRows.length}건`;
-        browser.close().catch(() => {});
+        // 3초 후 브라우저 닫기 (사용자가 화면 확인할 시간)
+        setTimeout(() => browser.close().catch(() => {}), 3000);
       };
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -5151,8 +5152,7 @@ async function handleApi(req, res, urlObj) {
           const url = await page.url().catch(() => "");
           session.status = "error";
           session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
-          browser.close().catch(() => {});
-          // 세션은 클라이언트가 에러를 읽을 수 있도록 유지 (30분 후 자동 정리)
+          // 에러 시 브라우저 유지 - 사용자가 에러 확인 후 재시도 가능
         }
       })();
 
