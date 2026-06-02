@@ -1189,9 +1189,9 @@ function renderProducts() {
           <label>보기
             <select id="product-page-size">
               <option value="50">50</option>
-              <option value="100" selected>100</option>
+              <option value="100">100</option>
               <option value="200">200</option>
-              <option value="99999">전체</option>
+              <option value="99999" selected>전체</option>
             </select>
           </label>
           <span id="product-page-info">0 - 0 / 0</span>
