@@ -5823,16 +5823,6 @@ function renderLocationMap() {
     }, 50);
   }
 
-  function fillHandleMousedown(e) {
-    e.stopPropagation();
-    e.preventDefault();
-    const fh = e.currentTarget;
-    const x = Number(fh.dataset.fhx);
-    const y = Number(fh.dataset.fhy);
-    fillDrag = { active: true, startX: x, startY: y, startCode: mapCells[`${x},${y}`]?.locationCode || "" };
-    qs("#loc-map-grid")?.classList.add("is-fill-dragging");
-  }
-
   function renderGrid() {
     const grid = qs("#loc-map-grid");
     if (!grid) return;
@@ -5854,52 +5844,11 @@ function renderLocationMap() {
     }
     grid.innerHTML = html;
 
-    grid.querySelectorAll(".loc-fill-handle").forEach((fh) => {
-      fh.addEventListener("mousedown", fillHandleMousedown);
-    });
-
     isPainting = false;
 
-    // onmousedown/onmousemove 로 단일 핸들러 유지 (addEventListener 누적 방지)
-    grid.onmousedown = (e) => {
-      if (e.target.classList.contains("loc-fill-handle")) return;
-      const cellEl = e.target.closest(".loc-map-cell");
-      if (!cellEl) return;
-      const x = Number(cellEl.dataset.x);
-      const y = Number(cellEl.dataset.y);
-      if (currentTool === "assign") {
-        if (fillDrag.active) return;
-        e.stopPropagation();
-        showCodePicker(cellEl, x, y);
-        return;
-      }
-      isPainting = true;
-      applyTool(x, y);
-      document.addEventListener("mouseup", onMouseUp);
-    };
-
-    grid.onmousemove = (e) => {
-      const cellEl = e.target.closest(".loc-map-cell");
-      if (!cellEl) return;
-      const x = Number(cellEl.dataset.x);
-      const y = Number(cellEl.dataset.y);
-      if (fillDrag.active) {
-        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
-        const dx = x - fillDrag.startX;
-        const dy = y - fillDrag.startY;
-        if (Math.abs(dx) >= Math.abs(dy)) {
-          const x0 = Math.min(fillDrag.startX, x), x1 = Math.max(fillDrag.startX, x);
-          for (let cx = x0; cx <= x1; cx++) grid.querySelector(`[data-x="${cx}"][data-y="${fillDrag.startY}"]`)?.classList.add("fill-preview");
-        } else {
-          const y0 = Math.min(fillDrag.startY, y), y1 = Math.max(fillDrag.startY, y);
-          for (let cy = y0; cy <= y1; cy++) grid.querySelector(`[data-x="${fillDrag.startX}"][data-y="${cy}"]`)?.classList.add("fill-preview");
-        }
-        return;
-      }
-      if (isPainting && currentTool !== "assign") applyTool(x, y);
-    };
-
+    // onMouseUp: 페인트 종료 + 필 드래그 완료 처리
     const onMouseUp = (e) => {
+      document.removeEventListener("mouseup", onMouseUp);
       if (fillDrag.active) {
         grid.classList.remove("is-fill-dragging");
         grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
@@ -5949,7 +5898,62 @@ function renderLocationMap() {
         renderGrid();
       }
       isPainting = false;
-      document.removeEventListener("mouseup", onMouseUp);
+    };
+
+    // fillHandle 드래그 시작 — onMouseUp 등록 포함
+    const onFillHandleMousedown = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const fh = e.currentTarget;
+      const x = Number(fh.dataset.fhx);
+      const y = Number(fh.dataset.fhy);
+      fillDrag = { active: true, startX: x, startY: y, startCode: mapCells[`${x},${y}`]?.locationCode || "" };
+      grid.classList.add("is-fill-dragging");
+      document.addEventListener("mouseup", onMouseUp);
+    };
+
+    grid.querySelectorAll(".loc-fill-handle").forEach((fh) => {
+      fh.addEventListener("mousedown", onFillHandleMousedown);
+    });
+
+    // 그리드 페인트 (누적 방지: onmousedown/onmousemove 단일 핸들러)
+    grid.onmousedown = (e) => {
+      if (e.target.classList.contains("loc-fill-handle")) return;
+      const cellEl = e.target.closest(".loc-map-cell");
+      if (!cellEl) return;
+      const x = Number(cellEl.dataset.x);
+      const y = Number(cellEl.dataset.y);
+      if (currentTool === "assign") {
+        if (fillDrag.active) return;
+        e.stopPropagation();
+        showCodePicker(cellEl, x, y);
+        return;
+      }
+      if (!currentTool) return;
+      isPainting = true;
+      applyTool(x, y);
+      document.addEventListener("mouseup", onMouseUp);
+    };
+
+    grid.onmousemove = (e) => {
+      const cellEl = e.target.closest(".loc-map-cell");
+      if (!cellEl) return;
+      const x = Number(cellEl.dataset.x);
+      const y = Number(cellEl.dataset.y);
+      if (fillDrag.active) {
+        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
+        const dx = x - fillDrag.startX;
+        const dy = y - fillDrag.startY;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          const x0 = Math.min(fillDrag.startX, x), x1 = Math.max(fillDrag.startX, x);
+          for (let cx = x0; cx <= x1; cx++) grid.querySelector(`[data-x="${cx}"][data-y="${fillDrag.startY}"]`)?.classList.add("fill-preview");
+        } else {
+          const y0 = Math.min(fillDrag.startY, y), y1 = Math.max(fillDrag.startY, y);
+          for (let cy = y0; cy <= y1; cy++) grid.querySelector(`[data-x="${fillDrag.startX}"][data-y="${cy}"]`)?.classList.add("fill-preview");
+        }
+        return;
+      }
+      if (isPainting && currentTool !== "assign") applyTool(x, y);
     };
   }
 
