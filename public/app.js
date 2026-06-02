@@ -5680,7 +5680,56 @@ function renderLocationMap() {
         <span><span style="display:inline-block;width:14px;height:14px;background:#fff;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>빈칸</span>
       </div>
     </div>
+    <div class="card" style="margin-top:16px;">
+      <h3 style="margin:0 0 14px;font-size:1rem;">저장된 맵</h3>
+      <div id="loc-map-saved-list" style="display:flex;flex-wrap:wrap;gap:24px;"></div>
+    </div>
   `;
+
+  const savedListEl = qs("#loc-map-saved-list");
+
+  const renderSavedMaps = async () => {
+    if (!savedListEl) return;
+    try {
+      const res = await api("/api/location-maps");
+      const maps = res.maps || {};
+      const keys = Object.keys(maps).sort();
+      if (!keys.length) { savedListEl.innerHTML = `<span class="muted" style="font-size:13px;">저장된 맵 없음</span>`; return; }
+      savedListEl.innerHTML = keys.map(k => {
+        const m = maps[k];
+        const [wh, zone] = k.split("::");
+        const cellSize = 10;
+        const w = m.gridW || 10, h = m.gridH || 10;
+        const cellMap = {};
+        (m.cells || []).forEach(c => { cellMap[`${c.x},${c.y}`] = c.type; });
+        let grid = "";
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const t = cellMap[`${x},${y}`] || "empty";
+            const bg = t === "rack" ? "#2563eb" : t === "aisle" ? "#94a3b8" : t === "wall" ? "#1e293b" : "#f1f5f9";
+            grid += `<div style="width:${cellSize}px;height:${cellSize}px;background:${bg};"></div>`;
+          }
+        }
+        return `<div style="cursor:pointer;" class="loc-saved-map-item" data-key="${esc(k)}">
+          <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#334155;">${esc(wh)} <span style="color:#64748b;font-weight:400;">/ ${esc(zone)}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(${w},${cellSize}px);grid-template-rows:repeat(${h},${cellSize}px);gap:1px;background:#e2e8f0;padding:1px;border-radius:4px;border:1.5px solid #e2e8f0;">${grid}</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">${w} × ${h} · ${(m.cells||[]).filter(c=>c.type==="rack").length}랙</div>
+        </div>`;
+      }).join("");
+
+      savedListEl.querySelectorAll(".loc-saved-map-item").forEach(item => {
+        item.addEventListener("click", () => {
+          const [wh, zone] = (item.dataset.key || "").split("::");
+          const whSel = qs("#map-wh-sel"), zoneSel = qs("#map-zone-sel");
+          if (whSel) whSel.value = wh;
+          if (zoneSel) zoneSel.value = zone;
+          qs("#map-load-btn")?.click();
+        });
+      });
+    } catch (e) {
+      savedListEl.innerHTML = `<span class="muted" style="font-size:13px;">불러오기 실패</span>`;
+    }
+  };
 
   function updateToolButtons() {
     wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
@@ -5739,6 +5788,7 @@ function renderLocationMap() {
         body: JSON.stringify({ key: wh + "::" + zone, gridW: mapGridW, gridH: mapGridH, cells: Object.values(mapCells) })
       });
       alert("저장 완료!");
+      await renderSavedMaps();
     } catch (e) { alert("저장 실패: " + e.message); }
   };
 
@@ -5958,6 +6008,7 @@ function renderLocationMap() {
   }
 
   renderGrid();
+  renderSavedMaps();
 }
 
 // ── 로케이션별 재고 ────────────────────────────────────────────────────────

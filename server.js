@@ -5713,6 +5713,7 @@ async function handleApi(req, res, urlObj) {
   // ── 로케이션 맵 ──────────────────────────────────────────────
   if (req.method === "GET" && pathname === "/api/location-maps") {
     const key = urlObj.searchParams.get("key") || "";
+    if (!key) return sendJson(res, 200, { maps: db.locationMaps || {} });
     return sendJson(res, 200, { map: db.locationMaps[key] || null });
   }
 
