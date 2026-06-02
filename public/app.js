@@ -5718,12 +5718,13 @@ function renderLocationMap() {
       }).join("");
 
       savedListEl.querySelectorAll(".loc-saved-map-item").forEach(item => {
-        item.addEventListener("click", () => {
+        item.addEventListener("click", async () => {
           const [wh, zone] = (item.dataset.key || "").split("::");
           const whSel = qs("#map-wh-sel"), zoneSel = qs("#map-zone-sel");
           if (whSel) whSel.value = wh;
           if (zoneSel) zoneSel.value = zone;
-          qs("#map-load-btn")?.click();
+          await qs("#map-load-btn")?.click();
+          qs("#loc-map-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
       });
     } catch (e) {
