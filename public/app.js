@@ -5650,13 +5650,13 @@ function renderLocationMap() {
       <h2 style="margin:0 0 16px;">맵 에디터</h2>
       <div class="loc-map-controls">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <select id="map-wh-sel" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
-            <option value="">창고 선택</option>${whOptions}
+          <select id="map-wh-sel" style="height:28px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;max-width:90px;">
+            <option value="">창고</option>${whOptions}
           </select>
-          <select id="map-zone-sel" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
-            <option value="">존 선택</option>${zoneOptions}
+          <select id="map-zone-sel" style="height:28px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;max-width:80px;">
+            <option value="">존</option>${zoneOptions}
           </select>
-          <button class="bh-btn" id="map-load-btn">불러오기</button>
+          <button class="bh-btn bh-btn-sm" id="map-load-btn">불러오기</button>
           <span style="font-size:12px;color:#64748b;">크기:</span>
           <input id="map-w-input" type="number" min="1" max="50" value="${mapGridW}" style="width:52px;height:32px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;" />
           <span style="font-size:12px;color:#64748b;">×</span>
