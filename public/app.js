@@ -5823,8 +5823,17 @@ function renderLocationMap() {
   function renderGrid() {
     const grid = qs("#loc-map-grid");
     if (!grid) return;
-    grid.style.setProperty("--grid-w", mapGridW);
-    grid.style.setProperty("--grid-h", mapGridH);
+
+    // 이전 이벤트 리스너 누적 방지: 그리드 교체
+    const newGrid = grid.cloneNode(false);
+    grid.parentNode.replaceChild(newGrid, grid);
+    const g = newGrid;
+
+    // 미완료 상태로 남은 fillDrag 초기화
+    fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
+
+    g.style.setProperty("--grid-w", mapGridW);
+    g.style.setProperty("--grid-h", mapGridH);
 
     let html = "";
     for (let y = 0; y < mapGridH; y++) {
@@ -5835,15 +5844,15 @@ function renderLocationMap() {
         html += `<div class="loc-map-cell cell-${type}" data-x="${x}" data-y="${y}">${label ? `<span class="loc-cell-code">${esc(label)}</span>` : ""}${type === "rack" ? `<div class="loc-fill-handle" data-fhx="${x}" data-fhy="${y}"></div>` : ""}</div>`;
       }
     }
-    grid.innerHTML = html;
+    g.innerHTML = html;
 
-    grid.querySelectorAll(".loc-fill-handle").forEach((fh) => {
+    g.querySelectorAll(".loc-fill-handle").forEach((fh) => {
       fh.addEventListener("mousedown", fillHandleMousedown);
     });
 
     let paintActive = false;
 
-    grid.addEventListener("mousedown", (e) => {
+    g.addEventListener("mousedown", (e) => {
       if (e.target.classList.contains("loc-fill-handle")) return;
       const cellEl = e.target.closest(".loc-map-cell");
       if (!cellEl) return;
@@ -5857,23 +5866,24 @@ function renderLocationMap() {
       }
       paintActive = true;
       applyTool(x, y);
+      document.addEventListener("mouseup", onMouseUp);
     });
 
-    grid.addEventListener("mousemove", (e) => {
+    g.addEventListener("mousemove", (e) => {
       const cellEl = e.target.closest(".loc-map-cell");
       if (!cellEl) return;
       const x = Number(cellEl.dataset.x);
       const y = Number(cellEl.dataset.y);
       if (fillDrag.active) {
-        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
+        g.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
         const dx = x - fillDrag.startX;
         const dy = y - fillDrag.startY;
         if (Math.abs(dx) >= Math.abs(dy)) {
           const x0 = Math.min(fillDrag.startX, x), x1 = Math.max(fillDrag.startX, x);
-          for (let cx = x0; cx <= x1; cx++) grid.querySelector(`[data-x="${cx}"][data-y="${fillDrag.startY}"]`)?.classList.add("fill-preview");
+          for (let cx = x0; cx <= x1; cx++) g.querySelector(`[data-x="${cx}"][data-y="${fillDrag.startY}"]`)?.classList.add("fill-preview");
         } else {
           const y0 = Math.min(fillDrag.startY, y), y1 = Math.max(fillDrag.startY, y);
-          for (let cy = y0; cy <= y1; cy++) grid.querySelector(`[data-x="${fillDrag.startX}"][data-y="${cy}"]`)?.classList.add("fill-preview");
+          for (let cy = y0; cy <= y1; cy++) g.querySelector(`[data-x="${fillDrag.startX}"][data-y="${cy}"]`)?.classList.add("fill-preview");
         }
         return;
       }
@@ -5882,8 +5892,8 @@ function renderLocationMap() {
 
     const onMouseUp = (e) => {
       if (fillDrag.active) {
-        grid.classList.remove("is-fill-dragging");
-        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
+        g.classList.remove("is-fill-dragging");
+        g.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
         const cellEl = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".loc-map-cell");
         const endX = cellEl ? Number(cellEl.dataset.x) : fillDrag.startX;
         const endY = cellEl ? Number(cellEl.dataset.y) : fillDrag.startY;
@@ -5932,7 +5942,6 @@ function renderLocationMap() {
       paintActive = false;
       document.removeEventListener("mouseup", onMouseUp);
     };
-    document.addEventListener("mouseup", onMouseUp);
   }
 
   renderGrid();
