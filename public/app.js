@@ -5753,7 +5753,6 @@ function renderLocationMap() {
     if (resizeBtn) resizeBtn.disabled = locked;
     const grid = qs("#loc-map-grid");
     if (grid) grid.style.pointerEvents = locked ? "none" : "";
-    if (grid) grid.style.opacity = locked ? "0.7" : "";
     updateToolButtons();
   }
 
