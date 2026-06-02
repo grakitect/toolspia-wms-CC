@@ -5634,6 +5634,9 @@ function renderLocationMap() {
   const wrap = qs("#view-location-map");
   if (!wrap) return;
 
+  // 이전 ESC 리스너 제거
+  if (wrap._escHandler) { document.removeEventListener("keydown", wrap._escHandler); wrap._escHandler = null; }
+
   const locs = state.locations || [];
   const zones = [...new Set(locs.map((l) => l.zone).filter(Boolean))].sort();
   const zoneOptions = zones.map((z) => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
@@ -5689,6 +5692,12 @@ function renderLocationMap() {
   wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
     btn.onclick = () => { currentTool = btn.dataset.tool; updateToolButtons(); };
   });
+
+  const onEscDeselect = (e) => {
+    if (e.key === "Escape" && !wrap.classList.contains("hidden")) { currentTool = ""; updateToolButtons(); }
+  };
+  document.addEventListener("keydown", onEscDeselect);
+  wrap._escHandler = onEscDeselect;
 
   qs("#map-load-btn").onclick = async () => {
     const wh = qs("#map-wh-sel").value;
