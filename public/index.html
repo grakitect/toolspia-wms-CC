@@ -9,6 +9,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body>
@@ -55,6 +57,10 @@
               <button data-view="location-map" class="sidebar-sub">
                 <i data-lucide="map"></i>
                 <span>맵 에디터</span>
+              </button>
+              <button data-view="location-map-3d" class="sidebar-sub">
+                <i data-lucide="box"></i>
+                <span>맵 에디터 3D</span>
               </button>
             </div></div>
           </div>
@@ -175,6 +181,7 @@
         <section id="view-alert" class="view hidden"></section>
         <section id="view-location-master" class="view hidden"></section>
         <section id="view-location-map" class="view hidden"></section>
+        <section id="view-location-map-3d" class="view hidden"></section>
         <section id="view-location-stock" class="view hidden"></section>
       </main>
     </div>

@@ -16,6 +16,7 @@ const views = [
   "alert",
   "location-master",
   "location-map",
+  "location-map-3d",
   "location-stock"
 ];
 const LAST_VIEW_KEY = "wms:lastView";
@@ -6039,6 +6040,198 @@ function renderLocationMap() {
   renderSavedMaps();
 }
 
+// ── 맵 에디터 3D ────────────────────────────────────────────────────────────
+function renderLocationMap3D() {
+  const wrap = qs("#view-location-map-3d");
+  if (!wrap) return;
+
+  wrap.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <h2 style="margin:0 0 16px;">맵 에디터 3D</h2>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">레인 수</label>
+          <input type="number" id="m3d-lanes" min="1" max="20" value="2" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+        </div>
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">컬럼 수</label>
+          <input type="number" id="m3d-cols" min="1" max="30" value="5" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+        </div>
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">층 수</label>
+          <input type="number" id="m3d-floors" min="1" max="10" value="5" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+        </div>
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">레인 접두사</label>
+          <input type="text" id="m3d-prefix" value="CHR" maxlength="6" style="width:80px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+        </div>
+        <button class="bh-btn bh-btn-primary" id="m3d-build-btn">3D 생성</button>
+      </div>
+      <div id="m3d-info" style="margin-top:10px;font-size:13px;color:#2563eb;min-height:20px;"></div>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;position:relative;">
+      <canvas id="m3d-canvas" style="width:100%;height:600px;display:block;"></canvas>
+      <div id="m3d-label" style="position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.7);color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;font-family:monospace;pointer-events:none;display:none;"></div>
+      <div style="position:absolute;bottom:12px;right:12px;font-size:11px;color:rgba(255,255,255,0.6);pointer-events:none;">마우스 드래그: 회전 · 스크롤: 줌 · 우클릭: 이동</div>
+    </div>
+  `;
+
+  const buildBtn = qs("#m3d-build-btn");
+  const infoEl = qs("#m3d-info");
+  const labelEl = qs("#m3d-label");
+  const canvas = qs("#m3d-canvas");
+
+  if (!window.THREE) { infoEl.textContent = "Three.js 로드 실패 — 네트워크 확인 후 새로고침하세요."; return; }
+
+  const THREE = window.THREE;
+
+  let renderer, scene, camera, controls, animFrameId;
+  const rackMeshes = [];
+
+  const dispose = () => {
+    if (animFrameId) cancelAnimationFrame(animFrameId);
+    rackMeshes.length = 0;
+    if (renderer) { renderer.dispose(); renderer.forceContextLoss(); }
+  };
+
+  // 뷰 이탈 시 dispose
+  wrap._disposeMap3D = dispose;
+
+  const build = () => {
+    dispose();
+
+    const laneCount  = Math.max(1, Math.min(20, parseInt(qs("#m3d-lanes")?.value) || 2));
+    const colCount   = Math.max(1, Math.min(30, parseInt(qs("#m3d-cols")?.value)  || 5));
+    const floorCount = Math.max(1, Math.min(10, parseInt(qs("#m3d-floors")?.value) || 5));
+    const prefix     = (qs("#m3d-prefix")?.value || "CHR").trim().toUpperCase();
+
+    const size = 1, space = 1.5;
+
+    // ── Three.js 초기화 ──
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+
+    const w = canvas.clientWidth || canvas.offsetWidth || 800;
+    const h = canvas.clientHeight || canvas.offsetHeight || 600;
+    camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 1000);
+    camera.position.set(laneCount * 6, floorCount * 3, colCount * 4);
+    camera.lookAt(laneCount * 3, 0, colCount * 1.5);
+
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(w, h, false);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    // OrbitControls
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+
+    // 조명
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(10, 20, 10);
+    scene.add(dir);
+
+    // 바닥 그리드
+    scene.add(new THREE.GridHelper(Math.max(laneCount, colCount) * 10, 20, 0x333355, 0x222244));
+
+    // ── 랙 생성 ──
+    const colLetters = Array.from({ length: colCount }, (_, i) => {
+      const a = String.fromCharCode(65 + Math.floor(i / 26));
+      const b = String.fromCharCode(65 + (i % 26));
+      return i < 26 ? String.fromCharCode(65 + i) : a + b;
+    });
+
+    const rackGeo = new THREE.BoxGeometry(size * 0.85, size * 0.85, size * 0.85);
+    const rackMat = new THREE.MeshLambertMaterial({ color: 0x00aa44 });
+    const edgeGeo = new THREE.BoxGeometry(size, size, size);
+    const edgeMat = new THREE.MeshBasicMaterial({ color: 0xff4444, wireframe: true });
+
+    let totalRacks = 0;
+    for (let l = 0; l < laneCount; l++) {
+      const laneX = l * (colCount * (size + 0.2) + space * 2);
+      for (let c = 0; c < colCount; c++) {
+        const colZ = c * (size + 0.2);
+        for (let f = 0; f < floorCount; f++) {
+          const y = f * size + size / 2;
+          // 앞면 랙
+          const m1 = new THREE.Mesh(rackGeo, rackMat.clone());
+          m1.position.set(laneX + c * (size + 0.2), y, colZ);
+          m1.userData = { code: `${prefix}-L${l + 1}-${colLetters[c]}-${f + 1}`, lane: l + 1, col: colLetters[c], floor: f + 1 };
+          scene.add(m1);
+          rackMeshes.push(m1);
+
+          // 뒷면 랙
+          const m2 = new THREE.Mesh(rackGeo, rackMat.clone());
+          m2.position.set(laneX + c * (size + 0.2), y, colZ - size * 1.2);
+          m2.userData = { code: `${prefix}-L${l + 1}-${colLetters[c]}B-${f + 1}`, lane: l + 1, col: colLetters[c] + "B", floor: f + 1 };
+          scene.add(m2);
+          rackMeshes.push(m2);
+          totalRacks += 2;
+        }
+        // 컬럼 외곽선
+        const frame = new THREE.Mesh(edgeGeo, edgeMat);
+        frame.scale.set(1, floorCount, 1);
+        frame.position.set(laneX + c * (size + 0.2), floorCount * size / 2, colZ);
+        scene.add(frame);
+      }
+    }
+
+    infoEl.textContent = `레인 ${laneCount}개 · 컬럼 ${colCount}개 · ${floorCount}층 · 총 랙 ${totalRacks}칸 생성됨`;
+
+    // ── 호버 인터랙션 ──
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let hovered = null;
+
+    canvas.addEventListener("mousemove", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(rackMeshes);
+      if (hovered) { hovered.material.color.set(0x00aa44); hovered = null; }
+      if (hits.length) {
+        hovered = hits[0].object;
+        hovered.material.color.set(0x2563eb);
+        labelEl.textContent = hovered.userData.code;
+        labelEl.style.display = "block";
+      } else {
+        labelEl.style.display = "none";
+      }
+    });
+
+    canvas.addEventListener("click", (e) => {
+      const rect = canvas.getBoundingClientRect();
+      mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
+      mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hits = raycaster.intersectObjects(rackMeshes);
+      if (hits.length) infoEl.textContent = `선택: ${hits[0].object.userData.code}`;
+    });
+
+    // 리사이즈
+    const onResize = () => {
+      const w2 = canvas.clientWidth, h2 = canvas.clientHeight;
+      camera.aspect = w2 / h2;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w2, h2, false);
+    };
+    window.addEventListener("resize", onResize);
+
+    // 렌더 루프
+    const animate = () => {
+      animFrameId = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+  };
+
+  buildBtn.addEventListener("click", build);
+  build();
+}
+
 // ── 로케이션별 재고 ────────────────────────────────────────────────────────
 async function renderLocationStock() {
   const wrap = qs("#view-location-stock");
@@ -6449,6 +6642,8 @@ async function init() {
       if (v === "alert") renderAlert();
       if (v === "location-master") await renderLocationMaster();
       if (v === "location-map") renderLocationMap();
+      if (v === "location-map-3d") renderLocationMap3D();
+      else { const w3d = qs("#view-location-map-3d"); if (w3d?._disposeMap3D) { w3d._disposeMap3D(); w3d._disposeMap3D = null; } }
       if (v === "location-stock") await renderLocationStock();
     };
   });
@@ -6473,6 +6668,7 @@ async function init() {
   renderAlert();
   await renderLocationMaster();
   renderLocationMap();
+  renderLocationMap3D();
   await renderLocationStock();
   let initialView = "dashboard";
   try {
