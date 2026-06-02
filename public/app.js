@@ -5630,6 +5630,7 @@ let mapGridH = 10;
 let currentTool = "rack";
 let isPainting = false;
 let mapLocked = false;
+let mapSuppressPicker = false;
 let fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
 
 function renderLocationMap() {
@@ -5670,7 +5671,7 @@ function renderLocationMap() {
           <button class="loc-tool-btn" data-tool="aisle">🛤 통로</button>
           <button class="loc-tool-btn" data-tool="wall">🧱 벽</button>
           <button class="loc-tool-btn" data-tool="eraser">🗑 지우개</button>
-          <button class="loc-tool-btn" data-tool="assign">🏷 코드지정</button>
+          <button class="loc-tool-btn" data-tool="assign">🏷 로케이션 지정</button>
         </div>
       </div>
       <div style="overflow:auto;margin-top:12px;">
@@ -5973,6 +5974,8 @@ function renderLocationMap() {
         }
 
         fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
+        mapSuppressPicker = true;
+        setTimeout(() => { mapSuppressPicker = false; }, 300);
         renderGrid();
       }
       isPainting = false;
@@ -6002,7 +6005,7 @@ function renderLocationMap() {
       const x = Number(cellEl.dataset.x);
       const y = Number(cellEl.dataset.y);
       if (currentTool === "assign") {
-        if (fillDrag.active) return;
+        if (fillDrag.active || mapSuppressPicker) return;
         e.stopPropagation();
         showCodePicker(cellEl, x, y);
         return;
