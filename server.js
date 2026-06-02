@@ -4659,7 +4659,7 @@ async function handleApi(req, res, urlObj) {
     );
     const wmsMap = new Map();
     for (const x of wmsLines) {
-      const dd = String(x.dueDate || "").trim();
+      const dd = String(x.dueDate || x.storeInDate || "").trim();
       if (startDate && dd < startDate) continue;
       if (endDate && dd > endDate) continue;
       const k = `${dd}|||${String(x.productCode || "").trim()}|||${String(x.centerName || "").trim()}`;
