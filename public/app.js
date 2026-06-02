@@ -5953,7 +5953,7 @@ function renderLocationMap() {
         }
         return;
       }
-      if (isPainting && currentTool !== "assign") applyTool(x, y);
+      if (isPainting && e.buttons === 1 && currentTool !== "assign") applyTool(x, y);
     };
   }
 
