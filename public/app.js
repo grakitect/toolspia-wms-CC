@@ -5694,7 +5694,11 @@ function renderLocationMap() {
   });
 
   const onEscDeselect = (e) => {
-    if (e.key === "Escape" && !wrap.classList.contains("hidden")) { currentTool = ""; updateToolButtons(); }
+    if (e.key !== "Escape" || wrap.classList.contains("hidden")) return;
+    isPainting = false;
+    fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
+    qs("#loc-map-grid")?.querySelectorAll(".fill-preview").forEach((c) => c.classList.remove("fill-preview"));
+    qs("#loc-map-grid")?.classList.remove("is-fill-dragging");
   };
   document.addEventListener("keydown", onEscDeselect);
   wrap._escHandler = onEscDeselect;
@@ -5854,7 +5858,7 @@ function renderLocationMap() {
       fh.addEventListener("mousedown", fillHandleMousedown);
     });
 
-    let paintActive = false;
+    isPainting = false;
 
     // onmousedown/onmousemove 로 단일 핸들러 유지 (addEventListener 누적 방지)
     grid.onmousedown = (e) => {
@@ -5869,7 +5873,7 @@ function renderLocationMap() {
         showCodePicker(cellEl, x, y);
         return;
       }
-      paintActive = true;
+      isPainting = true;
       applyTool(x, y);
       document.addEventListener("mouseup", onMouseUp);
     };
@@ -5892,7 +5896,7 @@ function renderLocationMap() {
         }
         return;
       }
-      if (paintActive && currentTool !== "assign") applyTool(x, y);
+      if (isPainting && currentTool !== "assign") applyTool(x, y);
     };
 
     const onMouseUp = (e) => {
@@ -5944,7 +5948,7 @@ function renderLocationMap() {
         fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
         renderGrid();
       }
-      paintActive = false;
+      isPainting = false;
       document.removeEventListener("mouseup", onMouseUp);
     };
   }
