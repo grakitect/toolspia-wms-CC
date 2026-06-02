@@ -6048,22 +6048,29 @@ function renderLocationMap3D() {
   wrap.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
       <h2 style="margin:0 0 16px;">맵 에디터 3D</h2>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;">
+        <div>
+          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">2D 맵 불러오기</label>
+          <select id="m3d-map-sel" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;min-width:160px;">
+            <option value="">직접 설정</option>
+          </select>
+        </div>
+        <button class="bh-btn" id="m3d-load-2d-btn">불러오기</button>
+      </div>
       <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
-        <div>
-          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">레인 수</label>
-          <input type="number" id="m3d-lanes" min="1" max="20" value="2" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
-        </div>
-        <div>
-          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">컬럼 수</label>
-          <input type="number" id="m3d-cols" min="1" max="30" value="5" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
-        </div>
         <div>
           <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">층 수</label>
           <input type="number" id="m3d-floors" min="1" max="10" value="5" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
         </div>
-        <div>
-          <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">레인 접두사</label>
-          <input type="text" id="m3d-prefix" value="CHR" maxlength="6" style="width:80px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+        <div id="m3d-manual-wrap" style="display:flex;gap:12px;align-items:flex-end;">
+          <div>
+            <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">열 수 (X)</label>
+            <input type="number" id="m3d-cols-x" min="1" max="50" value="10" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+          </div>
+          <div>
+            <label style="font-size:12px;color:#64748b;display:block;margin-bottom:4px;">행 수 (Z)</label>
+            <input type="number" id="m3d-cols-z" min="1" max="50" value="8" style="width:70px;height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;" />
+          </div>
         </div>
         <button class="bh-btn bh-btn-primary" id="m3d-build-btn">3D 생성</button>
       </div>
@@ -6072,18 +6079,51 @@ function renderLocationMap3D() {
     <div class="card" style="padding:0;overflow:hidden;position:relative;">
       <canvas id="m3d-canvas" style="width:100%;height:600px;display:block;"></canvas>
       <div id="m3d-label" style="position:absolute;top:12px;left:12px;background:rgba(0,0,0,0.7);color:#fff;padding:6px 12px;border-radius:6px;font-size:13px;font-family:monospace;pointer-events:none;display:none;"></div>
-      <div style="position:absolute;bottom:12px;right:12px;font-size:11px;color:rgba(255,255,255,0.6);pointer-events:none;">마우스 드래그: 회전 · 스크롤: 줌 · 우클릭: 이동</div>
+      <div style="position:absolute;bottom:12px;right:12px;font-size:11px;color:rgba(255,255,255,0.6);pointer-events:none;">드래그: 회전 · 스크롤: 줌 · 우클릭: 이동</div>
     </div>
   `;
 
   const buildBtn = qs("#m3d-build-btn");
-  const infoEl = qs("#m3d-info");
-  const labelEl = qs("#m3d-label");
-  const canvas = qs("#m3d-canvas");
+  const infoEl   = qs("#m3d-info");
+  const labelEl  = qs("#m3d-label");
+  const canvas   = qs("#m3d-canvas");
+  const mapSel   = qs("#m3d-map-sel");
+  const load2dBtn = qs("#m3d-load-2d-btn");
+  const manualWrap = qs("#m3d-manual-wrap");
 
   if (!window.THREE) { infoEl.textContent = "Three.js 로드 실패 — 네트워크 확인 후 새로고침하세요."; return; }
-
   const THREE = window.THREE;
+
+  // 2D 맵 목록 로드
+  api("/api/location-maps").then(res => {
+    const maps = res.maps || {};
+    Object.keys(maps).sort().forEach(k => {
+      const [wh, zone] = k.split("::");
+      const opt = document.createElement("option");
+      opt.value = k;
+      opt.textContent = `${wh} / ${zone}`;
+      mapSel.appendChild(opt);
+    });
+  }).catch(() => {});
+
+  // 2D 맵 선택 시 직접설정 입력 숨김/표시
+  mapSel.addEventListener("change", () => {
+    manualWrap.style.display = mapSel.value ? "none" : "flex";
+  });
+
+  let loaded2dCells = null; // { cells, gridW, gridH, key }
+
+  load2dBtn.addEventListener("click", async () => {
+    const key = mapSel.value;
+    if (!key) { loaded2dCells = null; infoEl.textContent = "직접 설정 모드"; return; }
+    try {
+      const res = await api(`/api/location-maps?key=${encodeURIComponent(key)}`);
+      if (!res.map) { infoEl.textContent = "저장된 맵 없음"; return; }
+      loaded2dCells = { cells: res.map.cells || [], gridW: res.map.gridW, gridH: res.map.gridH, key };
+      const rackCount = loaded2dCells.cells.filter(c => c.type === "rack").length;
+      infoEl.textContent = `"${key.replace("::", " / ")}" 로드됨 — 랙 셀 ${rackCount}개 · 층 수 설정 후 3D 생성`;
+    } catch(e) { infoEl.textContent = "불러오기 실패: " + e.message; }
+  });
 
   let renderer, scene, camera, controls, animFrameId;
   const rackMeshes = [];
@@ -6093,93 +6133,111 @@ function renderLocationMap3D() {
     rackMeshes.length = 0;
     if (renderer) { renderer.dispose(); renderer.forceContextLoss(); }
   };
-
-  // 뷰 이탈 시 dispose
   wrap._disposeMap3D = dispose;
 
   const build = () => {
     dispose();
-
-    const laneCount  = Math.max(1, Math.min(20, parseInt(qs("#m3d-lanes")?.value) || 2));
-    const colCount   = Math.max(1, Math.min(30, parseInt(qs("#m3d-cols")?.value)  || 5));
+    const THREE = window.THREE;
     const floorCount = Math.max(1, Math.min(10, parseInt(qs("#m3d-floors")?.value) || 5));
-    const prefix     = (qs("#m3d-prefix")?.value || "CHR").trim().toUpperCase();
+    const size = 1.1, gap = 0.15;
+    const s = size + gap;
 
-    const size = 1, space = 1.5;
+    // 2D 맵 기반 vs 직접 설정
+    let rackPositions = []; // [{x, z, code}]
+
+    if (loaded2dCells) {
+      const { cells, gridW, gridH } = loaded2dCells;
+      const cellMap = {};
+      cells.forEach(c => { cellMap[`${c.x},${c.y}`] = c; });
+      for (let z = 0; z < gridH; z++) {
+        for (let x = 0; x < gridW; x++) {
+          const c = cellMap[`${x},${z}`];
+          if (c?.type === "rack") rackPositions.push({ x, z, code: c.locationCode || `${x}-${z}` });
+        }
+      }
+    } else {
+      const gx = Math.max(1, Math.min(50, parseInt(qs("#m3d-cols-x")?.value) || 10));
+      const gz = Math.max(1, Math.min(50, parseInt(qs("#m3d-cols-z")?.value) || 8));
+      for (let z = 0; z < gz; z++)
+        for (let x = 0; x < gx; x++)
+          rackPositions.push({ x, z, code: `${x}-${z}` });
+    }
+
+    if (!rackPositions.length) { infoEl.textContent = "랙 셀이 없습니다."; return; }
 
     // ── Three.js 초기화 ──
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
 
-    const w = canvas.clientWidth || canvas.offsetWidth || 800;
-    const h = canvas.clientHeight || canvas.offsetHeight || 600;
-    camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 1000);
-    camera.position.set(laneCount * 6, floorCount * 3, colCount * 4);
-    camera.lookAt(laneCount * 3, 0, colCount * 1.5);
+    const maxX = Math.max(...rackPositions.map(p => p.x)) + 1;
+    const maxZ = Math.max(...rackPositions.map(p => p.z)) + 1;
+
+    const w = canvas.clientWidth || 800, h = canvas.clientHeight || 600;
+    camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 2000);
+    camera.position.set(maxX * s * 0.5, floorCount * s * 2, maxZ * s * 2);
+    camera.lookAt(maxX * s * 0.5, floorCount * s * 0.5, maxZ * s * 0.3);
 
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setSize(w, h, false);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
-    // OrbitControls
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.target.set(maxX * s * 0.5, floorCount * s * 0.3, maxZ * s * 0.3);
 
-    // 조명
-    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(10, 20, 10);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(maxX * s, floorCount * s * 3, maxZ * s * 2);
     scene.add(dir);
 
-    // 바닥 그리드
-    scene.add(new THREE.GridHelper(Math.max(laneCount, colCount) * 10, 20, 0x333355, 0x222244));
+    const gridSize = Math.max(maxX, maxZ) * s * 1.5;
+    const grid = new THREE.GridHelper(gridSize, Math.ceil(gridSize), 0x334466, 0x222244);
+    grid.position.set(maxX * s * 0.5, 0, maxZ * s * 0.3);
+    scene.add(grid);
 
-    // ── 랙 생성 ──
-    const colLetters = Array.from({ length: colCount }, (_, i) => {
-      const a = String.fromCharCode(65 + Math.floor(i / 26));
-      const b = String.fromCharCode(65 + (i % 26));
-      return i < 26 ? String.fromCharCode(65 + i) : a + b;
-    });
+    // ── 랙 큐브 생성 ──
+    const rackGeo  = new THREE.BoxGeometry(size * 0.88, size * 0.88, size * 0.88);
+    const aisleGeo = new THREE.BoxGeometry(size, size * 0.08, size);
+    const aisleMat = new THREE.MeshLambertMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.5 });
 
-    const rackGeo = new THREE.BoxGeometry(size * 0.85, size * 0.85, size * 0.85);
-    const rackMat = new THREE.MeshLambertMaterial({ color: 0x00aa44 });
-    const edgeGeo = new THREE.BoxGeometry(size, size, size);
-    const edgeMat = new THREE.MeshBasicMaterial({ color: 0xff4444, wireframe: true });
-
-    let totalRacks = 0;
-    for (let l = 0; l < laneCount; l++) {
-      const laneX = l * (colCount * (size + 0.2) + space * 2);
-      for (let c = 0; c < colCount; c++) {
-        const colZ = c * (size + 0.2);
-        for (let f = 0; f < floorCount; f++) {
-          const y = f * size + size / 2;
-          // 앞면 랙
-          const m1 = new THREE.Mesh(rackGeo, rackMat.clone());
-          m1.position.set(laneX + c * (size + 0.2), y, colZ);
-          m1.userData = { code: `${prefix}-L${l + 1}-${colLetters[c]}-${f + 1}`, lane: l + 1, col: colLetters[c], floor: f + 1 };
-          scene.add(m1);
-          rackMeshes.push(m1);
-
-          // 뒷면 랙
-          const m2 = new THREE.Mesh(rackGeo, rackMat.clone());
-          m2.position.set(laneX + c * (size + 0.2), y, colZ - size * 1.2);
-          m2.userData = { code: `${prefix}-L${l + 1}-${colLetters[c]}B-${f + 1}`, lane: l + 1, col: colLetters[c] + "B", floor: f + 1 };
-          scene.add(m2);
-          rackMeshes.push(m2);
-          totalRacks += 2;
+    // 2D 맵의 통로/벽도 바닥에 표시
+    if (loaded2dCells) {
+      const { cells, gridW, gridH } = loaded2dCells;
+      cells.forEach(c => {
+        if (c.type === "aisle") {
+          const m = new THREE.Mesh(aisleGeo, aisleMat);
+          m.position.set(c.x * s, 0.04, c.y * s);
+          scene.add(m);
         }
-        // 컬럼 외곽선
-        const frame = new THREE.Mesh(edgeGeo, edgeMat);
-        frame.scale.set(1, floorCount, 1);
-        frame.position.set(laneX + c * (size + 0.2), floorCount * size / 2, colZ);
-        scene.add(frame);
-      }
+        if (c.type === "wall") {
+          const wallGeo = new THREE.BoxGeometry(size, size * floorCount, size);
+          const wallMat = new THREE.MeshLambertMaterial({ color: 0x1e293b });
+          const m = new THREE.Mesh(wallGeo, wallMat);
+          m.position.set(c.x * s, size * floorCount * 0.5, c.y * s);
+          scene.add(m);
+        }
+      });
     }
 
-    infoEl.textContent = `레인 ${laneCount}개 · 컬럼 ${colCount}개 · ${floorCount}층 · 총 랙 ${totalRacks}칸 생성됨`;
+    let totalRacks = 0;
+    rackPositions.forEach(({ x, z, code }) => {
+      for (let f = 0; f < floorCount; f++) {
+        const brightness = 0.3 + (f / floorCount) * 0.7;
+        const color = new THREE.Color(0, 0.5 + brightness * 0.5, 0.3 + brightness * 0.3);
+        const mat = new THREE.MeshLambertMaterial({ color });
+        const mesh = new THREE.Mesh(rackGeo, mat);
+        mesh.position.set(x * s, f * s + size / 2, z * s);
+        mesh.userData = { code: code ? `${code}-F${f + 1}` : `${x}-${z}-F${f + 1}`, floor: f + 1, x, z };
+        scene.add(mesh);
+        rackMeshes.push(mesh);
+        totalRacks++;
+      }
+    });
 
-    // ── 호버 인터랙션 ──
+    infoEl.textContent = `랙 위치 ${rackPositions.length}개 · ${floorCount}층 · 총 ${totalRacks}칸 생성됨`;
+
+    // ── 호버/클릭 ──
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     let hovered = null;
@@ -6190,7 +6248,7 @@ function renderLocationMap3D() {
       mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
       const hits = raycaster.intersectObjects(rackMeshes);
-      if (hovered) { hovered.material.color.set(0x00aa44); hovered = null; }
+      if (hovered) { hovered.material.color.setHSL(0.35, 0.8, 0.4); hovered = null; }
       if (hits.length) {
         hovered = hits[0].object;
         hovered.material.color.set(0x2563eb);
@@ -6201,16 +6259,10 @@ function renderLocationMap3D() {
       }
     });
 
-    canvas.addEventListener("click", (e) => {
-      const rect = canvas.getBoundingClientRect();
-      mouse.x =  ((e.clientX - rect.left) / rect.width)  * 2 - 1;
-      mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const hits = raycaster.intersectObjects(rackMeshes);
-      if (hits.length) infoEl.textContent = `선택: ${hits[0].object.userData.code}`;
+    canvas.addEventListener("click", () => {
+      if (hovered) infoEl.textContent = `선택: ${hovered.userData.code}`;
     });
 
-    // 리사이즈
     const onResize = () => {
       const w2 = canvas.clientWidth, h2 = canvas.clientHeight;
       camera.aspect = w2 / h2;
@@ -6219,7 +6271,6 @@ function renderLocationMap3D() {
     };
     window.addEventListener("resize", onResize);
 
-    // 렌더 루프
     const animate = () => {
       animFrameId = requestAnimationFrame(animate);
       controls.update();
