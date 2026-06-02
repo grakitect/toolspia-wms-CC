@@ -65,6 +65,20 @@ function formatYmdLoose(v) {
   return formatYmd(v);
 }
 
+function inferDateFromFilename(filename) {
+  const s = filename.replace(/\.[^.]+$/, ""); // 확장자 제거
+  // YYYYMMDD
+  const m8 = s.match(/(\d{4})(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])/);
+  if (m8) return `${m8[1]}-${m8[2]}-${m8[3]}`;
+  // MMDD (4자리, 앞뒤가 숫자가 아닌 것)
+  const m4 = s.match(/(?<!\d)(0[1-9]|1[0-2])(0[1-9]|[12]\d|3[01])(?!\d)/);
+  if (m4) {
+    const year = new Date().getFullYear();
+    return `${year}-${m4[1]}-${m4[2]}`;
+  }
+  return null;
+}
+
 function formatDateTimeDisplay(v) {
   const s = String(v || "").trim();
   if (!s) return "";
@@ -3368,6 +3382,8 @@ async function renderOutboundPartnerUpload(partner, key) {
             파일 선택
             <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
           </label>
+          <span class="ob-toolbar-hint" style="color:var(--t3);">주문일자</span>
+          <input type="date" id="outbound-upload-order-date-${key}" class="uc-date-input" value="${new Date().toISOString().slice(0,10)}" />
           <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-batch-open-${key}">업로드 파일리스트</button>
           <span id="outbound-upload-file-name-${key}" class="ob-file-name-hint"></span>
           <div class="ob-divider"></div>
@@ -3958,6 +3974,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           } /></td>
           <td>${idx + 1}</td>
           <td>${esc(formatDateTimeDisplay(x.uploadedAt || ""))}</td>
+          <td>${esc(x.orderDate || "")}</td>
           <td>${esc(x.sourceFileName || "")}${isApplied ? ` <span class="batch-applied-badge">현재 적용 중</span>` : ""}</td>
           <td>${esc(String(x.okCount || 0))}</td>
           <td>${esc(String(x.errorCount || 0))}</td>
@@ -3975,8 +3992,8 @@ async function renderOutboundPartnerUpload(partner, key) {
     const html = `<div class="muted" style="margin-bottom:6px;">업로드 이력(업로드 후 적용 버튼을 눌러야 전표 목록에 반영됩니다)</div>
       <div class="muted" style="margin-bottom:6px;">현재 적용 파일: ${appliedFile ? esc(appliedFile.sourceFileName || appliedBatchId) : "없음"}</div>
       <table id="outbound-batch-table-${key}">
-      <thead><tr><th><input type="checkbox" class="outbound-batch-check-all" id="outbound-batch-check-all-${key}" /></th><th>순번</th><th>업로드일시</th><th>파일명</th><th>성공</th><th>실패</th><th>액션</th></tr></thead>
-      <tbody>${rows || `<tr><td colspan="7" class="muted">업로드 이력 없음</td></tr>`}</tbody></table>`;
+      <thead><tr><th><input type="checkbox" class="outbound-batch-check-all" id="outbound-batch-check-all-${key}" /></th><th>순번</th><th>업로드일시</th><th>주문일자</th><th>파일명</th><th>성공</th><th>실패</th><th>액션</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="8" class="muted">업로드 이력 없음</td></tr>`}</tbody></table>`;
     const root = batchOverlayBody || batchesEl;
     root.innerHTML = html;
     const batchChecks = Array.from(root.querySelectorAll(`.outbound-batch-check-${key}`));
@@ -4967,13 +4984,22 @@ async function renderOutboundPartnerUpload(partner, key) {
     const nameEl = qs(`#outbound-upload-file-name-${key}`);
     _uploadFileNameCache[key] = file?.name || "";
     if (nameEl) nameEl.textContent = _uploadFileNameCache[key];
+    // 파일명에서 날짜 자동 감지
+    if (file?.name) {
+      const dateEl = qs(`#outbound-upload-order-date-${key}`);
+      if (dateEl) {
+        const inferred = inferDateFromFilename(file.name);
+        if (inferred) dateEl.value = inferred;
+      }
+    }
     if (!file) return;
     try {
       if (statusEl) statusEl.textContent = "파일 파싱 중...";
       const matrix = await parseSheetMatrix(file);
+      const orderDate = qs(`#outbound-upload-order-date-${key}`)?.value || "";
       const res = await api("/api/outbound-order-upload", {
         method: "POST",
-        body: JSON.stringify({ partnerType: key, sourceFileName: file.name, matrix })
+        body: JSON.stringify({ partnerType: key, sourceFileName: file.name, orderDate, matrix })
       });
       const errCount = Array.isArray(res.errorRows) ? res.errorRows.length : 0;
       if (statusEl) statusEl.textContent = `업로드 완료 (성공 ${res.okCount || 0}, 실패 ${errCount}) - 업로드 파일리스트에서 적용 버튼을 눌러 반영하세요`;

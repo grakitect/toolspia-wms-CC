@@ -3372,6 +3372,7 @@ async function handleApi(req, res, urlObj) {
       const partnerType = normalizeOutboundPartnerType(body.partnerType);
       if (!partnerType) throw new Error("partnerType(daiso/emart/lotte)가 필요합니다.");
       const sourceFileName = String(body.sourceFileName || "").trim().slice(0, 240);
+      const orderDate = String(body.orderDate || "").trim().slice(0, 10);
       let matrix = [];
       if (Array.isArray(body.matrix) && body.matrix.length) {
         matrix = body.matrix;
@@ -3392,6 +3393,7 @@ async function handleApi(req, res, urlObj) {
           partnerType,
           partner: partnerLabelFromType(partnerType),
           sourceFileName,
+          orderDate,
           parserVersion: OUTBOUND_PARTNER_ADAPTERS[partnerType].parserVersion,
           okCount: okRows.length,
           errorCount: errorRows.length,
