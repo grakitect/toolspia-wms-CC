@@ -5628,6 +5628,7 @@ let mapGridW = 15;
 let mapGridH = 10;
 let currentTool = "rack";
 let isPainting = false;
+let mapLocked = false;
 let fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
 
 function renderLocationMap() {
@@ -5659,6 +5660,7 @@ function renderLocationMap() {
           <span style="font-size:12px;color:#64748b;">×</span>
           <input id="map-h-input" type="number" min="1" max="50" value="${mapGridH}" style="width:52px;height:32px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;" />
           <button class="bh-btn" id="map-resize-btn">적용</button>
+          <button class="bh-btn" id="map-edit-btn" style="margin-left:8px;display:none;">✏️ 수정</button>
           <button class="bh-btn bh-btn-primary" id="map-save-btn" style="margin-left:8px;">저장</button>
         </div>
         <div class="loc-map-toolbar">
@@ -5724,6 +5726,8 @@ function renderLocationMap() {
           if (whSel) whSel.value = wh;
           if (zoneSel) zoneSel.value = zone;
           await qs("#map-load-btn")?.click();
+          mapLocked = true;
+          applyLockState();
           qs("#loc-map-grid")?.scrollIntoView({ behavior: "smooth", block: "start" });
         });
       });
@@ -5734,9 +5738,25 @@ function renderLocationMap() {
 
   function updateToolButtons() {
     wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.tool === currentTool);
+      btn.classList.toggle("active", !mapLocked && btn.dataset.tool === currentTool);
     });
   }
+
+  function applyLockState() {
+    const locked = mapLocked;
+    wrap.querySelectorAll(".loc-tool-btn").forEach(b => { b.disabled = locked; });
+    const saveBtn = qs("#map-save-btn");
+    const editBtn = qs("#map-edit-btn");
+    const resizeBtn = qs("#map-resize-btn");
+    if (saveBtn) saveBtn.style.display = locked ? "none" : "";
+    if (editBtn) editBtn.style.display = locked ? "" : "none";
+    if (resizeBtn) resizeBtn.disabled = locked;
+    const grid = qs("#loc-map-grid");
+    if (grid) grid.style.pointerEvents = locked ? "none" : "";
+    if (grid) grid.style.opacity = locked ? "0.7" : "";
+    updateToolButtons();
+  }
+
   updateToolButtons();
 
   wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
@@ -5779,6 +5799,11 @@ function renderLocationMap() {
     renderGrid();
   };
 
+  qs("#map-edit-btn").onclick = () => {
+    mapLocked = false;
+    applyLockState();
+  };
+
   qs("#map-save-btn").onclick = async () => {
     const wh = qs("#map-wh-sel").value;
     const zone = qs("#map-zone-sel").value;
@@ -5789,6 +5814,8 @@ function renderLocationMap() {
         body: JSON.stringify({ key: wh + "::" + zone, gridW: mapGridW, gridH: mapGridH, cells: Object.values(mapCells) })
       });
       alert("저장 완료!");
+      mapLocked = true;
+      applyLockState();
       await renderSavedMaps();
     } catch (e) { alert("저장 실패: " + e.message); }
   };
@@ -6009,6 +6036,7 @@ function renderLocationMap() {
   }
 
   renderGrid();
+  applyLockState();
   renderSavedMaps();
 }
 
