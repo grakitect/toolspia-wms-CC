@@ -5662,8 +5662,9 @@ function renderLocationMap() {
           <span style="font-size:12px;color:#64748b;">×</span>
           <input id="map-h-input" type="number" min="1" max="50" value="${mapGridH}" style="width:52px;height:32px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;" />
           <button class="bh-btn" id="map-resize-btn">적용</button>
-          <button class="bh-btn" id="map-edit-btn" style="margin-left:8px;display:none;">✏️ 수정</button>
-          <button class="bh-btn bh-btn-primary" id="map-save-btn" style="margin-left:8px;">저장</button>
+          <button class="bh-btn" id="map-reset-btn">초기화</button>
+          <button class="bh-btn" id="map-edit-btn" style="display:none;">✏️ 수정</button>
+          <button class="bh-btn bh-btn-primary" id="map-save-btn">저장</button>
         </div>
         <div class="loc-map-toolbar">
           <span style="font-size:12px;color:#64748b;font-weight:600;">도구:</span>
@@ -5797,6 +5798,14 @@ function renderLocationMap() {
   qs("#map-resize-btn").onclick = () => {
     mapGridW = Math.max(1, Math.min(50, Number(qs("#map-w-input").value) || 15));
     mapGridH = Math.max(1, Math.min(50, Number(qs("#map-h-input").value) || 10));
+    renderGrid();
+  };
+
+  qs("#map-reset-btn").onclick = () => {
+    if (!confirm("에디터를 초기화할까요? 저장된 맵은 유지됩니다.")) return;
+    mapCells = {};
+    mapLocked = false;
+    applyLockState();
     renderGrid();
   };
 
