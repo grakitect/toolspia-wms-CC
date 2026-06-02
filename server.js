@@ -233,6 +233,9 @@ function normalizeDb(db) {
   if (!db.outboundOrderUpload.confirmedLists || typeof db.outboundOrderUpload.confirmedLists !== "object") {
     db.outboundOrderUpload.confirmedLists = {};
   }
+  if (!db.outboundOrderUpload.lineOverrides || typeof db.outboundOrderUpload.lineOverrides !== "object") {
+    db.outboundOrderUpload.lineOverrides = {};
+  }
   if (!Array.isArray(db.outboundCodeMasters)) db.outboundCodeMasters = [];
   if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
   for (const pt of ["emart", "daiso", "lotte"]) {
@@ -243,6 +246,8 @@ function normalizeDb(db) {
     if (!Array.isArray(db.unshipCompare[pt].adjustments)) db.unshipCompare[pt].adjustments = [];
   }
   if (!db.ecvanCredentials || typeof db.ecvanCredentials !== "object") db.ecvanCredentials = { id: "", pw: "" };
+  if (!Array.isArray(db.locations)) db.locations = [];
+  if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
 }
 
 function sendJson(res, code, payload) {
@@ -343,7 +348,7 @@ function serveStatic(req, res, pathname) {
           : ext === ".js"
             ? "application/javascript; charset=utf-8"
             : "application/octet-stream";
-    res.writeHead(200, { "Content-Type": type });
+    res.writeHead(200, { "Content-Type": type, "Cache-Control": "no-cache, no-store, must-revalidate" });
     res.end(data);
   });
 }
@@ -412,6 +417,7 @@ function calculateStock(db, warehouseFilter) {
     for (const p of db.products) stockMap[p.code] = 0;
     for (const m of db.movements) {
       const qty = Number(m.qty || 0);
+      if (m.type === "LOC_TRANSFER") continue;
       if (m.type === "TRANSFER") {
         if (m.warehouse === w) stockMap[m.productCode] = (stockMap[m.productCode] || 0) - Math.abs(qty);
         if (m.toWarehouse === w) stockMap[m.productCode] = (stockMap[m.productCode] || 0) + Math.abs(qty);
@@ -431,9 +437,45 @@ function calculateStock(db, warehouseFilter) {
   return items;
 }
 
+function calculateLocationStock(db) {
+  const map = {};
+  const key = (wh, loc, pc) => `${wh}\x00${loc || ""}\x00${pc}`;
+  const sorted = [...db.movements].sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+  for (const m of sorted) {
+    if (m.cancelled) continue;
+    const wh = m.warehouse || "";
+    const loc = m.locationCode || "";
+    const toLoc = m.toLocationCode || "";
+    const toWh = m.toWarehouse || wh;
+    const pc = m.productCode || "";
+    const q = Number(m.qty || 0);
+    if (m.type === "TRANSFER") {
+      const fk = key(wh, loc, pc);
+      const tk = key(toWh, toLoc, pc);
+      map[fk] = (map[fk] || 0) - Math.abs(q);
+      map[tk] = (map[tk] || 0) + Math.abs(q);
+    } else if (m.type === "LOC_TRANSFER") {
+      const fk = key(wh, loc, pc);
+      const tk = key(wh, toLoc, pc);
+      map[fk] = (map[fk] || 0) - Math.abs(q);
+      map[tk] = (map[tk] || 0) + Math.abs(q);
+    } else {
+      const k = key(wh, loc, pc);
+      map[k] = (map[k] || 0) + q;
+    }
+  }
+  const items = [];
+  for (const [k, stock] of Object.entries(map)) {
+    if (stock === 0) continue;
+    const parts = k.split("\x00");
+    items.push({ warehouse: parts[0], locationCode: parts[1], productCode: parts[2], stock });
+  }
+  return items;
+}
+
 function addMovement(db, row) {
   const type = row.type;
-  if (!["IN", "OUT", "ADJUST", "TRANSFER"].includes(type)) {
+  if (!["IN", "OUT", "ADJUST", "TRANSFER", "LOC_TRANSFER"].includes(type)) {
     throw new Error("유효하지 않은 구분입니다.");
   }
   const productCodeInput = normalizeInputLoose(row.productCode);
@@ -446,11 +488,21 @@ function addMovement(db, row) {
   }
   const warehouse = resolveRegisteredWarehouse(db, warehouseRaw);
   if (!warehouse) throw new Error(`등록되지 않은 창고: ${warehouseRaw || "-"}`);
+  const locationCode = String(row.locationCode || "").trim();
+  const toLocationCode = String(row.toLocationCode || "").trim();
   let toWarehouse = "";
   if (type === "TRANSFER") {
     toWarehouse = resolveRegisteredWarehouse(db, toWarehouseRaw);
     if (!toWarehouse) throw new Error(`등록되지 않은 창고: ${toWarehouseRaw || "-"}`);
     if (warehouse === toWarehouse) throw new Error("출발/도착 창고가 동일합니다.");
+    if (!locationCode) throw new Error("창고 간 이동 시 출발 로케이션은 필수입니다.");
+    if (!toLocationCode) throw new Error("창고 간 이동 시 도착 로케이션은 필수입니다.");
+  }
+  if (type === "LOC_TRANSFER") {
+    toWarehouse = warehouse;
+    if (!locationCode) throw new Error("로케이션 이동 시 출발 로케이션은 필수입니다.");
+    if (!toLocationCode) throw new Error("로케이션 이동 시 도착 로케이션은 필수입니다.");
+    if (locationCode === toLocationCode) throw new Error("출발/도착 로케이션이 동일합니다.");
   }
   const product = findProductByMovementImportCode(db, productCodeInput);
   if (!product) {
@@ -476,13 +528,13 @@ function addMovement(db, row) {
   if (!db.managers.includes(user)) {
     throw new Error(`등록되지 않은 담당자입니다: ${user}`);
   }
-  const qty = type === "OUT" ? -Math.abs(qtyRaw) : type === "TRANSFER" ? Math.abs(qtyRaw) : qtyRaw;
+  const qty = type === "OUT" ? -Math.abs(qtyRaw) : (type === "TRANSFER" || type === "LOC_TRANSFER") ? Math.abs(qtyRaw) : qtyRaw;
   const stockItems = calculateStock(db, warehouse).filter((x) => x.code === productCode);
   const current = stockItems.length ? Number(stockItems[0].stock || 0) : 0;
   if (type === "OUT" && current + qty < 0) {
     throw new Error(`출고 불가(재고 부족): ${productCode}, 현재고 ${current}`);
   }
-  if (type === "TRANSFER" && current - Math.abs(qty) < 0) {
+  if ((type === "TRANSFER" || type === "LOC_TRANSFER") && current - Math.abs(qty) < 0) {
     throw new Error(`이동 불가(재고 부족): ${productCode}, 현재고 ${current}`);
   }
 
@@ -492,7 +544,9 @@ function addMovement(db, row) {
     productCode,
     qty,
     warehouse,
-    toWarehouse: type === "TRANSFER" ? toWarehouse : "",
+    toWarehouse: (type === "TRANSFER" || type === "LOC_TRANSFER") ? toWarehouse : "",
+    locationCode: locationCode || "",
+    toLocationCode: (type === "TRANSFER" || type === "LOC_TRANSFER") ? toLocationCode : "",
     partner: String(row.partner || ""),
     memo: String(row.memo || ""),
     slipNo: String(row.slipNo || "").trim(),
@@ -545,7 +599,10 @@ function computeStockAfterEachMovement(db) {
     const from = m.warehouse || "유통사업부";
     if (!stockMap[from]) stockMap[from] = {};
     if (!(m.productCode in stockMap[from])) stockMap[from][m.productCode] = 0;
-    if (m.type === "TRANSFER") {
+    if (m.type === "LOC_TRANSFER") {
+      stockMap[from][m.productCode] += 0; // no warehouse-level change
+      afterMap[m.id] = stockMap[from][m.productCode];
+    } else if (m.type === "TRANSFER") {
       const to = m.toWarehouse || "";
       stockMap[from][m.productCode] -= Math.abs(Number(m.qty || 0));
       if (to) {
@@ -1499,7 +1556,16 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
   const toCenterMergedSlipNo = (row) => {
     const centerRaw = String(row?.centerName || "").trim();
     const centerBucket = resolveCenterBucket(row);
-    const centerKey = (centerRaw || centerBucket || "센터미정").replace(/\s+/g, "");
+    // �(유니코드 깨진 문자) 포함 시 알려진 센터명 패턴으로 복원
+    const normalizeCenterRaw = (raw, bucket) => {
+      if (!/�/.test(raw)) return raw;
+      const cleaned = raw.replace(/�/g, "");
+      if (bucket === "여주") return cleaned.includes("DRY") ? "여주DRY센터" : cleaned.includes("FRESH") ? "여주FRESH센터" : "여주센터";
+      if (bucket === "대구") return cleaned.includes("DRY") ? "대구DRY센터" : cleaned.includes("FRESH") ? "대구FRESH센터" : "대구센터";
+      if (bucket === "시화") return cleaned.includes("DRY") ? "시화DRY센터" : cleaned.includes("FRESH") ? "시화FRESH센터" : "시화센터";
+      return cleaned;
+    };
+    const centerKey = (normalizeCenterRaw(centerRaw, centerBucket) || centerBucket || "센터미정").replace(/\s+/g, "");
     const storeInRaw = String(row?.storeInDate || row?.dueDate || row?.orderDate || row?.poDate || row?.centerInDate || "")
       .trim()
       .replace(/-/g, "");
@@ -1525,7 +1591,7 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
       user: stockUser
     });
   }
-  if (!confirmedLineCount) throw new Error("확정할 출고확인 수량이 0입니다. 정상으로 변경 후 다시 시도하세요.");
+  // confirmedLineCount === 0 (전부 미출) 도 정상 확정 허용 — 재고 이동만 없을 뿐 전표는 confirmed 처리
 
   db.outboundOrderUpload.slipWorkflow[key] = {
     ...wfPrev,
@@ -1999,10 +2065,11 @@ function throwIfEcountSaveSaleFailed(result) {
     const details = Array.isArray(data.ResultDetails) ? data.ResultDetails : [];
     const msgs = details
       .filter((x) => x && x.IsSuccess === false)
-      .map((x) =>
-        x.TotalError ||
-        (Array.isArray(x.Errors) ? x.Errors.map((e) => `${String(e.ColCd || "")}:${String(e.Message || "")}`).join("; ") : "")
-      )
+      .map((x) => {
+        const errArr = Array.isArray(x.Errors) ? x.Errors : [];
+        const colMsgs = errArr.map((e) => [e.ColCd, e.Message, e.TotalError].filter(Boolean).join(":")).join("; ");
+        return x.TotalError || colMsgs || JSON.stringify(x).slice(0, 200);
+      })
       .filter(Boolean);
     throw new Error(`이카운트 판매입력 라인 오류: ${msgs.join(" | ") || JSON.stringify(data).slice(0, 500)}`);
   }
@@ -3348,10 +3415,30 @@ async function handleApi(req, res, urlObj) {
       );
       if (!targetRows.length) throw new Error("선택한 업로드 파일의 데이터가 없습니다.");
 
-      db.outboundOrderUpload.lines = (db.outboundOrderUpload.lines || []).filter((row) => row.partnerType !== partnerType);
-      db.outboundOrderUpload.lines.push(...targetRows);
+      // 현재 lines의 수동 변경값을 lineOverrides에 영구 보존
+      db.outboundOrderUpload.lineOverrides = db.outboundOrderUpload.lineOverrides || {};
+      db.outboundOrderUpload.lineOverrides[partnerType] = db.outboundOrderUpload.lineOverrides[partnerType] || {};
+      const overrideMap = db.outboundOrderUpload.lineOverrides[partnerType];
+      (db.outboundOrderUpload.lines || [])
+        .filter((row) => row && row.partnerType === partnerType)
+        .forEach((row) => {
+          const k = `${String(row.uploadBatchId || "").trim()}|${Number(row.sourceRowNo)}`;
+          overrideMap[k] = { unshipStatus: row.unshipStatus, fixedQty: row.fixedQty };
+        });
 
-      // 적용 파일이 바뀌면 해당 판매처 워크플로우/확정리스트를 초기화한다.
+      // 새 배치 적용 시 lineOverrides에서 수동 변경값 복원
+      const mergedRows = targetRows.map((row) => {
+        const k = `${String(row.uploadBatchId || "").trim()}|${Number(row.sourceRowNo)}`;
+        const saved = overrideMap[k];
+        return saved ? { ...row, unshipStatus: saved.unshipStatus ?? row.unshipStatus, fixedQty: saved.fixedQty ?? row.fixedQty } : row;
+      });
+
+      db.outboundOrderUpload.lines = (db.outboundOrderUpload.lines || []).filter((row) => row.partnerType !== partnerType);
+      db.outboundOrderUpload.lines.push(...mergedRows);
+
+      // 적용 파일이 바뀌면 해당 판매처 워크플로우/확정리스트를 정리한다.
+      // - slipWorkflow: 새 배치에 없는 slip 삭제
+      // - confirmedLists: 참조 slip이 하나라도 살아있는 항목은 유지 (재적용 시 확정 내역 보존)
       const aliveKeys = new Set(targetRows.map((x) => normalizeSlipNoText(x.slipNo)).filter(Boolean));
       const wf = db.outboundOrderUpload.slipWorkflow || {};
       for (const k of Object.keys(wf)) {
@@ -3359,7 +3446,13 @@ async function handleApi(req, res, urlObj) {
       }
       db.outboundOrderUpload.slipWorkflow = wf;
       db.outboundOrderUpload.confirmedLists = db.outboundOrderUpload.confirmedLists || {};
-      db.outboundOrderUpload.confirmedLists[partnerType] = {};
+      db.outboundOrderUpload.confirmedLists[partnerType] = db.outboundOrderUpload.confirmedLists[partnerType] || {};
+      const clMap = db.outboundOrderUpload.confirmedLists[partnerType];
+      for (const clKey of Object.keys(clMap)) {
+        const slipNos = Array.isArray(clMap[clKey]?.slipNos) ? clMap[clKey].slipNos : [];
+        const hasAliveSlip = slipNos.some((s) => aliveKeys.has(normalizeSlipNoText(s)));
+        if (!hasAliveSlip) delete clMap[clKey];
+      }
 
       db.outboundOrderUpload.appliedBatchByPartner = db.outboundOrderUpload.appliedBatchByPartner || {};
       db.outboundOrderUpload.appliedBatchByPartner[partnerType] = uploadBatchId;
@@ -3575,9 +3668,43 @@ async function handleApi(req, res, urlObj) {
         };
       });
 
+      // lineOverrides에도 반영해 배치 전환 시 복원될 수 있게 보존
+      db.outboundOrderUpload.lineOverrides = db.outboundOrderUpload.lineOverrides || {};
+      const partnerTypeForOverride = body.partnerType ? normalizeOutboundPartnerType(body.partnerType) : null;
+      if (partnerTypeForOverride) {
+        db.outboundOrderUpload.lineOverrides[partnerTypeForOverride] = db.outboundOrderUpload.lineOverrides[partnerTypeForOverride] || {};
+        const oMap = db.outboundOrderUpload.lineOverrides[partnerTypeForOverride];
+        updates.forEach((u) => {
+          oMap[`${u.uploadBatchId}|${u.sourceRowNo}`] = { unshipStatus: u.unshipStatus, fixedQty: String(u.fixedQty) };
+        });
+      }
+
       db.outboundOrderUpload.uploadedAt = new Date().toISOString();
       writeDb(db);
       return sendJson(res, 200, { ok: true, changedCount });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/outbound-order-upload/lines/delete") {
+    try {
+      const body = await parseBody(req);
+      const partnerType = normalizeOutboundPartnerType(body.partnerType);
+      if (!partnerType) throw new Error("partnerType이 필요합니다.");
+      const lineKeys = Array.isArray(body.lineKeys) ? body.lineKeys.map(String) : [];
+      if (!lineKeys.length) throw new Error("삭제할 라인이 없습니다.");
+      const keySet = new Set(lineKeys);
+      const db = readDb();
+      const before = (db.outboundOrderUpload.lines || []).length;
+      db.outboundOrderUpload.lines = (db.outboundOrderUpload.lines || []).filter((row) => {
+        if (!row || row.partnerType !== partnerType) return true;
+        const k = `${String(row.uploadBatchId || "").trim()}|${String(row.sourceRowNo || "")}`;
+        return !keySet.has(k);
+      });
+      const deletedCount = before - db.outboundOrderUpload.lines.length;
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, deletedCount });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3697,10 +3824,6 @@ async function handleApi(req, res, urlObj) {
         performOutboundWorkflowReopen(db, slipNo);
       } else if (action === "send-sales") {
         if (wfPrev.status !== "confirmed") throw new Error("출고확정 후에 판매입력을 전송할 수 있습니다.");
-        const enabled = String(process.env.ECOUNT_TEST_SAVE_SALES ?? "").trim().toLowerCase();
-        if (!["1", "true", "yes", "on"].includes(enabled)) {
-          throw new Error("비활성화됨. 테스트 시 .env에 ECOUNT_TEST_SAVE_SALES=1 후 서버 재시작하세요.");
-        }
         const ptype = String(group[0]?.partnerType || "").trim();
         if (!ptype) throw new Error("판매처(partnerType)를 찾을 수 없습니다.");
         const listKey = findOutboundConfirmListKeyForSlip(db, ptype, slipNo);
@@ -3852,11 +3975,6 @@ async function handleApi(req, res, urlObj) {
       const listKey = String(body.listKey || "").trim();
       if (!partnerType) throw new Error("partnerType(daiso/emart/lotte)가 필요합니다.");
       if (!listKey) throw new Error("확정리스트 키(listKey)가 필요합니다.");
-
-      const enabled = String(process.env.ECOUNT_TEST_SAVE_SALES ?? "").trim().toLowerCase();
-      if (!["1", "true", "yes", "on"].includes(enabled)) {
-        throw new Error("비활성화됨. 테스트 시 .env에 ECOUNT_TEST_SAVE_SALES=1 후 서버 재시작하세요.");
-      }
 
       const out = await runOutboundConfirmListSalesToEcount(db, partnerType, listKey);
       return sendJson(res, 200, out);
@@ -4721,10 +4839,23 @@ async function handleApi(req, res, urlObj) {
       ecvanLog("=== eCvan 자동화 시작 ===", sessionId);
 
       // ── 수집 로직 (OTP 후 또는 직접 로그인 후 공통) ──
+      // browser, page를 세션에 저장 (retry-collect에서 접근 가능하도록)
+      session.browser = browser;
+      session.page = page;
+
+      const _runCollect = async (s, b, p) => {
+        const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+        const code = fs.readFileSync(path.join(__dirname, "ecvan-collect.js"), "utf8");
+        const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb", code);
+        return fn(s, b, p, path, fs, __dirname, readDb, writeDb);
+      };
+
       session.collect = async () => {
-        const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
-        // 새 탭이 열렸으면 그쪽을 사용
-        const pg = session._newPage || page;
+        return _runCollect(session, browser, page);
+      };
+
+      // (아래 블록은 제거된 구 코드 자리 — ecvan-collect.js 참조)
+      if (false) { const pg = session._newPage || page;
         const _snap = async (name) => pg.screenshot({ path: path.join(__dirname, "ecvan-debug", `collect-${name}.png`), fullPage: true }).catch(() => {});
         const _allFrames = () => [pg, ...pg.frames()];
 
@@ -4748,21 +4879,35 @@ async function handleApi(req, res, urlObj) {
         };
 
         const _closePopups = async () => {
-          for (let i = 0; i < 3; i++) {
-            await _sleep(500);
-            let closed = false;
-            for (const frame of _allFrames()) {
-              try {
-                const el = await frame.evaluateHandle(() => {
-                  const kws = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-                  const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-                  return btns.find(b => { const t = (b.textContent||b.value||"").trim(); return kws.some(k => t===k||t.includes(k)); }) || null;
-                });
-                const btn = el.asElement();
-                if (btn) { await btn.click().catch(() => {}); closed = true; break; }
-              } catch {}
+          for (let i = 0; i < 10; i++) {
+            await _sleep(1000);
+
+            // 열린 모든 탭 + 모든 프레임에서 팝업 닫기 버튼 탐색
+            let clicked = false;
+            const allPages = await browser.pages().catch(() => [pg]);
+            for (const p of allPages) {
+              for (const frame of [p, ...p.frames()]) {
+                try {
+                  const el = await frame.evaluateHandle(() => {
+                    const kws = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
+                    const btns = [...document.querySelectorAll("button,a,input[type=button]")];
+                    const byText = btns.find(b => {
+                      const t = (b.textContent || b.value || "").trim();
+                      return kws.some(k => t === k);
+                    });
+                    if (byText) return byText;
+                    // X 버튼 (클래스 기반)
+                    return document.querySelector(".close,.btn-close,[class*='close'],[class*='Close'],[aria-label*='닫'],[title*='닫']") || null;
+                  });
+                  const btn = el.asElement();
+                  if (btn) { await btn.click().catch(() => {}); clicked = true; break; }
+                } catch {}
+              }
+              if (clicked) break;
             }
-            if (!closed) break;
+
+            session.progress = `로그인 후 팝업 닫는 중... (${i+1}/10) ${clicked ? "클릭됨" : "버튼없음"}`;
+            if (!clicked) break;
           }
         };
 
@@ -4771,26 +4916,55 @@ async function handleApi(req, res, urlObj) {
         await _sleep(800);
         await _snap("01-after-login");
 
-        // 납품 메뉴 클릭
+        // 납품 메뉴 hover → 드롭다운 유지 → 미납사유등록 클릭
         session.progress = "납품 메뉴 클릭 중...";
-        const clickedNapum = await _clickByText("납품");
-        session.progress = `납품 메뉴: ${clickedNapum ? "클릭됨" : "못찾음"} → 미납사유등록 탐색 중...`;
-        await _sleep(1500);
+
+        // 1) 납품 요소 찾아서 hover → 없으면 즉시 에러
+        const napumEl = await pg.evaluateHandle(() => {
+          const all = [...document.querySelectorAll("a, li, button, span")];
+          return all.find(e => (e.innerText || e.textContent || "").replace(/\s+/g, "").trim() === "납품") || null;
+        });
+        const napumBtn = napumEl.asElement();
+        if (!napumBtn) {
+          await _snap("err-no-napum");
+          throw new Error("납품 메뉴를 찾지 못했습니다 (스크린샷: err-no-napum.png)");
+        }
+        await napumBtn.hover().catch(() => {});
+        await _sleep(400);
+        await napumBtn.click().catch(() => {});
+        await _sleep(600);
         await _snap("02-napum");
 
-        // 미납사유등록 클릭
-        const clickedMenu = await _clickByText("미납사유등록");
-        session.progress = `미납사유등록: ${clickedMenu ? "클릭됨" : "못찾음"} → 페이지 로딩 중...`;
+        // 2) 드롭다운에서 미납사유등록 클릭 (최대 3초) → 없으면 에러
+        let clickedMenu = false;
+        const menuDeadline = Date.now() + 3000;
+        while (Date.now() < menuDeadline) {
+          clickedMenu = await pg.evaluate(() => {
+            const all = [...document.querySelectorAll("a, li, button, span")];
+            const el = all.find(e => (e.innerText || e.textContent || "").replace(/\s+/g, "").trim() === "미납사유등록");
+            if (el) { el.click(); return true; }
+            return false;
+          }).catch(() => false);
+          if (clickedMenu) break;
+          await _sleep(300);
+        }
+        if (!clickedMenu) {
+          await _snap("err-no-minapsa");
+          throw new Error("미납사유등록 메뉴를 찾지 못했습니다 (스크린샷: err-no-minapsa.png)");
+        }
+        session.progress = "미납사유등록 클릭됨 → 페이지 로딩 중...";
         await pg.waitForNavigation({ waitUntil: "networkidle2", timeout: 20000 }).catch(() => {});
         await _sleep(1500);
         await _snap("03-minapsa");
 
         // 상품별 탭 + 조회
         session.progress = "상품별 탭 클릭 중...";
-        await _clickByText("상품별");
+        const clickedSangpum = await _clickByText("상품별");
+        if (!clickedSangpum) { await _snap("err-no-sangpum"); throw new Error("상품별 탭을 찾지 못했습니다"); }
         await _sleep(500);
         session.progress = "조회 중...";
-        await _clickByText("조회");
+        const clickedJohoe = await _clickByText("조회");
+        if (!clickedJohoe) { await _snap("err-no-johoe"); throw new Error("조회 버튼을 찾지 못했습니다"); }
         await _sleep(2500);
         await _snap("04-result");
 
@@ -4819,11 +4993,11 @@ async function handleApi(req, res, urlObj) {
           const prod = products[i];
           session.progress = `(${i + 1}/${products.length}) ${prod.name || prod.code} 수집 중...`;
           try {
-            await page.goto(prod.href, { waitUntil: "networkidle2", timeout: 20000 });
+            await pg.goto(prod.href, { waitUntil: "networkidle2", timeout: 20000 });
             await _sleep(1000);
             let pageNo = 1;
             while (true) {
-              const rows = await page.evaluate((prod, now) => {
+              const rows = await pg.evaluate((prod, now) => {
                 const tables = [...document.querySelectorAll("table")];
                 const tbl = tables.find(t => t.textContent.includes("점포명") && t.textContent.includes("미납"));
                 if (!tbl) return [];
@@ -4844,7 +5018,7 @@ async function handleApi(req, res, urlObj) {
                 }).filter(r => r && r.productCode);
               }, prod, now);
               allRows.push(...rows);
-              const hasNext = await page.evaluate(() => {
+              const hasNext = await pg.evaluate(() => {
                 const pager = document.querySelector(".paging, .pagination, [class*='pager']");
                 if (!pager) return false;
                 const next = [...pager.querySelectorAll("a, button")].find(b =>
@@ -4853,7 +5027,7 @@ async function handleApi(req, res, urlObj) {
                 return next && !next.disabled && !next.classList.contains("disabled");
               });
               if (!hasNext) break;
-              await page.evaluate(() => {
+              await pg.evaluate(() => {
                 const pager = document.querySelector(".paging, .pagination, [class*='pager']");
                 const next = pager && [...pager.querySelectorAll("a, button")].find(b =>
                   b.textContent.trim() === ">" || b.textContent.trim() === "다음" || b.classList.contains("next")
@@ -4862,7 +5036,7 @@ async function handleApi(req, res, urlObj) {
               });
               await _sleep(1200); pageNo++;
             }
-            await page.goBack({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
+            await pg.goBack({ waitUntil: "networkidle2", timeout: 15000 }).catch(() => {});
             await _sleep(700);
           } catch (e2) { console.error(`[eCvan] ${prod.code} 수집 오류:`, e2.message); }
         }
@@ -4878,7 +5052,7 @@ async function handleApi(req, res, urlObj) {
         session.progress = `수집 완료: ${allRows.length}건`;
         // 3초 후 브라우저 닫기 (사용자가 화면 확인할 시간)
         setTimeout(() => browser.close().catch(() => {}), 3000);
-      };
+      } // end if(false)
 
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -4927,24 +5101,36 @@ async function handleApi(req, res, urlObj) {
           });
           await sleep(2000);
 
-          // 페이지 로드 후 팝업 닫기 - puppeteer 실제 클릭 사용
+          // 페이지 로드 후 팝업 닫기
           session.progress = "팝업 닫는 중...";
-          for (let i = 0; i < 5; i++) {
-            await sleep(600);
-            // 팝업 닫기 버튼 후보 (텍스트 또는 X 아이콘)
-            const closeEl = await page.evaluateHandle(() => {
-              const btns = [...document.querySelectorAll("button,a,input[type=button],span[role='button'],.close,svg")];
-              const byText = btns.find(b => {
-                const t = (b.textContent || b.value || "").trim();
-                return t === "닫기" || t === "×" || t === "✕" || t === "X" || t === "close";
-              });
-              if (byText) return byText;
-              // X 모양 버튼 찾기 (클래스에 close, btn-close 포함)
-              return document.querySelector(".close, .btn-close, [class*='close'], [class*='Close'], [aria-label*='닫'], [title*='닫']");
-            });
-            const el = closeEl.asElement();
-            if (el) {
-              await el.click().catch(() => {});
+          for (let i = 0; i < 8; i++) {
+            await sleep(800);
+            await page.keyboard.press("Escape").catch(() => {});
+            await sleep(200);
+            // TreeWalker로 팝업 닫기 텍스트 찾아 마우스 클릭
+            const popupKws = ["닫기", "나중에 하기", "네 알겠습니다", "이후에 하기", "확인"];
+            const rect = await page.evaluate((kws) => {
+              const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+              let node;
+              while ((node = walker.nextNode())) {
+                const t = node.textContent.trim();
+                if (kws.some(k => t === k)) {
+                  const el = node.parentElement;
+                  if (el) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+                  }
+                }
+              }
+              // class 기반 폴백
+              const fallback = document.querySelector(".close,.btn-close,[class*='close'],[class*='Close'],[class*='cancel'],[class*='Cancel'],[aria-label*='닫'],[title*='닫']");
+              if (fallback) { const r = fallback.getBoundingClientRect(); if (r.width > 0) return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }
+              return null;
+            }, popupKws).catch(() => null);
+            if (rect) {
+              await page.mouse.move(rect.x, rect.y);
+              await sleep(100);
+              await page.mouse.click(rect.x, rect.y);
             } else break;
           }
           await sleep(300);
@@ -5185,6 +5371,21 @@ async function handleApi(req, res, urlObj) {
               session.progress = "SMS 인증번호를 WMS에 입력해주세요";
               break;
             }
+
+            // 자동로그인 감지: Chrome 세션 살아있으면 OTP 없이 Nexacro 대시보드로 바로 이동
+            const allPgs = await browser.pages().catch(() => [page]);
+            for (const p of allPgs) {
+              try {
+                const hasNapum = await p.evaluate(() => {
+                  const btn = document.getElementById("mainframe.VFrameSet.TopFrame.form.divTopBtn.form.btn_topMenu1");
+                  if (btn) { const r = btn.getBoundingClientRect(); return r.width > 0; }
+                  return false;
+                }).catch(() => false);
+                if (hasNapum) { otpReached = true; session.progress = "자동로그인 감지 (Nexacro 대시보드 확인) — OTP 건너뜀"; break; }
+              } catch {}
+            }
+            if (otpReached) break;
+
             await sleep(800);
           }
 
@@ -5203,7 +5404,7 @@ async function handleApi(req, res, urlObj) {
           session.status = "waiting_otp";
           session.progress = "휴대폰으로 발송된 SMS 인증번호를 WMS에 입력해주세요";
         } catch (e) {
-          const url = await page.url().catch(() => "");
+          const url = (() => { try { return page.url(); } catch { return ""; } })();
           session.status = "error";
           session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
           // 에러 시 브라우저 유지 - 사용자가 에러 확인 후 재시도 가능
@@ -5226,6 +5427,9 @@ async function handleApi(req, res, urlObj) {
 
       const { page, browser } = session;
       const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+      const screenshotDir = path.join(__dirname, "ecvan-debug");
+      if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir);
+      const snap = async (name) => page.screenshot({ path: path.join(screenshotDir, `${name}.png`), fullPage: true }).catch(() => {});
       const clickByText = async (text, sel = "button,a,input[type=button],input[type=submit]") => {
         return page.evaluate((t, s) => {
           const el = [...document.querySelectorAll(s)].find(e => (e.textContent || e.value || "").trim() === t);
@@ -5292,57 +5496,62 @@ async function handleApi(req, res, urlObj) {
             await page.keyboard.press("Enter");
           }
 
-          // OTP 확인 후 처리
-          session.progress = "인증 완료 - 대시보드 이동 대기 중...";
-          await sleep(2000);
+          // OTP 확인 후: "인증되었습니다" 팝업 닫기
+          session.progress = "인증 완료 - 팝업 닫는 중...";
+          await sleep(1500);
           await snap("06-after-otp");
 
-          // 새 탭이 열리면 자동으로 그쪽으로 이동
-          const newPageHandler = async (target) => {
-            try {
-              if (target.type() === "page") {
-                const newPg = await target.page();
-                if (newPg && !newPg.isClosed()) {
-                  await newPg.bringToFront();
-                  // 원래 page 참조를 새 탭으로 교체 (collect에서 사용)
-                  session._newPage = newPg;
-                }
+          for (let i = 0; i < 10; i++) {
+            await sleep(800);
+
+            // 방법1: "확인"/"닫기" 버튼 - page의 모든 iframe 포함 탐색
+            let clicked = false;
+            for (const frame of [page, ...page.frames()]) {
+              try {
+                const btnEl = await frame.evaluateHandle(() => {
+                  const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
+                  return all.find(e => {
+                    const t = (e.textContent || e.value || "").replace(/\s/g,"").trim();
+                    return t === "확인" || t === "닫기" || t === "확인하기";
+                  }) || null;
+                });
+                const btn = btnEl.asElement();
+                if (btn) { await btn.click(); clicked = true; break; }
+              } catch {}
+            }
+
+            // 방법2: X 버튼 (.close 계열)
+            if (!clicked) {
+              for (const frame of [page, ...page.frames()]) {
+                try {
+                  for (const sel of [".close","[class*='close']","[class*='Close']","button[aria-label*='닫']","button[title*='닫']"]) {
+                    const xEl = await frame.$(sel);
+                    if (xEl) { await xEl.click(); clicked = true; break; }
+                  }
+                } catch {}
+                if (clicked) break;
               }
-            } catch {}
-          };
-          browser.on("targetcreated", newPageHandler);
+            }
 
-          // 최대 15초: "인증되었습니다" 팝업 닫기 + 대시보드 이동 대기
-          for (let i = 0; i < 15; i++) {
-            await sleep(1000);
-
-            // 현재 열려있는 모든 페이지 중 활성 페이지로 작업
-            const activePage = session._newPage || page;
-
-            // 팝업 닫기 시도
+            // 팝업이 사라졌는지 확인
+            const pageText = await page.evaluate(() => document.body?.innerText || "").catch(() => "");
+            const stillOpen = pageText.includes("인증되었습니다");
+            session.progress = `팝업 닫기 시도${i+1}: ${clicked ? "클릭됨" : "버튼없음"} / ${stillOpen ? "아직열림" : "닫힘"}`;
+            if (!stillOpen) break;
+          }
+          // OTP 완료 후 대시보드가 열린 탭 탐색 (새 탭 or 기존 탭 navigate)
+          const allPages = await browser.pages().catch(() => [page]);
+          for (const p of allPages) {
             try {
-              const btnEl = await activePage.evaluateHandle(() => {
-                const all = [...document.querySelectorAll("button,input[type=button],input[type=submit]")];
-                return all.find(e => ["확인","닫기"].includes((e.textContent||e.value||"").replace(/\s/g,"").trim())) || null;
-              });
-              const btn = btnEl.asElement();
-              if (btn) await btn.click().catch(() => {});
-            } catch {}
-
-            // 페이지 이동 완료 확인
-            try {
-              const pageText = await activePage.evaluate(() => document.body?.innerText || "").catch(() => "");
-              const loginDone = !pageText.includes("인증되었습니다") && !pageText.includes("휴대폰 번호 인증") && !pageText.includes("인증번호");
-              session.progress = `인증 후 대기 ${i+1}초: ${loginDone ? "완료→수집시작" : "이동중..."}`;
-              if (loginDone && pageText.length > 100) break; // 실제 페이지 콘텐츠가 있을 때
+              const txt = await p.evaluate(() => document.body?.innerText || "").catch(() => "");
+              const isLogin = txt.includes("인증번호") || txt.includes("아이디") || txt.length < 100;
+              if (!isLogin) { session._newPage = p; break; }
             } catch {}
           }
-
-          browser.off("targetcreated", newPageHandler);
           await snap("07-before-collect");
           await session.collect();
         } catch (e) {
-          const url = await page.url().catch(() => "");
+          const url = (() => { try { return page.url(); } catch { return ""; } })();
           session.status = "error";
           session.error = `${e.message}${url ? ` [URL: ${url}]` : ""}`;
           // OTP 단계 에러는 브라우저 유지 (재시도 가능하도록)
@@ -5354,11 +5563,154 @@ async function handleApi(req, res, urlObj) {
     } catch (e) { return sendJson(res, 400, { error: e.message }); }
   }
 
+  if (req.method === "POST" && pathname === "/api/ecvan/stop") {
+    try {
+      const body = await parseBody(req);
+      const sessionId = String(body.sessionId || "");
+      const target = sessionId ? ecvanSessions.get(sessionId) : [...ecvanSessions.values()][0];
+      if (target) {
+        try { await target.browser?.close(); } catch {}
+        if (sessionId) ecvanSessions.delete(sessionId);
+        else ecvanSessions.clear();
+      }
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  if (req.method === "GET" && pathname === "/api/ecvan/sessions") {
+    const list = [];
+    for (const [id, s] of ecvanSessions) {
+      list.push({ sessionId: id, status: s.status, progress: s.progress || "", error: s.error || null });
+    }
+    return sendJson(res, 200, { sessions: list });
+  }
+
   if (req.method === "GET" && pathname === "/api/ecvan/status") {
     const sessionId = urlObj.searchParams.get("sessionId") || "";
     const session = ecvanSessions.get(sessionId);
     if (!session) return sendJson(res, 200, { status: "not_found" });
     return sendJson(res, 200, { status: session.status, progress: session.progress || "", error: session.error || null, rowCount: session.data ? session.data.length : 0 });
+  }
+
+  // collect만 재시도 (브라우저가 열려있는 상태에서 OTP 없이 재실행)
+  if (req.method === "POST" && pathname === "/api/ecvan/retry-collect") {
+    try {
+      const body = await parseBody(req);
+      const sessionId = String(body.sessionId || "");
+      const session = ecvanSessions.get(sessionId);
+      if (!session) throw new Error("세션 없음. 처음부터 다시 시작해주세요.");
+      if (!session.collect) throw new Error("collect 함수가 없습니다.");
+
+      session.status = "navigating";
+      session.progress = "collect 재시도 중...";
+      session.error = null;
+
+      const { browser: b, page: p } = session;
+      if (!b || !p) throw new Error("브라우저 세션이 없습니다. 처음부터 다시 시작해주세요.");
+
+      (async () => {
+        try {
+          const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
+          const code = fs.readFileSync(path.join(__dirname, "ecvan-collect.js"), "utf8");
+          const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb", code);
+          await fn(session, b, p, path, fs, __dirname, readDb, writeDb);
+        } catch (e) {
+          session.status = "error";
+          session.error = e.message;
+        }
+      })();
+
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  // ── 로케이션 마스터 ──────────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/locations") {
+    return sendJson(res, 200, { items: db.locations });
+  }
+
+  if (req.method === "POST" && pathname === "/api/locations") {
+    try {
+      const body = await parseBody(req);
+      const code = String(body.code || "").trim();
+      const zone = String(body.zone || "").trim();
+      const name = String(body.name || "").trim();
+      const warehouseId = String(body.warehouseId || "").trim();
+      if (!code) throw new Error("로케이션 코드는 필수입니다.");
+      if (!zone) throw new Error("존은 필수입니다.");
+      if (!warehouseId) throw new Error("창고는 필수입니다.");
+      if (db.locations.some((l) => l.code === code)) throw new Error(`이미 존재하는 코드: ${code}`);
+      const loc = {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        code, zone, name: name || code, warehouseId, active: true
+      };
+      db.locations.push(loc);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, location: loc });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  if (req.method === "PUT" && pathname.startsWith("/api/locations/")) {
+    try {
+      const id = decodeURIComponent(pathname.split("/").pop());
+      const body = await parseBody(req);
+      const loc = db.locations.find((l) => l.id === id);
+      if (!loc) throw new Error("로케이션을 찾을 수 없습니다.");
+      if (body.code !== undefined) {
+        const code = String(body.code).trim();
+        if (!code) throw new Error("코드는 필수입니다.");
+        if (db.locations.some((l) => l.id !== id && l.code === code)) throw new Error(`이미 존재하는 코드: ${code}`);
+        loc.code = code;
+      }
+      if (body.zone !== undefined) loc.zone = String(body.zone).trim();
+      if (body.name !== undefined) loc.name = String(body.name).trim();
+      if (body.warehouseId !== undefined) loc.warehouseId = String(body.warehouseId).trim();
+      if (body.active !== undefined) loc.active = !!body.active;
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, location: loc });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  if (req.method === "DELETE" && pathname.startsWith("/api/locations/")) {
+    try {
+      const id = decodeURIComponent(pathname.split("/").pop());
+      const idx = db.locations.findIndex((l) => l.id === id);
+      if (idx < 0) throw new Error("로케이션을 찾을 수 없습니다.");
+      db.locations.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  // ── 로케이션 맵 ──────────────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/location-maps") {
+    const key = urlObj.searchParams.get("key") || "";
+    return sendJson(res, 200, { map: db.locationMaps[key] || null });
+  }
+
+  if (req.method === "PUT" && pathname === "/api/location-maps") {
+    try {
+      const body = await parseBody(req);
+      const key = String(body.key || "").trim();
+      if (!key) throw new Error("key는 필수입니다.");
+      db.locationMaps[key] = {
+        gridW: Math.max(1, Math.min(50, Number(body.gridW) || 10)),
+        gridH: Math.max(1, Math.min(50, Number(body.gridH) || 10)),
+        cells: Array.isArray(body.cells) ? body.cells : []
+      };
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
+  // ── 로케이션별 재고 ──────────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/location-stock") {
+    const items = calculateLocationStock(db);
+    const enriched = items.map((it) => {
+      const p = db.products.find((p) => p.code === it.productCode);
+      return { ...it, productName: p ? p.name : "" };
+    });
+    return sendJson(res, 200, { items: enriched });
   }
 
   return sendJson(res, 404, { error: "Not found" });

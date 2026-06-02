@@ -48,9 +48,13 @@
                 <i data-lucide="package"></i>
                 <span>상품 정보</span>
               </button>
-              <button data-view="stock" class="sidebar-sub">
-                <i data-lucide="boxes"></i>
-                <span>재고현황</span>
+              <button data-view="location-master" class="sidebar-sub">
+                <i data-lucide="map-pin"></i>
+                <span>로케이션 관리</span>
+              </button>
+              <button data-view="location-map" class="sidebar-sub">
+                <i data-lucide="map"></i>
+                <span>맵 에디터</span>
               </button>
             </div></div>
           </div>
@@ -109,14 +113,22 @@
             </div></div>
           </div>
 
-          <!-- 관리 그룹 -->
+          <!-- 재고 그룹 -->
           <div class="sidebar-group">
-            <button class="sidebar-group-btn" data-group="manage">
-              <i data-lucide="settings-2"></i>
-              <span>관리</span>
+            <button class="sidebar-group-btn" data-group="stock">
+              <i data-lucide="warehouse"></i>
+              <span>재고</span>
               <i data-lucide="chevron-down" class="sidebar-chevron"></i>
             </button>
             <div class="sidebar-group-body"><div>
+              <button data-view="stock" class="sidebar-sub">
+                <i data-lucide="boxes"></i>
+                <span>재고현황</span>
+              </button>
+              <button data-view="location-stock" class="sidebar-sub">
+                <i data-lucide="map-pinned"></i>
+                <span>로케이션별 재고</span>
+              </button>
               <button data-view="adjust" class="sidebar-sub">
                 <i data-lucide="refresh-cw"></i>
                 <span>재고 조정 / 이동</span>
@@ -125,6 +137,17 @@
                 <i data-lucide="history"></i>
                 <span>입출고 이력</span>
               </button>
+            </div></div>
+          </div>
+
+          <!-- 관리 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="manage">
+              <i data-lucide="settings-2"></i>
+              <span>관리</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
               <button data-view="alert" class="sidebar-sub">
                 <i data-lucide="bell"></i>
                 <span>알림</span>
@@ -150,6 +173,9 @@
         <section id="view-adjust" class="view hidden"></section>
         <section id="view-history" class="view hidden"></section>
         <section id="view-alert" class="view hidden"></section>
+        <section id="view-location-master" class="view hidden"></section>
+        <section id="view-location-map" class="view hidden"></section>
+        <section id="view-location-stock" class="view hidden"></section>
       </main>
     </div>
     <script src="/app.js"></script>

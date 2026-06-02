@@ -13,7 +13,10 @@ const views = [
   "outbound-upload-lotte",
   "adjust",
   "history",
-  "alert"
+  "alert",
+  "location-master",
+  "location-map",
+  "location-stock"
 ];
 const LAST_VIEW_KEY = "wms:lastView";
 const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
@@ -23,6 +26,7 @@ const state = {
   products: [],
   stock: [],
   warehouses: [],
+  locations: [],
   productOptions: {
     status: [],
     deliveryVendors: [],
@@ -112,10 +116,78 @@ function toTagList(v) {
     .filter(Boolean);
 }
 
+const VENDOR_FIXED_COLORS = {
+  "다이소":   { bg: "#FFE4E8", color: "#BE1236" },
+  "이마트":   { bg: "#E8F7EE", color: "#1A7A40" },
+  "롯데마트": { bg: "#E6F4FF", color: "#0062CC" },
+  "홈플러스": { bg: "#F3E8FF", color: "#6B21A8" },
+  "코스트코": { bg: "#FFF0E6", color: "#C04A00" },
+};
+const VENDOR_COLOR_PALETTE = [
+  { bg: "#FFF0E6", color: "#C04A00" },
+  { bg: "#E6F4FF", color: "#0062CC" },
+  { bg: "#E8F7EE", color: "#1A7A40" },
+  { bg: "#F3E8FF", color: "#6B21A8" },
+  { bg: "#FFE4E8", color: "#BE1236" },
+  { bg: "#E0F7F7", color: "#0E7070" },
+  { bg: "#FFF8E1", color: "#8A6000" },
+  { bg: "#FFFDE7", color: "#7A5F00" },
+];
+function vendorChipStyle(name) {
+  if (VENDOR_FIXED_COLORS[name]) {
+    const c = VENDOR_FIXED_COLORS[name];
+    return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;`;
+  }
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  const c = VENDOR_COLOR_PALETTE[h % VENDOR_COLOR_PALETTE.length];
+  return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;`;
+}
 function renderTagChips(v, cls = "tag tag-orange") {
   const list = toTagList(v);
   if (!list.length) return "<span class='muted'>-</span>";
   return list.map((x) => `<span class="${cls}">${esc(x)}</span>`).join("");
+}
+function renderVendorChips(v) {
+  const list = toTagList(v);
+  if (!list.length) return "<span class='muted'>-</span>";
+  return list.map((x) => `<span class="tag" style="${vendorChipStyle(x)}">${esc(x)}</span>`).join("");
+}
+
+const WAREHOUSE_COLORS = {
+  "유통사업부":     { bg: "#F3E8FF", color: "#6B21A8" },
+  "우리물류(회송전)": { bg: "#E0F7F7", color: "#0E7070" },
+  "아세로직스":    { bg: "#FFF0E6", color: "#C04A00" },
+};
+function warehouseChipStyle(name) {
+  const c = WAREHOUSE_COLORS[name] || { bg: "#F1F5F9", color: "#475569" };
+  return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;font-weight:600;`;
+}
+function renderWarehouseChips(v) {
+  const list = toTagList(v);
+  if (!list.length) return "<span class='muted'>-</span>";
+  return list.map((x) => `<span class="tag" style="${warehouseChipStyle(x)}">${esc(x)}</span>`).join("");
+}
+
+const CATEGORY_COLORS = {
+  "원예": { bg: "#E8F7EE", color: "#1A7A40" },
+  "공구": { bg: "#F1F5F9", color: "#334155" },
+  "수전": { bg: "#E6F4FF", color: "#0062CC" },
+  "필터": { bg: "#E0F7F7", color: "#0E7070" },
+  "필조": { bg: "#EEF2FF", color: "#3730A3" },
+  "접착": { bg: "#FFF0E6", color: "#C04A00" },
+  "케미": { bg: "#FFE4E8", color: "#BE1236" },
+  "잡화": { bg: "#FFF8E1", color: "#8A6000" },
+  "ETC": { bg: "#F1F5F9", color: "#64748B" },
+};
+function categoryChipStyle(name) {
+  const c = CATEGORY_COLORS[name] || { bg: "#F1F5F9", color: "#475569" };
+  return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;font-weight:600;`;
+}
+function renderCategoryChips(v) {
+  const list = toTagList(v);
+  if (!list.length) return "<span class='muted'>-</span>";
+  return list.map((x) => `<span class="tag" style="${categoryChipStyle(x)}">${esc(x)}</span>`).join("");
 }
 
 function preventEnterSubmit(formEl) {
@@ -719,13 +791,14 @@ function normalizeMovementRows(rows, type) {
 }
 
 async function refreshCommon() {
-  const [productsRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes] = await Promise.all([
+  const [productsRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes, locRes] = await Promise.all([
     api("/api/products"),
     api("/api/stock"),
     api("/api/partners"),
     api("/api/managers"),
     api("/api/warehouses"),
-    api("/api/product-options")
+    api("/api/product-options"),
+    api("/api/locations")
   ]);
   state.products = productsRes.items;
   state.stock = stockRes.items;
@@ -733,6 +806,7 @@ async function refreshCommon() {
   state.managers = managersRes.items || [];
   state.warehouses = warehousesRes.items || [];
   state.productOptions = optionRes.items || state.productOptions;
+  state.locations = locRes.items || [];
 }
 
 async function renderDashboard() {
@@ -1019,15 +1093,17 @@ function renderProducts() {
   const rows = state.products
     .map((p) => {
       const searchText = `${p.ecountCode || p.code || ""} ${p.code || ""} ${p.ecountName || p.name || ""}`.toLowerCase();
-      return `<tr data-search="${esc(searchText)}">
+      const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
+      const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
+      return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${rowClass ? ` class="${rowClass}"` : ""}>
       <td><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
       <td>${esc(p.ecountCode || p.code)}</td>
       <td>${esc(p.barcode)}</td>
       <td>${esc(p.middleBarcode || "")}</td>
       <td>${esc(p.logisticsBarcode)}</td>
       <td>${esc(p.ecountName || p.name)}</td>
-      <td>${esc(p.status || "")}</td>
-      <td>${renderTagChips(p.deliveryVendors)}</td>
+      <td${statusStyle}>${esc(p.status || "")}</td>
+      <td>${renderVendorChips(p.deliveryVendors)}</td>
       <td>${esc(p.deliveryVendorCode || "")}</td>
       <td>${esc(p.deliveryItemName || "")}</td>
       <td>${esc(p.spec || "")}</td>
@@ -1038,9 +1114,9 @@ function renderProducts() {
       <td>${esc(p.purchaseItemCode || "")}</td>
       <td>${esc(p.purchaseItemName || "")}</td>
       <td>${esc(p.warehouseGroup || "")}</td>
-      <td>${renderTagChips(p.usedWarehouses)}</td>
+      <td>${renderWarehouseChips(p.usedWarehouses)}</td>
       <td>${esc(p.itemType || "")}</td>
-      <td>${renderTagChips(p.categories)}</td>
+      <td>${renderCategoryChips(p.categories)}</td>
     </tr>`;
     })
     .join("");
@@ -1074,6 +1150,10 @@ function renderProducts() {
             <input type="text" id="product-search-q" class="products-bh-search" placeholder="이카운트 / 상품코드 / 품목명 검색" autocomplete="off" />
             <button type="button" class="bh-search-go" id="product-search-btn">조회</button>
           </div>
+          <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+            <input type="checkbox" id="product-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+            판매중만 표시
+          </label>
           <span class="products-bh-search-actions">
             <button type="button" id="product-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
             <button type="button" id="product-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
@@ -1085,7 +1165,7 @@ function renderProducts() {
         <div class="products-bh-table-outer">
           <div class="table-scroll-x products-bh-y-scroll">
             <table id="products-table">
-              <thead><tr><th><input id="product-check-all" type="checkbox" /></th><th>품목코드(이카운트)</th><th>바코드(SKU)</th><th>바코드(중포)</th><th>바코드(카톤)</th><th>품목명(이카운트)</th><th>상태</th><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th>규격</th><th>구매처</th><th>수급형태</th><th>발주부서</th><th>발주담당자</th><th>구매처 품목코드</th><th>구매처 품목명</th><th>창고그룹(이카운트)</th><th>사용창고</th><th>구분</th><th>카테고리</th></tr></thead>
+              <thead><tr><th><input id="product-check-all" type="checkbox" /></th><th>품목코드(이카운트)</th><th>바코드(SKU)</th><th>바코드(중포)</th><th>바코드(CT)</th><th>품목명(이카운트)</th><th>상태</th><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th>규격</th><th>구매처</th><th>수급형태</th><th>발주부서</th><th>발주담당자</th><th>구매처 품목코드</th><th>구매처 품목명</th><th>창고그룹(이카운트)</th><th>사용창고</th><th>구분</th><th>카테고리</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -1119,7 +1199,7 @@ function renderProducts() {
           <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
           <div><label>바코드(중포)</label><input name="middleBarcode" /></div>
-          <div><label>바코드(카톤)</label><input name="logisticsBarcode" /></div>
+          <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
           <div class="multi-select-field">
@@ -1336,11 +1416,14 @@ function renderProducts() {
 
   const applyProductListFilters = () => {
     const q = (searchInput?.value || "").trim().toLowerCase();
+    const onlyActive = qs("#product-only-active")?.checked ?? false;
     const allRows = Array.from(document.querySelectorAll("#products-table tbody tr"));
-    const matched = allRows.filter(
-      (tr) =>
-        tr.dataset.wmsExcelVisible !== "0" && (!q || String(tr.dataset.search || "").includes(q))
-    );
+    const matched = allRows.filter((tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") return false;
+      const st = tr.dataset.status || "";
+      if (onlyActive && st !== "판매중") return false;
+      return !q || String(tr.dataset.search || "").includes(q);
+    });
     const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "100", 10) || 100));
     const total = matched.length;
     const pages = Math.max(1, Math.ceil(total / size));
@@ -1350,15 +1433,11 @@ function renderProducts() {
     const start = page * size;
     let mi = 0;
     allRows.forEach((tr) => {
-      if (tr.dataset.wmsExcelVisible === "0") {
-        tr.style.display = "none";
-        return;
-      }
+      if (tr.dataset.wmsExcelVisible === "0") { tr.style.display = "none"; return; }
+      const st = tr.dataset.status || "";
+      if (onlyActive && st !== "판매중") { tr.style.display = "none"; return; }
       const isMatch = !q || String(tr.dataset.search || "").includes(q);
-      if (!isMatch) {
-        tr.style.display = "none";
-        return;
-      }
+      if (!isMatch) { tr.style.display = "none"; return; }
       const vis = mi >= start && mi < start + size;
       tr.style.display = vis ? "" : "none";
       mi += 1;
@@ -1387,6 +1466,22 @@ function renderProducts() {
       productListPageIndex = 0;
       applyProductListFilters();
     });
+    const onlyActiveChk = qs("#product-only-active");
+    const onlyActiveBtn = qs("#product-only-active-btn");
+    const updateOnlyActiveStyle = () => {
+      if (!onlyActiveBtn) return;
+      if (onlyActiveChk?.checked) {
+        onlyActiveBtn.style.borderColor = "#3182F6";
+        onlyActiveBtn.style.background = "#EBF3FF";
+        onlyActiveBtn.style.color = "#1A6FDB";
+      } else {
+        onlyActiveBtn.style.borderColor = "#CBD5E1";
+        onlyActiveBtn.style.background = "#fff";
+        onlyActiveBtn.style.color = "#475569";
+      }
+    };
+    onlyActiveChk?.addEventListener("change", () => { productListPageIndex = 0; applyProductListFilters(); updateOnlyActiveStyle(); });
+    updateOnlyActiveStyle();
     pagePrev?.addEventListener("click", () => {
       productListPageIndex = Math.max(0, productListPageIndex - 1);
       applyProductListFilters();
@@ -2238,7 +2333,6 @@ function renderInbound() {
   qs("#view-inbound").innerHTML = movementInboundPageHtml();
   bindMovement("IN");
   setupInboundModals();
-  renderRecentMovements("IN");
 }
 
 async function renderInboundPlan() {
@@ -2561,7 +2655,7 @@ async function renderInboundPlan2() {
           <h3 id="inbound-plan-2-detail-title">전표 상세 (업로드)</h3>
           <button type="button" id="inbound-plan-2-detail-close" class="cancel-btn del-small">닫기</button>
         </div>
-        <div id="inbound-plan-2-detail-body" style="max-height: 65vh; overflow: auto;"></div>
+        <div id="inbound-plan-2-detail-body"></div>
       </div>
     </div>
   `;
@@ -2636,75 +2730,96 @@ async function renderInboundPlan2() {
       /* ignore */
     }
     const lineRows = lines
-      .map(
-        (r, idx) => `<tr>
+      .map((r, idx) => {
+        const prod = (state.products || []).find((p) => String(p.code || "").trim() === String(r.itemCode || "").trim());
+        const bcSku = prod ? (prod.barcode || "") : (r.barcode || "");
+        const bcMid = prod ? (prod.middleBarcode || "") : "";
+        const bcCtn = prod ? (prod.logisticsBarcode || "") : "";
+        return `<tr>
           <td>${idx + 1}</td>
           <td>${esc(r.itemCode || "")}</td>
-          <td>${esc(r.barcode || "")}</td>
+          <td>${esc(bcSku)}</td>
+          <td>${esc(bcMid)}</td>
+          <td>${esc(bcCtn)}</td>
           <td>${esc(r.itemName || "")}</td>
           <td>${esc(r.spec || "")}</td>
           <td>${esc(qtyText(r.boxQty || ""))}</td>
+          <td></td>
           <td>${esc(orderQtyVal(r))}</td>
           <td><input type="number" min="0" step="1" class="inbound-plan-2-detail-qty" data-line-idx="${idx}" value="${esc(
             inboundCheckVal(r)
           )}" style="width:88px;" ${qtyDisabled} /></td>
           <td>${esc(qtyText(r.unitPrice ?? ""))}</td>
           <td>${esc(qtyText(r.supplyAmount ?? ""))}</td>
-          <td>${esc(r.vendorCode || "")}</td>
           <td>${esc(r.remark || "")}</td>
           <td>${esc(r.note || "")}</td>
-        </tr>`
-      )
+        </tr>`;
+      })
       .join("");
+    const statusColor = confirmed ? "#137333" : "#92400e";
+    const statusBg   = confirmed ? "#e6f4ea" : "#fef9c3";
     detailBody.innerHTML = `
-      <p class="muted" style="margin-bottom:10px;"><strong>수량(발주)</strong>는 엑셀 그대로이며 수정할 수 없습니다. 실제 입고 예정 수량은 <strong>수량(입고확인)</strong>에 입력한 뒤 <strong>수량(입고확인) 중간 저장</strong> → <strong>입고 확정</strong> → <strong>구매입력 전송</strong>(이카운트 + WMS 입고) 순서로 진행하세요.</p>
-      <div class="row" style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:12px;">
-        <span><strong>입고 상태</strong>: <span id="inbound-plan-2-wf-status-label">${esc(statusLabel)}</span></span>
-        <span id="inbound-plan-2-purchase-done-badge" class="muted" style="font-size:12px;"></span>
-        <label class="muted" style="font-size:13px; display:flex; align-items:center; gap:6px;">WMS 입고 담당자
-          <select id="inbound-plan-2-stock-user" style="min-width:120px;" ${purchaseComplete ? "disabled" : ""}>
+      <!-- 전표 메타 -->
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:6px 16px; margin-bottom:16px; padding:12px 14px; background:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0;">
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">전표번호</span><strong style="font-size:13px;">${esc(slipNo || "-")}</strong></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">발주일자</span><span style="font-size:13px;">${esc(formatYmdLoose(head.poDate || ""))}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">납기일자</span><span style="font-size:13px;">${esc(formatYmdLoose(head.dueDate || ""))}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">입고창고</span><span style="font-size:13px;">${esc(head.whName || "-")}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">거래처</span><span style="font-size:13px;">${esc(head.vendor || "-")}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">거래처코드</span><span style="font-size:13px;">${esc(head.vendorCode || "-")}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">담당자</span><span style="font-size:13px;">${esc(head.manager || "-")}</span></div>
+        <div><span style="font-size:11px;color:#64748b;display:block;margin-bottom:2px;">품목 수</span><span style="font-size:13px;">${lines.length}행</span></div>
+      </div>
+
+      <!-- 워크플로우 컨트롤 -->
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px 14px; background:#f8f9fa; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:10px;">
+        <span style="font-size:12px; font-weight:600; padding:3px 10px; border-radius:20px; background:${statusBg}; color:${statusColor};">
+          ${esc(statusLabel)}${purchaseComplete ? " · 구매입력 완료" : ""}
+        </span>
+        <div style="display:flex; align-items:center; gap:6px; margin-left:auto;">
+          <label style="font-size:12px; color:#64748b; white-space:nowrap;">WMS 담당자</label>
+          <select id="inbound-plan-2-stock-user" style="font-size:12px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:6px; min-width:110px;" ${purchaseComplete ? "disabled" : ""}>
             <option value="">선택…</option>
             ${managerOptions}
           </select>
-        </label>
-        <button type="button" class="cancel-btn" id="inbound-plan-2-save-qty" ${confirmed ? "disabled" : ""}>수량(입고확인) 중간 저장</button>
-        <button type="button" class="primary" id="inbound-plan-2-confirm-slip" ${confirmed ? "disabled" : ""}>입고 확정</button>
-        <button type="button" class="cancel-btn" id="inbound-plan-2-reopen-slip" ${confirmed ? "" : "disabled"}>확정 취소</button>
-        <button type="button" class="primary" id="inbound-plan-2-send-purchase" ${confirmed && !purchaseComplete ? "" : "disabled"} style="${confirmed && !purchaseComplete ? "" : "opacity:0.5;"}">구매입력 전송</button>
-        <span id="inbound-plan-2-purchase-env-hint" class="muted" style="font-size:12px;"></span>
+        </div>
+        <div style="display:flex; gap:6px;">
+          <button type="button" class="cancel-btn" id="inbound-plan-2-save-qty" ${confirmed ? "disabled" : ""} style="font-size:12px; padding:0 14px; min-width:90px; height:30px; box-sizing:border-box;">수량 중간저장</button>
+          <button type="button" class="primary" id="inbound-plan-2-confirm-slip" ${confirmed ? "disabled" : ""} style="font-size:12px; padding:0 14px; min-width:90px; height:30px; box-sizing:border-box;">입고 확정</button>
+          <button type="button" class="cancel-btn" id="inbound-plan-2-reopen-slip" ${confirmed ? "" : "disabled"} style="font-size:12px; padding:0 14px; min-width:90px; height:30px; box-sizing:border-box;">확정 취소</button>
+          <button type="button" class="primary" id="inbound-plan-2-send-purchase" ${confirmed && !purchaseComplete ? "" : "disabled"} style="font-size:12px; padding:0 14px; min-width:90px; height:30px; box-sizing:border-box; ${confirmed && !purchaseComplete ? '' : 'opacity:0.5;'}">구매입력 전송</button>
+        </div>
       </div>
-      <div id="inbound-plan-2-detail-msg" class="muted" style="margin-bottom:8px; min-height:1.2em;"></div>
-      <div class="row" style="grid-template-columns: repeat(4, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px;">
-        <div><strong>전표번호</strong><div>${esc(slipNo || "-")}</div></div>
-        <div><strong>일자</strong><div>${esc(formatYmdLoose(head.poDate || ""))}</div></div>
-        <div><strong>거래처</strong><div>${esc(head.vendor || "")}</div></div>
-        <div><strong>거래처코드</strong><div>${esc(head.vendorCode || "")}</div></div>
-        <div><strong>담당자</strong><div>${esc(head.manager || "")}</div></div>
-        <div><strong>입고창고</strong><div>${esc(head.whName || "")}</div></div>
-        <div><strong>납기일자</strong><div>${esc(formatYmdLoose(head.dueDate || ""))}</div></div>
-        <div><strong>최종수정일자</strong><div>${esc(head.lastModifiedAt || "")}</div></div>
-        <div><strong>품목 행 수</strong><div>${lines.length}</div></div>
+      <div id="inbound-plan-2-detail-msg" style="min-height:1.4em; font-size:12px; margin-bottom:6px; padding:0 2px;"></div>
+      <span id="inbound-plan-2-purchase-env-hint" style="display:block; font-size:11px; color:#64748b; margin-bottom:10px;"></span>
+      <span id="inbound-plan-2-purchase-done-badge" style="display:none;"></span>
+
+      <!-- 품목 테이블 -->
+      <div style="overflow:auto; max-height:calc(65vh - 220px); border:1px solid #e2e8f0; border-radius:6px;">
+        <table style="white-space:nowrap; width:auto;">
+          <thead style="position:sticky; top:0; z-index:1;">
+            <tr>
+              <th>순번</th>
+              <th>품목코드</th>
+              <th>바코드(SKU)</th>
+              <th>바코드(중포)</th>
+              <th>바코드(CT)</th>
+              <th style="min-width:200px;">품목명</th>
+              <th>규격</th>
+              <th>수량(CT)</th>
+              <th>수량(PL)</th>
+              <th>수량(발주)</th>
+              <th>수량(입고확인)</th>
+              <th>단가</th>
+              <th>공급가액</th>
+              <th>적요</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody>${lineRows || `<tr><td colspan="15" class="muted" style="text-align:center;padding:20px;white-space:normal;">품목 라인이 없습니다.</td></tr>`}
+</tbody>
+        </table>
       </div>
-      <table>
-        <thead>
-          <tr>
-            <th>순번</th>
-            <th>품목코드</th>
-            <th>바코드</th>
-            <th>품목명</th>
-            <th>규격</th>
-            <th>수량(BOX)</th>
-            <th>수량(발주)</th>
-            <th>수량(입고확인)</th>
-            <th>단가</th>
-            <th>공급가액</th>
-            <th>거래처코드</th>
-            <th>적요</th>
-            <th>비고</th>
-          </tr>
-        </thead>
-        <tbody>${lineRows || `<tr><td colspan="13" class="muted">품목 라인이 없습니다.</td></tr>`}</tbody>
-      </table>
     `;
 
     const msgEl = qs("#inbound-plan-2-detail-msg");
@@ -3178,7 +3293,6 @@ function renderOutbound() {
   qs("#view-outbound").innerHTML = movementOutboundPageHtml();
   bindMovement("OUT");
   setupOutboundModals();
-  renderRecentMovements("OUT");
 }
 
 function renderOutboundPlanMenu() {
@@ -3208,6 +3322,8 @@ function renderOutboundPlanMenu() {
     await renderOutboundPartnerUpload("롯데마트", "lotte");
   });
 }
+
+const _uploadFileNameCache = {};
 
 async function renderOutboundPartnerUpload(partner, key) {
   const wrap = qs(`#view-outbound-upload-${key}`);
@@ -3252,14 +3368,11 @@ async function renderOutboundPartnerUpload(partner, key) {
             파일 선택
             <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
           </label>
-          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-run-${key}">업로드</button>
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-batch-open-${key}">업로드 파일리스트</button>
+          <span id="outbound-upload-file-name-${key}" class="ob-file-name-hint"></span>
           <div class="ob-divider"></div>
           <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-refresh-${key}">새로고침</button>
           <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-template-${key}">엑셀 템플릿</button>
-          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-batch-open-${key}">파일 리스트</button>
-          <div class="ob-divider"></div>
-          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
-          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-all-${key}">전체 삭제</button>
         </div>
         <div id="outbound-upload-batches-${key}" class="hidden ob-batches-wrap"></div>
         <div id="outbound-line-tabs-${key}" class="ob-line-tabs"></div>
@@ -3423,6 +3536,8 @@ async function renderOutboundPartnerUpload(partner, key) {
       </div>
     </div>
   `;
+  const _fnSpan = qs(`#outbound-upload-file-name-${key}`);
+  if (_fnSpan && _uploadFileNameCache[key]) _fnSpan.textContent = _uploadFileNameCache[key];
   const tableEl = qs(`#outbound-upload-table-${key}`);
   const statusEl = qs(`#outbound-upload-status-${key}`);
   const masterStatusEl = qs(`#outbound-master-status-${key}`);
@@ -3475,6 +3590,7 @@ async function renderOutboundPartnerUpload(partner, key) {
   let selectedLineKeys = new Set();
   let unshipCenterTab = "all";
   let unshipSearchQ = "";
+  let unshipViewMode = "store"; // "store" | "product"
 
   const switchTopTab = (tab) => {
     const isOrders = tab === "orders";
@@ -3724,8 +3840,19 @@ async function renderOutboundPartnerUpload(partner, key) {
             switchTopTab("compare");
           } else if (res.status === "error") {
             clearInterval(ecvanPollTimer);
-            ecvanShowStep("login");
-            alert(`오류: ${res.error}`);
+            if (ecvanStatusBar) {
+              ecvanStatusBar.classList.remove("hidden");
+              ecvanStatusBar.innerHTML = `❌ ${res.error} <button type="button" class="bh-btn bh-btn-sm bh-btn-primary" style="margin-left:8px;" id="ecvan-retry-${key}">수집 재시도</button>`;
+              qs(`#ecvan-retry-${key}`)?.addEventListener("click", async () => {
+                if (!ecvanSessionId) { alert("세션이 없습니다. 다시 로그인해주세요."); return; }
+                ecvanStatusBar.textContent = "재시도 중...";
+                try {
+                  await api("/api/ecvan/retry-collect", { method: "POST", body: JSON.stringify({ sessionId: ecvanSessionId }) });
+                  ecvanPollStatus();
+                } catch (e) { ecvanStatusBar.textContent = `재시도 실패: ${e.message}`; }
+              });
+            }
+            ecvanModal?.classList.add("hidden");
           } else if (res.status === "not_found") {
             clearInterval(ecvanPollTimer);
             ecvanShowStep("login");
@@ -3823,13 +3950,15 @@ async function renderOutboundPartnerUpload(partner, key) {
     );
     const rows = currentBatches
       .map(
-        (x, idx) => `<tr>
+        (x, idx) => {
+          const isApplied = appliedBatchId === String(x.uploadBatchId || "");
+          return `<tr class="${isApplied ? "batch-row-applied" : ""}">
           <td><input type="checkbox" class="outbound-batch-check outbound-batch-check-${key}" data-batch="${esc(x.uploadBatchId || "")}" ${
             selectedBatchIds.has(String(x.uploadBatchId || "")) ? "checked" : ""
           } /></td>
           <td>${idx + 1}</td>
           <td>${esc(formatDateTimeDisplay(x.uploadedAt || ""))}</td>
-          <td>${esc(x.sourceFileName || "")}${appliedBatchId === String(x.uploadBatchId || "") ? ` <span class="muted">(현재 적용)</span>` : ""}</td>
+          <td>${esc(x.sourceFileName || "")}${isApplied ? ` <span class="batch-applied-badge">현재 적용 중</span>` : ""}</td>
           <td>${esc(String(x.okCount || 0))}</td>
           <td>${esc(String(x.errorCount || 0))}</td>
           <td>
@@ -3838,7 +3967,8 @@ async function renderOutboundPartnerUpload(partner, key) {
               x.uploadBatchId || ""
             )}">업로드 삭제</button>
           </td>
-        </tr>`
+        </tr>`;
+        }
       )
       .join("");
     const appliedFile = currentBatches.find((b) => String(b.uploadBatchId || "") === appliedBatchId);
@@ -4235,26 +4365,9 @@ async function renderOutboundPartnerUpload(partner, key) {
       );
       const itemsRaw = Array.isArray(res.items) ? res.items : [];
       const qlow = String(unshipSearchQ || "").trim().toLowerCase();
-      const items = !qlow
-        ? itemsRaw
-        : itemsRaw.filter((x) => {
-            const hay = [
-              x.slipNo,
-              x.productCode,
-              x.sourceProductCode,
-              x.productName,
-              x.storeName,
-              x.centerName,
-              x.centerCode,
-              x.lot,
-              x.warehouse
-            ]
-              .map((s) => String(s || "").toLowerCase())
-              .join(" ");
-            return hay.includes(qlow);
-          });
       const counts = res.counts && typeof res.counts === "object" ? res.counts : { all: itemsRaw.length };
 
+      // 센터 탭
       if (unshipTabsEl) {
         const tabs = key === "emart" ? ["all", "여주", "대구", "시화"] : ["all"];
         unshipTabsEl.className = "seg-tabs";
@@ -4262,9 +4375,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           .map((t) => {
             const label = t === "all" ? "전체" : `${t}센터`;
             const n = Number(counts[t] ?? 0);
-            return `<button type="button" class="${t === unshipCenterTab ? "seg-tab active" : "seg-tab"} outbound-unship-tab-${key}" data-tab="${esc(
-              t
-            )}">${label}(${n})</button>`;
+            return `<button type="button" class="${t === unshipCenterTab ? "seg-tab active" : "seg-tab"} outbound-unship-tab-${key}" data-tab="${esc(t)}">${label}(${n})</button>`;
           })
           .join("");
         unshipTabsEl.querySelectorAll(`.outbound-unship-tab-${key}`).forEach((btn) =>
@@ -4275,64 +4386,170 @@ async function renderOutboundPartnerUpload(partner, key) {
         );
       }
 
-      if (unshipToolsEl && !qs(`#outbound-unship-search-${key}`)) {
-        unshipToolsEl.innerHTML = `
-          <span class="muted" id="outbound-unship-count-${key}" style="align-self:center;">표시 0건</span>
-          <input type="text" id="outbound-unship-search-${key}" placeholder="전표·상품·점포·센터 검색" />
-        `;
-        const searchEl = qs(`#outbound-unship-search-${key}`);
-        if (searchEl) {
-          searchEl.value = unshipSearchQ;
-          searchEl.addEventListener("input", async (e) => {
+      // 툴바 (뷰 토글 + 검색) — 초기 1회만 렌더, 이후에는 active 상태만 갱신
+      if (unshipToolsEl) {
+        const existingSearch = qs(`#outbound-unship-search-${key}`);
+        if (!existingSearch || !qs(`#outbound-unship-view-store-${key}`)) {
+          unshipToolsEl.innerHTML = `
+            <div class="seg-tabs" style="flex-shrink:0;">
+              <button type="button" class="seg-tab ${unshipViewMode === "store" ? "active" : ""}" id="outbound-unship-view-store-${key}">점포별</button>
+              <button type="button" class="seg-tab ${unshipViewMode === "product" ? "active" : ""}" id="outbound-unship-view-product-${key}">상품별</button>
+            </div>
+            <input type="text" id="outbound-unship-search-${key}" placeholder="상품·점포·센터 검색" style="flex:1;min-width:160px;" />
+            <span class="muted" id="outbound-unship-count-${key}" style="align-self:center;white-space:nowrap;"></span>
+          `;
+          qs(`#outbound-unship-search-${key}`)?.addEventListener("input", async (e) => {
             unshipSearchQ = String(e.target?.value || "");
             await loadUnshipLines();
           });
+          qs(`#outbound-unship-view-store-${key}`)?.addEventListener("click", async () => {
+            unshipViewMode = "store";
+            await loadUnshipLines();
+          });
+          qs(`#outbound-unship-view-product-${key}`)?.addEventListener("click", async () => {
+            unshipViewMode = "product";
+            await loadUnshipLines();
+          });
+        } else {
+          // 뷰 토글 버튼 active 상태만 갱신
+          qs(`#outbound-unship-view-store-${key}`)?.classList.toggle("active", unshipViewMode === "store");
+          qs(`#outbound-unship-view-product-${key}`)?.classList.toggle("active", unshipViewMode === "product");
+          existingSearch.value = unshipSearchQ;
         }
       }
+
       const unshipCountEl = qs(`#outbound-unship-count-${key}`);
-      if (unshipCountEl) unshipCountEl.textContent = `현재 탭·검색 기준 ${items.length}건`;
 
-      const rows = items
-        .map((x, idx) => {
-          const dueDisp = formatYmdLoose(x.dueDate) || formatYmdLoose(x.storeInDate) || "";
-          const poDisp = formatYmdLoose(x.poDate) || formatYmdLoose(x.orderDate) || "";
-          const storeInDisp = formatYmdLoose(x.storeInDate) || "";
-          return `<tr>
-            <td>${idx + 1}</td>
-            <td>${esc(dueDisp)}</td>
-            <td>${esc(x.centerName || "")}</td>
-            <td>${esc(x.centerCode || "")}</td>
-            <td><button type="button" class="bh-link-btn outbound-unship-slip-open-${key}" data-slip="${esc(x.slipNo || "")}">${esc(
-            x.slipNo || ""
-          )}</button></td>
-            <td>${esc(x.storeName || "")}</td>
-            <td>${esc(x.sourceProductCode || x.productCode || "")}</td>
-            <td>${esc(x.productName || "")}</td>
-            <td>${esc(String(x.orderQty ?? ""))}</td>
-            <td>${esc(String(x.fixedQty ?? "0"))}</td>
-            <td>${esc(storeInDisp)}</td>
-            <td>${esc(poDisp)}</td>
-            <td>${esc(x.lot || "")}</td>
-            <td>${esc(x.warehouse || "")}</td>
-          </tr>`;
-        })
-        .join("");
+      if (unshipViewMode === "product") {
+        // ── 상품별 집계 뷰 ──
+        const filtered = !qlow
+          ? itemsRaw
+          : itemsRaw.filter((x) => {
+              const hay = [x.productCode, x.sourceProductCode, x.productName, x.centerName, x.storeName]
+                .map((s) => String(s || "").toLowerCase()).join(" ");
+              return hay.includes(qlow);
+            });
 
-      unshipTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:min(720px, calc(100vh - 220px));">
-        <table id="outbound-unship-table-list-${key}">
-          <thead><tr>
-            <th>순번</th><th>납기일</th><th>센터명</th><th>센터코드</th><th>전표번호</th><th>점포명</th>
-            <th>상품코드</th><th>상품명</th><th>주문수량</th><th>확정수량</th><th>점입점일자</th><th>발주일자</th><th>LOT</th><th>창고</th>
-          </tr></thead>
-          <tbody>${rows || `<tr><td colspan="14" class="muted">미출 라인이 없습니다.</td></tr>`}</tbody>
-        </table>
-      </div>`;
-      delete TABLE_FILTER_MEMORY[`#outbound-unship-table-list-${key}`];
-      applyExcelLikeFilter(`#outbound-unship-table-list-${key}`);
-      unshipTableEl.querySelectorAll(`.outbound-unship-slip-open-${key}`).forEach((btn) =>
-        btn.addEventListener("click", () => renderDetail(btn.getAttribute("data-slip"), { fullWorkflow: true }))
-      );
-      if (unshipStatusEl) unshipStatusEl.textContent = `미출 ${itemsRaw.length}건 (탭·검색 후 ${items.length}건 표시)`;
+        // 납기일자 + 센터명 + 상품코드 기준 집계
+        const groupMap = new Map();
+        for (const x of filtered) {
+          const dateRaw = x.dueDate || x.storeInDate || "";
+          const dueKey = String(dateRaw).trim() || "NODATE";
+          const codeKey = String(x.sourceProductCode || x.productCode || "").trim();
+          const centerKey = String(x.centerName || x.centerCode || "").trim();
+          const gKey = `${dueKey}__${centerKey}__${codeKey}`;
+          if (!groupMap.has(gKey)) {
+            groupMap.set(gKey, {
+              dueDate: x.dueDate || "",
+              storeInDate: x.storeInDate || "",
+              centerName: centerKey,
+              productCode: codeKey,
+              productName: x.productName || "",
+              totalOrderQty: 0,
+              totalFixedQty: 0,
+              storeCount: new Set()
+            });
+          }
+          const g = groupMap.get(gKey);
+          g.totalOrderQty += Number(x.orderQty) || 0;
+          g.totalFixedQty += Number(x.fixedQty) || 0;
+          if (x.storeName) g.storeCount.add(x.storeName);
+        }
+
+        // 납기일자 오름차순, 같으면 센터명 → 상품코드 오름차순 정렬
+        const groups = [...groupMap.values()].sort((a, b) => {
+          const aDate = a.dueDate || a.storeInDate || "";
+          const bDate = b.dueDate || b.storeInDate || "";
+          const dc = aDate.localeCompare(bDate);
+          if (dc !== 0) return dc;
+          const cc = a.centerName.localeCompare(b.centerName);
+          return cc !== 0 ? cc : String(a.productCode).localeCompare(String(b.productCode));
+        });
+
+        if (unshipCountEl) unshipCountEl.textContent = `${groups.length}개 상품`;
+
+        const rows = groups
+          .map((g, idx) => {
+            const unshipQty = g.totalOrderQty - g.totalFixedQty;
+            const dateDisp = formatYmdLoose(g.dueDate) || formatYmdLoose(g.storeInDate) || "-";
+            return `<tr>
+              <td>${idx + 1}</td>
+              <td>${esc(dateDisp)}</td>
+              <td>${esc(g.centerName)}</td>
+              <td>${esc(g.productCode)}</td>
+              <td>${esc(g.productName)}</td>
+              <td style="text-align:right;">${g.totalOrderQty.toLocaleString()}</td>
+              <td style="text-align:right;">${g.totalFixedQty.toLocaleString()}</td>
+              <td style="text-align:right;font-weight:600;">${unshipQty.toLocaleString()}</td>
+              <td style="text-align:right;">${g.storeCount.size}</td>
+            </tr>`;
+          })
+          .join("");
+
+        unshipTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:min(720px, calc(100vh - 220px));">
+          <table id="outbound-unship-table-list-${key}">
+            <thead><tr>
+              <th>순번</th><th>납기일</th><th>센터명</th><th>상품코드</th><th>상품명</th>
+              <th>주문수량</th><th>확정수량</th><th>미출수량</th><th>점포수</th>
+            </tr></thead>
+            <tbody>${rows || `<tr><td colspan="9" class="muted">미출 상품이 없습니다.</td></tr>`}</tbody>
+          </table>
+        </div>`;
+        delete TABLE_FILTER_MEMORY[`#outbound-unship-table-list-${key}`];
+        applyExcelLikeFilter(`#outbound-unship-table-list-${key}`);
+        if (unshipStatusEl) unshipStatusEl.textContent = `미출 ${itemsRaw.length}건 → 상품 ${groups.length}종`;
+      } else {
+        // ── 점포별 (기존) 뷰 ──
+        const items = !qlow
+          ? itemsRaw
+          : itemsRaw.filter((x) => {
+              const hay = [x.slipNo, x.productCode, x.sourceProductCode, x.productName, x.storeName, x.centerName, x.centerCode, x.lot, x.warehouse]
+                .map((s) => String(s || "").toLowerCase()).join(" ");
+              return hay.includes(qlow);
+            });
+
+        if (unshipCountEl) unshipCountEl.textContent = `현재 탭·검색 기준 ${items.length}건`;
+
+        const rows = items
+          .map((x, idx) => {
+            const dueDisp = formatYmdLoose(x.dueDate) || formatYmdLoose(x.storeInDate) || "";
+            const poDisp = formatYmdLoose(x.poDate) || formatYmdLoose(x.orderDate) || "";
+            const storeInDisp = formatYmdLoose(x.storeInDate) || "";
+            return `<tr>
+              <td>${idx + 1}</td>
+              <td>${esc(dueDisp)}</td>
+              <td>${esc(x.centerName || "")}</td>
+              <td>${esc(x.centerCode || "")}</td>
+              <td><button type="button" class="bh-link-btn outbound-unship-slip-open-${key}" data-slip="${esc(x.slipNo || "")}">${esc(x.slipNo || "")}</button></td>
+              <td>${esc(x.storeName || "")}</td>
+              <td>${esc(x.sourceProductCode || x.productCode || "")}</td>
+              <td>${esc(x.productName || "")}</td>
+              <td>${esc(String(x.orderQty ?? ""))}</td>
+              <td>${esc(String(x.fixedQty ?? "0"))}</td>
+              <td>${esc(storeInDisp)}</td>
+              <td>${esc(poDisp)}</td>
+              <td>${esc(x.lot || "")}</td>
+              <td>${esc(x.warehouse || "")}</td>
+            </tr>`;
+          })
+          .join("");
+
+        unshipTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:min(720px, calc(100vh - 220px));">
+          <table id="outbound-unship-table-list-${key}">
+            <thead><tr>
+              <th>순번</th><th>납기일</th><th>센터명</th><th>센터코드</th><th>전표번호</th><th>점포명</th>
+              <th>상품코드</th><th>상품명</th><th>주문수량</th><th>확정수량</th><th>점입점일자</th><th>발주일자</th><th>LOT</th><th>창고</th>
+            </tr></thead>
+            <tbody>${rows || `<tr><td colspan="14" class="muted">미출 라인이 없습니다.</td></tr>`}</tbody>
+          </table>
+        </div>`;
+        delete TABLE_FILTER_MEMORY[`#outbound-unship-table-list-${key}`];
+        applyExcelLikeFilter(`#outbound-unship-table-list-${key}`);
+        unshipTableEl.querySelectorAll(`.outbound-unship-slip-open-${key}`).forEach((btn) =>
+          btn.addEventListener("click", () => renderDetail(btn.getAttribute("data-slip"), { fullWorkflow: true }))
+        );
+        if (unshipStatusEl) unshipStatusEl.textContent = `미출 ${itemsRaw.length}건 (탭·검색 후 ${items.length}건 표시)`;
+      }
     } catch (e) {
       if (unshipStatusEl) unshipStatusEl.textContent = "불러오기 실패";
       unshipTableEl.innerHTML = `<span class="muted">${esc(e.message || "오류")}</span>`;
@@ -4426,6 +4643,8 @@ async function renderOutboundPartnerUpload(partner, key) {
       }
       if (lineToolsEl && !qs(`#outbound-line-search-${key}`)) {
         lineToolsEl.innerHTML = `
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="outbound-batch-delete-selected-${key}">선택 삭제</button>
+          <div class="ob-divider" style="margin-right:auto;"></div>
           <span class="muted" id="outbound-line-count-${key}" style="align-self:center;">현재 탭 기준 ${items.length}건</span>
           <input type="text" id="outbound-line-search-${key}" placeholder="선택 탭 내 상품 검색" />
           <select id="outbound-line-bulk-status-${key}">
@@ -4495,6 +4714,22 @@ async function renderOutboundPartnerUpload(partner, key) {
           }
         });
         qs(`#outbound-line-confirm-all-${key}`)?.addEventListener("click", () => void runOutboundBulkConfirmAll());
+        qs(`#outbound-batch-delete-selected-${key}`)?.addEventListener("click", async () => {
+          try {
+            const lineKeys = Array.from(selectedLineKeys).filter(Boolean);
+            if (!lineKeys.length) return alert("삭제할 주문 건을 체크하세요.");
+            const ok = confirm(`선택한 주문 ${lineKeys.length}건을 삭제할까요?`);
+            if (!ok) return;
+            await api("/api/outbound-order-upload/lines/delete", {
+              method: "POST",
+              body: JSON.stringify({ partnerType: key, lineKeys })
+            });
+            selectedLineKeys = new Set();
+            await loadLines();
+          } catch (e) {
+            alert(e.message || "삭제 실패");
+          }
+        });
       }
       const lineCountEl = qs(`#outbound-line-count-${key}`);
       if (lineCountEl) lineCountEl.textContent = `현재 탭 기준 ${items.length}건`;
@@ -4727,9 +4962,12 @@ async function renderOutboundPartnerUpload(partner, key) {
     if (e.target === overlay) overlay.classList.add("hidden");
   });
 
-  qs(`#outbound-upload-run-${key}`)?.addEventListener("click", async () => {
-    const file = qs(`#outbound-upload-file-${key}`)?.files?.[0];
-    if (!file) return alert("파일을 선택하세요.");
+  qs(`#outbound-upload-file-${key}`)?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    const nameEl = qs(`#outbound-upload-file-name-${key}`);
+    _uploadFileNameCache[key] = file?.name || "";
+    if (nameEl) nameEl.textContent = _uploadFileNameCache[key];
+    if (!file) return;
     try {
       if (statusEl) statusEl.textContent = "파일 파싱 중...";
       const matrix = await parseSheetMatrix(file);
@@ -4738,7 +4976,7 @@ async function renderOutboundPartnerUpload(partner, key) {
         body: JSON.stringify({ partnerType: key, sourceFileName: file.name, matrix })
       });
       const errCount = Array.isArray(res.errorRows) ? res.errorRows.length : 0;
-      if (statusEl) statusEl.textContent = `업로드 완료 (성공 ${res.okCount || 0}, 실패 ${errCount}) - 업로드 파일 리스트에서 적용 버튼을 눌러 반영하세요`;
+      if (statusEl) statusEl.textContent = `업로드 완료 (성공 ${res.okCount || 0}, 실패 ${errCount}) - 업로드 파일리스트에서 적용 버튼을 눌러 반영하세요`;
       if (errCount) alert(`실패 행 ${errCount}건이 있습니다. (응답 errorRows 확인)`);
       await loadList();
       await loadLines();
@@ -4772,40 +5010,6 @@ async function renderOutboundPartnerUpload(partner, key) {
   qs(`#outbound-batch-overlay-close-${key}`)?.addEventListener("click", () => batchOverlay?.classList.add("hidden"));
   batchOverlay?.addEventListener("click", (e) => {
     if (e.target === batchOverlay) batchOverlay.classList.add("hidden");
-  });
-  qs(`#outbound-batch-delete-selected-${key}`)?.addEventListener("click", async () => {
-    try {
-      const uploadBatchIds = Array.from(selectedBatchIds).filter(Boolean);
-      if (!uploadBatchIds.length) return alert("삭제할 업로드 이력을 선택하세요.");
-      const ok = confirm(`선택 업로드 ${uploadBatchIds.length}건을 삭제할까요?`);
-      if (!ok) return;
-      await api("/api/outbound-order-upload/delete-batches", {
-        method: "POST",
-        body: JSON.stringify({ partnerType: key, uploadBatchIds })
-      });
-      selectedBatchIds = new Set();
-      await loadList();
-      await loadLines();
-      alert("선택 업로드를 삭제했습니다.");
-    } catch (e) {
-      alert(e.message || "삭제 실패");
-    }
-  });
-  qs(`#outbound-batch-delete-all-${key}`)?.addEventListener("click", async () => {
-    try {
-      const ok = confirm("해당 판매처의 주문서 업로드 데이터를 전체 삭제할까요?");
-      if (!ok) return;
-      await api("/api/outbound-order-upload/delete", {
-        method: "POST",
-        body: JSON.stringify({ partnerType: key, all: true })
-      });
-      selectedBatchIds = new Set();
-      await loadList();
-      await loadLines();
-      alert("주문서 업로드 데이터를 전체 삭제했습니다.");
-    } catch (e) {
-      alert(e.message || "삭제 실패");
-    }
   });
   qs(`#outbound-upload-template-${key}`)?.addEventListener("click", () => {
     window.location.href = `/api/outbound-order-upload/template?partnerType=${encodeURIComponent(key)}`;
@@ -4953,6 +5157,7 @@ function renderAdjust() {
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
   const managerOptions = state.managers.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
+  const locationOptions = (state.locations || []).filter((l) => l.active !== false).map((l) => `<option value="${esc(l.code)}">${esc(l.code)}${l.name && l.name !== l.code ? " — " + esc(l.name) : ""} (${esc(l.warehouseId)})</option>`).join("");
   qs("#view-adjust").innerHTML = `
     <div class="card">
       <h2>재고 조정 / 이동</h2>
@@ -4968,18 +5173,39 @@ function renderAdjust() {
       </form>
     </div>
     <div class="card">
-      <h3>창고 간 이동</h3>
+      <h3>로케이션 간 이동 <span style="font-size:12px;color:#64748b;font-weight:400;">(동일 창고 내)</span></h3>
+      <form id="LOC-TRANSFER-form">
+        <div><label>상품 검색(코드)</label><input name="productCode" required /></div>
+        <div><label>창고</label><input name="warehouse" list="LOC-warehouse-list" required /></div>
+        <datalist id="LOC-warehouse-list">${warehouseOptions}</datalist>
+        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="LOC-from-loc-list" required placeholder="예: A-01-01" /></div>
+        <datalist id="LOC-from-loc-list">${locationOptions}</datalist>
+        <div><label>도착 로케이션 <span class="required-mark">*</span></label><input name="toLocationCode" list="LOC-to-loc-list" required placeholder="예: B-02-03" /></div>
+        <datalist id="LOC-to-loc-list">${locationOptions}</datalist>
+        <div><label>이동수량</label><input name="qty" type="number" required /></div>
+        <div><label>담당자</label><input name="user" list="LOC-manager-list" required /></div>
+        <datalist id="LOC-manager-list">${managerOptions}</datalist>
+        <div><label>메모</label><input name="memo" placeholder="로케이션 이동" /></div>
+        <div><button id="LOC-TRANSFER-submit" class="primary" type="button">로케이션 이동 등록</button></div>
+      </form>
+    </div>
+    <div class="card">
+      <h3>창고 간 이동 <span style="font-size:12px;color:#64748b;font-weight:400;">(다른 창고로)</span></h3>
       <form id="TRANSFER-form">
         <div><label>상품 검색(코드)</label><input name="productCode" required /></div>
         <div><label>출발창고</label><input name="warehouse" list="TRANSFER-from-list" required /></div>
         <datalist id="TRANSFER-from-list">${warehouseOptions}</datalist>
+        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="TRANSFER-from-loc-list" required placeholder="예: A-01-01" /></div>
+        <datalist id="TRANSFER-from-loc-list">${locationOptions}</datalist>
         <div><label>도착창고</label><input name="toWarehouse" list="TRANSFER-to-list" required /></div>
         <datalist id="TRANSFER-to-list">${warehouseOptions}</datalist>
+        <div><label>도착 로케이션 <span class="required-mark">*</span></label><input name="toLocationCode" list="TRANSFER-to-loc-list" required placeholder="예: B-01-01" /></div>
+        <datalist id="TRANSFER-to-loc-list">${locationOptions}</datalist>
         <div><label>이동수량</label><input name="qty" type="number" required /></div>
         <div><label>담당자</label><input name="user" list="TRANSFER-manager-list" required /></div>
         <datalist id="TRANSFER-manager-list">${managerOptions}</datalist>
         <div><label>메모</label><input name="memo" placeholder="창고 이동" /></div>
-        <div><button id="TRANSFER-submit" class="primary" type="button">이동 등록</button></div>
+        <div><button id="TRANSFER-submit" class="primary" type="button">창고 이동 등록</button></div>
       </form>
     </div>
   `;
@@ -4995,6 +5221,18 @@ function renderAdjust() {
       alert(err.message);
     }
   };
+  const locForm = qs("#LOC-TRANSFER-form");
+  preventEnterSubmit(locForm);
+  qs("#LOC-TRANSFER-submit").onclick = async () => {
+    try {
+      const data = Object.fromEntries(new FormData(locForm));
+      await api("/api/movements", { method: "POST", body: JSON.stringify({ ...data, type: "LOC_TRANSFER" }) });
+      await afterMovementDone();
+      alert("로케이션 이동 등록 완료");
+    } catch (err) {
+      alert(err.message);
+    }
+  };
   const tForm = qs("#TRANSFER-form");
   preventEnterSubmit(tForm);
   qs("#TRANSFER-submit").onclick = async () => {
@@ -5002,11 +5240,769 @@ function renderAdjust() {
       const data = Object.fromEntries(new FormData(tForm));
       await api("/api/movements", { method: "POST", body: JSON.stringify({ ...data, type: "TRANSFER" }) });
       await afterMovementDone();
-      alert("이동 등록 완료");
+      alert("창고 이동 등록 완료");
     } catch (err) {
       alert(err.message);
     }
   };
+}
+
+// ── 로케이션 마스터 ────────────────────────────────────────────────────────
+function buildLocCode(zone, col, rack, level, slot) {
+  const z = String(zone || "").toUpperCase().trim();
+  const c = String(Math.round(Number(col) || 0)).padStart(2, "0");
+  const r = String(Math.round(Number(rack) || 0)).padStart(2, "0");
+  const l = String(Math.round(Number(level) || 0));
+  const s = String(Math.round(Number(slot) || 0)).padStart(2, "0");
+  if (!z || c === "00" || r === "00" || l === "0" || s === "00") return "";
+  return `${z}${c}-${r}-${l}${s}`;
+}
+
+function parseLocCode(code) {
+  // E06-01-101 → { zone:"E", col:6, rack:1, level:1, slot:1 }
+  const m = String(code || "").match(/^([A-Za-z]+)(\d{2})-(\d{2})-([1-9])(\d{2})$/);
+  if (!m) return null;
+  return { zone: m[1].toUpperCase(), col: Number(m[2]), rack: Number(m[3]), level: Number(m[4]), slot: Number(m[5]) };
+}
+
+// 셀 표시용: 랙 순서까지만 (Z06-01)
+function truncLocCode(code) {
+  if (!code) return "";
+  const parts = code.split("-");
+  return parts.length >= 3 ? parts.slice(0, 2).join("-") : code;
+}
+
+// 랙 번호를 step만큼 증가 (파싱 실패 시 마지막 숫자 fallback)
+function nextLocCode(code, step) {
+  if (!code || !step) return code;
+  const p = parseLocCode(code);
+  if (p) return buildLocCode(p.zone, p.col, p.rack + step, p.level, p.slot);
+  const m = code.match(/^([\s\S]*\D)(\d+)$/);
+  if (!m) return code;
+  const num = parseInt(m[2], 10) + step;
+  return m[1] + String(num).padStart(m[2].length, "0");
+}
+
+async function renderLocationMaster() {
+  const wrap = qs("#view-location-master");
+  const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
+  const locs = state.locations || [];
+
+  const listRows = locs.map((l) => `
+    <tr>
+      <td style="width:36px;text-align:center;"><input type="checkbox" class="loc-row-cb" data-id="${esc(l.id)}" /></td>
+      <td><code style="font-size:12px;">${esc(l.code)}</code></td>
+      <td>${esc(l.zone)}</td>
+      <td>${esc(l.name)}</td>
+      <td>${esc(l.warehouseId)}</td>
+      <td><span class="badge ${l.active !== false ? "green" : "gray"}">${l.active !== false ? "활성" : "비활성"}</span></td>
+      <td style="white-space:nowrap;">
+        <button class="bh-btn bh-btn-sm loc-edit-btn" data-id="${esc(l.id)}">수정</button>
+        <button class="bh-btn bh-btn-sm loc-toggle-btn" data-id="${esc(l.id)}" data-active="${l.active !== false}">${l.active !== false ? "비활성화" : "활성화"}</button>
+        <button class="bh-btn bh-btn-sm bh-btn-danger loc-del-btn" data-id="${esc(l.id)}">삭제</button>
+      </td>
+    </tr>`).join("");
+
+  wrap.innerHTML = `
+    <div class="card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+            <h2 style="margin:0;">로케이션 관리</h2>
+            <button class="bh-btn bh-btn-primary" id="loc-add-btn">+ 단건 추가</button>
+            <button class="bh-btn" id="loc-bulk-btn">⚡ 일괄 생성</button>
+          </div>
+
+          <!-- ① 단건 추가 폼 -->
+          <div id="loc-add-form-wrap" style="display:none;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin-bottom:12px;background:#eff6ff;">
+            <h4 style="margin:0 0 10px;color:#1d4ed8;">새 로케이션 — 코드 조합기</h4>
+            <div class="loc-code-builder-row">
+              <div class="lcb-field"><label>구역</label><input id="lcb-zone" placeholder="E" maxlength="3" /></div>
+              <div class="lcb-field"><label>열</label><input id="lcb-col" type="number" min="1" max="99" placeholder="6" /></div>
+              <div class="lcb-field"><label>랙순서</label><input id="lcb-rack" type="number" min="1" max="99" placeholder="1" /></div>
+              <div class="lcb-field"><label>단</label><input id="lcb-level" type="number" min="1" max="9" placeholder="1" /></div>
+              <div class="lcb-field"><label>칸</label><input id="lcb-slot" type="number" min="1" max="99" placeholder="1" /></div>
+            </div>
+            <div class="lcb-preview-row">
+              <span style="font-size:12px;color:#64748b;">생성 코드:</span>
+              <strong id="lcb-preview" style="font-size:15px;letter-spacing:.04em;color:#1d4ed8;">—</strong>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
+              <div><label>이름 <span style="color:#94a3b8;font-size:11px;">(비워두면 자동)</span></label><input id="lcb-name" placeholder="자동 생성" /></div>
+              <div><label>창고 *</label><input id="lcb-wh" list="lcb-wh-list" required /><datalist id="lcb-wh-list">${warehouseOptions}</datalist></div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+              <button type="button" class="bh-btn" id="loc-add-cancel">취소</button>
+              <button type="button" class="bh-btn bh-btn-primary" id="loc-add-submit">저장</button>
+            </div>
+          </div>
+
+          <!-- ② 일괄 생성 폼 -->
+          <div id="loc-bulk-form-wrap" style="display:none;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:12px;background:#f0fdf4;">
+            <h4 style="margin:0 0 10px;color:#166534;">일괄 생성 — 구역·열·랙 단위</h4>
+            <div class="loc-code-builder-row">
+              <div class="lcb-field"><label>구역</label><input id="lb-zone" placeholder="E" maxlength="3" /></div>
+              <div class="lcb-field"><label>열 <span style="font-size:10px;color:#6b7280;">예: 6 또는 1-6</span></label><input id="lb-col" placeholder="6" style="width:80px;" /></div>
+              <div class="lcb-field"><label>랙순서 <span style="font-size:10px;color:#6b7280;">예: 1 또는 1-3</span></label><input id="lb-rack" placeholder="1" style="width:80px;" /></div>
+              <div class="lcb-field"><label>단 수</label><input id="lb-levels" type="number" min="1" max="9" value="3" /></div>
+              <div class="lcb-field"><label>칸 수</label><input id="lb-slots" type="number" min="1" max="99" value="1" /></div>
+            </div>
+            <div style="margin-top:8px;"><label>창고 *</label><input id="lb-wh" list="lb-wh-list" style="width:160px;" required /><datalist id="lb-wh-list">${warehouseOptions}</datalist></div>
+            <div id="lb-preview" style="margin:10px 0;padding:8px;background:#dcfce7;border-radius:6px;font-size:12px;color:#166534;min-height:28px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button type="button" class="bh-btn" id="loc-bulk-cancel">취소</button>
+              <button type="button" class="bh-btn" id="lb-preview-btn">미리보기</button>
+              <button type="button" class="bh-btn bh-btn-primary" id="loc-bulk-submit">일괄 생성</button>
+            </div>
+          </div>
+
+          <!-- ③ 수정 폼 -->
+          <div id="loc-edit-form-wrap" style="display:none;border:1px solid #fde68a;border-radius:8px;padding:16px;margin-bottom:12px;background:#fefce8;">
+            <h4 style="margin:0 0 10px;color:#92400e;">로케이션 수정</h4>
+            <form id="loc-edit-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <input type="hidden" name="id" />
+              <div><label>코드 *</label><input name="code" required /></div>
+              <div><label>존 *</label><input name="zone" required /></div>
+              <div><label>이름</label><input name="name" /></div>
+              <div><label>창고 *</label><input name="warehouseId" list="loc-edit-wh-list" required /><datalist id="loc-edit-wh-list">${warehouseOptions}</datalist></div>
+              <div style="grid-column:1/-1;display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" class="bh-btn" id="loc-edit-cancel">취소</button>
+                <button type="button" class="bh-btn bh-btn-primary" id="loc-edit-submit">저장</button>
+              </div>
+            </form>
+          </div>
+
+          <div id="loc-bulk-actions" style="display:none;align-items:center;gap:8px;padding:8px 4px;margin-bottom:8px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;flex-wrap:wrap;">
+            <span id="loc-selected-count" style="font-size:13px;color:#475569;font-weight:600;"></span>
+            <button class="bh-btn bh-btn-sm" id="loc-bulk-activate">활성화</button>
+            <button class="bh-btn bh-btn-sm" id="loc-bulk-deactivate">비활성화</button>
+            <button class="bh-btn bh-btn-sm bh-btn-danger" id="loc-bulk-delete">삭제</button>
+          </div>
+          <div style="overflow-x:auto;">
+            <table class="data-table">
+              <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="loc-all-cb" title="전체 선택" /></th><th>코드</th><th>존</th><th>이름</th><th>창고</th><th>상태</th><th>관리</th></tr></thead>
+              <tbody>${listRows || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px;">등록된 로케이션이 없습니다.</td></tr>'}</tbody>
+            </table>
+          </div>
+    </div>
+  `;
+
+  // ── 코드 조합기 실시간 미리보기 ─────────────
+  function updateAddPreview() {
+    const z = qs("#lcb-zone")?.value || "";
+    const c = qs("#lcb-col")?.value || "";
+    const r = qs("#lcb-rack")?.value || "";
+    const l = qs("#lcb-level")?.value || "";
+    const s = qs("#lcb-slot")?.value || "";
+    const code = buildLocCode(z, c, r, l, s);
+    const el = qs("#lcb-preview");
+    if (el) el.textContent = code || "—";
+  }
+  ["lcb-zone","lcb-col","lcb-rack","lcb-level","lcb-slot"].forEach((id) => {
+    qs(`#${id}`)?.addEventListener("input", updateAddPreview);
+  });
+
+  // ── 일괄 생성 미리보기 ───────────────────────
+  function parseRange(str) {
+    const s = String(str || "").trim();
+    const m = s.match(/^(\d+)-(\d+)$/);
+    if (m) {
+      const from = Math.max(1, parseInt(m[1], 10));
+      const to = Math.min(99, parseInt(m[2], 10));
+      if (from > to) return [];
+      return Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    }
+    const n = parseInt(s, 10);
+    return n > 0 ? [n] : [];
+  }
+
+  function getBulkCodes() {
+    const z = (qs("#lb-zone")?.value || "").trim();
+    const cols = parseRange(qs("#lb-col")?.value);
+    const racks = parseRange(qs("#lb-rack")?.value);
+    const levels = Math.max(1, Math.min(9, Number(qs("#lb-levels")?.value) || 3));
+    const slots = Math.max(1, Math.min(99, Number(qs("#lb-slots")?.value) || 1));
+    if (!z || !cols.length || !racks.length) return [];
+    const codes = [];
+    for (const c of cols) {
+      for (const r of racks) {
+        for (let lv = 1; lv <= levels; lv++) {
+          for (let sl = 1; sl <= slots; sl++) {
+            codes.push(buildLocCode(z, c, r, lv, sl));
+          }
+        }
+      }
+    }
+    return codes;
+  }
+
+  qs("#lb-preview-btn").onclick = () => {
+    const codes = getBulkCodes();
+    const el = qs("#lb-preview");
+    if (!codes.length) { el.textContent = "구역·열·랙순서를 입력하세요."; return; }
+    el.innerHTML = `생성 예정 ${codes.length}개: <span style="font-family:monospace;">${codes.map(esc).join("&nbsp;&nbsp;")}</span>`;
+  };
+
+  // ── 단건 추가 ──────────────────────────────────
+  qs("#loc-add-btn").onclick = () => {
+    qs("#loc-add-form-wrap").style.display = "block";
+    qs("#loc-bulk-form-wrap").style.display = "none";
+    qs("#loc-edit-form-wrap").style.display = "none";
+  };
+  qs("#loc-add-cancel").onclick = () => { qs("#loc-add-form-wrap").style.display = "none"; };
+  qs("#loc-add-submit").onclick = async () => {
+    const z = qs("#lcb-zone").value.trim();
+    const c = qs("#lcb-col").value;
+    const r = qs("#lcb-rack").value;
+    const l = qs("#lcb-level").value;
+    const s = qs("#lcb-slot").value;
+    const code = buildLocCode(z, c, r, l, s);
+    if (!code) { alert("구역·열·랙순서·단·칸을 모두 입력하세요."); return; }
+    const wh = qs("#lcb-wh").value.trim();
+    if (!wh) { alert("창고를 입력하세요."); return; }
+    const nameInput = qs("#lcb-name").value.trim();
+    const name = nameInput || `${z}구역 ${c}열 ${r}번랙 ${l}단 ${s}칸`;
+    try {
+      await api("/api/locations", { method: "POST", body: JSON.stringify({ code, zone: z.toUpperCase(), name, warehouseId: wh }) });
+      state.locations = (await api("/api/locations")).items;
+      await renderLocationMaster();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── 일괄 생성 ──────────────────────────────────
+  qs("#loc-bulk-btn").onclick = () => {
+    qs("#loc-bulk-form-wrap").style.display = "block";
+    qs("#loc-add-form-wrap").style.display = "none";
+    qs("#loc-edit-form-wrap").style.display = "none";
+  };
+  qs("#loc-bulk-cancel").onclick = () => { qs("#loc-bulk-form-wrap").style.display = "none"; };
+  qs("#loc-bulk-submit").onclick = async () => {
+    const codes = getBulkCodes();
+    if (!codes.length) { alert("구역·열·랙순서를 입력하세요."); return; }
+    const wh = qs("#lb-wh").value.trim();
+    if (!wh) { alert("창고를 입력하세요."); return; }
+    const zone = (qs("#lb-zone").value || "").trim().toUpperCase();
+    const existingCodes = new Set((state.locations || []).map((l) => l.code));
+    const toCreate = codes.filter((code) => !existingCodes.has(code));
+    const skipped = codes.length - toCreate.length;
+    if (!toCreate.length) { alert(`모두 이미 존재합니다 (${skipped}개 건너뜀).`); return; }
+    if (!confirm(`${toCreate.length}개 생성${skipped ? ` (${skipped}개 중복 건너뜀)` : ""}:\n${toCreate.slice(0, 10).join(", ")}${toCreate.length > 10 ? "..." : ""}`)) return;
+    try {
+      const parsed = toCreate.map((code) => {
+        const p = parseLocCode(code);
+        const name = p ? `${p.zone}구역 ${p.col}열 ${p.rack}번랙 ${p.level}단 ${p.slot}칸` : code;
+        return { code, zone, name, warehouseId: wh };
+      });
+      let ok = 0;
+      for (const loc of parsed) {
+        try { await api("/api/locations", { method: "POST", body: JSON.stringify(loc) }); ok++; } catch (_) {}
+      }
+      state.locations = (await api("/api/locations")).items;
+      alert(`${ok}개 생성 완료${skipped ? ` (${skipped}개 중복 건너뜀)` : ""}.`);
+      await renderLocationMaster();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── 수정 ───────────────────────────────────────
+  wrap.querySelectorAll(".loc-edit-btn").forEach((btn) => {
+    btn.onclick = () => {
+      const loc = (state.locations || []).find((l) => l.id === btn.dataset.id);
+      if (!loc) return;
+      const f = qs("#loc-edit-form");
+      f.querySelector("[name=id]").value = loc.id;
+      f.querySelector("[name=code]").value = loc.code;
+      f.querySelector("[name=zone]").value = loc.zone;
+      f.querySelector("[name=name]").value = loc.name || "";
+      f.querySelector("[name=warehouseId]").value = loc.warehouseId;
+      qs("#loc-edit-form-wrap").style.display = "block";
+      qs("#loc-add-form-wrap").style.display = "none";
+      qs("#loc-bulk-form-wrap").style.display = "none";
+      qs("#loc-edit-form-wrap").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    };
+  });
+  qs("#loc-edit-cancel").onclick = () => { qs("#loc-edit-form-wrap").style.display = "none"; };
+  qs("#loc-edit-submit").onclick = async () => {
+    try {
+      const data = Object.fromEntries(new FormData(qs("#loc-edit-form")));
+      const id = data.id; delete data.id;
+      await api(`/api/locations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(data) });
+      state.locations = (await api("/api/locations")).items;
+      await renderLocationMaster();
+    } catch (e) { alert(e.message); }
+  };
+
+  // ── 활성/비활성 ────────────────────────────────
+  wrap.querySelectorAll(".loc-toggle-btn").forEach((btn) => {
+    btn.onclick = async () => {
+      const active = btn.dataset.active === "true";
+      await api(`/api/locations/${encodeURIComponent(btn.dataset.id)}`, { method: "PUT", body: JSON.stringify({ active: !active }) });
+      state.locations = (await api("/api/locations")).items;
+      await renderLocationMaster();
+    };
+  });
+
+  // ── 삭제 ───────────────────────────────────────
+  wrap.querySelectorAll(".loc-del-btn").forEach((btn) => {
+    btn.onclick = async () => {
+      if (!confirm("이 로케이션을 삭제하시겠습니까?")) return;
+      try {
+        await api(`/api/locations/${encodeURIComponent(btn.dataset.id)}`, { method: "DELETE" });
+        state.locations = (await api("/api/locations")).items;
+        await renderLocationMaster();
+      } catch (e) { alert(e.message); }
+    };
+  });
+
+  // ── 체크박스 일괄 선택 ─────────────────────────
+  function getCheckedIds() {
+    return [...wrap.querySelectorAll(".loc-row-cb:checked")].map((cb) => cb.dataset.id);
+  }
+  function updateBulkBar() {
+    const ids = getCheckedIds();
+    const bar = qs("#loc-bulk-actions");
+    if (bar) bar.style.display = ids.length ? "flex" : "none";
+    const countEl = qs("#loc-selected-count");
+    if (countEl) countEl.textContent = `${ids.length}개 선택됨`;
+    const allCb = qs("#loc-all-cb");
+    const allCbs = [...wrap.querySelectorAll(".loc-row-cb")];
+    if (allCb) {
+      allCb.checked = allCbs.length > 0 && allCbs.every((cb) => cb.checked);
+      allCb.indeterminate = ids.length > 0 && !allCb.checked;
+    }
+  }
+  qs("#loc-all-cb")?.addEventListener("change", (e) => {
+    wrap.querySelectorAll(".loc-row-cb").forEach((cb) => { cb.checked = e.target.checked; });
+    updateBulkBar();
+  });
+  wrap.querySelectorAll(".loc-row-cb").forEach((cb) => {
+    cb.addEventListener("change", updateBulkBar);
+  });
+  qs("#loc-bulk-activate")?.addEventListener("click", async () => {
+    const ids = getCheckedIds();
+    if (!ids.length) return;
+    for (const id of ids) {
+      try { await api(`/api/locations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ active: true }) }); } catch (_) {}
+    }
+    state.locations = (await api("/api/locations")).items;
+    await renderLocationMaster();
+  });
+  qs("#loc-bulk-deactivate")?.addEventListener("click", async () => {
+    const ids = getCheckedIds();
+    if (!ids.length) return;
+    for (const id of ids) {
+      try { await api(`/api/locations/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ active: false }) }); } catch (_) {}
+    }
+    state.locations = (await api("/api/locations")).items;
+    await renderLocationMaster();
+  });
+  qs("#loc-bulk-delete")?.addEventListener("click", async () => {
+    const ids = getCheckedIds();
+    if (!ids.length) return;
+    if (!confirm(`선택한 ${ids.length}개 로케이션을 삭제하시겠습니까?`)) return;
+    for (const id of ids) {
+      try { await api(`/api/locations/${encodeURIComponent(id)}`, { method: "DELETE" }); } catch (_) {}
+    }
+    state.locations = (await api("/api/locations")).items;
+    await renderLocationMaster();
+  });
+
+}
+
+// ── 맵 에디터 상태 (renderLocationMap 재호출 시에도 유지) ──────────────────
+let mapCells = {};
+let mapGridW = 15;
+let mapGridH = 10;
+let currentTool = "rack";
+let isPainting = false;
+let fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
+
+function renderLocationMap() {
+  const wrap = qs("#view-location-map");
+  if (!wrap) return;
+
+  const locs = state.locations || [];
+  const zones = [...new Set(locs.map((l) => l.zone).filter(Boolean))].sort();
+  const zoneOptions = zones.map((z) => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
+  const whOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
+
+  wrap.innerHTML = `
+    <div class="card">
+      <h2 style="margin:0 0 16px;">맵 에디터</h2>
+      <div class="loc-map-controls">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select id="map-wh-sel" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
+            <option value="">창고 선택</option>${whOptions}
+          </select>
+          <select id="map-zone-sel" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
+            <option value="">존 선택</option>${zoneOptions}
+          </select>
+          <button class="bh-btn" id="map-load-btn">불러오기</button>
+          <span style="font-size:12px;color:#64748b;">크기:</span>
+          <input id="map-w-input" type="number" min="1" max="50" value="${mapGridW}" style="width:52px;height:32px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;" />
+          <span style="font-size:12px;color:#64748b;">×</span>
+          <input id="map-h-input" type="number" min="1" max="50" value="${mapGridH}" style="width:52px;height:32px;padding:0 6px;border:1px solid #e2e8f0;border-radius:6px;" />
+          <button class="bh-btn" id="map-resize-btn">적용</button>
+          <button class="bh-btn bh-btn-primary" id="map-save-btn" style="margin-left:8px;">저장</button>
+        </div>
+        <div class="loc-map-toolbar">
+          <span style="font-size:12px;color:#64748b;font-weight:600;">도구:</span>
+          <button class="loc-tool-btn" data-tool="rack">📦 랙</button>
+          <button class="loc-tool-btn" data-tool="aisle">🛤 통로</button>
+          <button class="loc-tool-btn" data-tool="wall">🧱 벽</button>
+          <button class="loc-tool-btn" data-tool="eraser">🗑 지우개</button>
+          <button class="loc-tool-btn" data-tool="assign">🏷 코드지정</button>
+        </div>
+      </div>
+      <div style="overflow:auto;margin-top:12px;">
+        <div class="loc-map-grid" id="loc-map-grid"></div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:10px;font-size:12px;flex-wrap:wrap;">
+        <span><span style="display:inline-block;width:14px;height:14px;background:#2563eb;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>랙</span>
+        <span><span style="display:inline-block;width:14px;height:14px;background:#94a3b8;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>통로</span>
+        <span><span style="display:inline-block;width:14px;height:14px;background:#1e293b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>벽</span>
+        <span><span style="display:inline-block;width:14px;height:14px;background:#fff;border:1px solid #e2e8f0;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>빈칸</span>
+      </div>
+    </div>
+  `;
+
+  function updateToolButtons() {
+    wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.tool === currentTool);
+    });
+  }
+  updateToolButtons();
+
+  wrap.querySelectorAll(".loc-tool-btn").forEach((btn) => {
+    btn.onclick = () => { currentTool = btn.dataset.tool; updateToolButtons(); };
+  });
+
+  qs("#map-load-btn").onclick = async () => {
+    const wh = qs("#map-wh-sel").value;
+    const zone = qs("#map-zone-sel").value;
+    if (!wh || !zone) { alert("창고와 존을 선택하세요."); return; }
+    try {
+      const res = await api(`/api/location-maps?key=${encodeURIComponent(wh + "::" + zone)}`);
+      if (res.map) {
+        mapGridW = res.map.gridW || mapGridW;
+        mapGridH = res.map.gridH || mapGridH;
+        mapCells = {};
+        (res.map.cells || []).forEach((c) => { mapCells[`${c.x},${c.y}`] = c; });
+        qs("#map-w-input").value = mapGridW;
+        qs("#map-h-input").value = mapGridH;
+      } else {
+        mapCells = {};
+      }
+      renderGrid();
+    } catch (e) { alert("불러오기 실패: " + e.message); }
+  };
+
+  qs("#map-resize-btn").onclick = () => {
+    mapGridW = Math.max(1, Math.min(50, Number(qs("#map-w-input").value) || 15));
+    mapGridH = Math.max(1, Math.min(50, Number(qs("#map-h-input").value) || 10));
+    renderGrid();
+  };
+
+  qs("#map-save-btn").onclick = async () => {
+    const wh = qs("#map-wh-sel").value;
+    const zone = qs("#map-zone-sel").value;
+    if (!wh || !zone) { alert("창고와 존을 선택하세요."); return; }
+    try {
+      await api("/api/location-maps", {
+        method: "PUT",
+        body: JSON.stringify({ key: wh + "::" + zone, gridW: mapGridW, gridH: mapGridH, cells: Object.values(mapCells) })
+      });
+      alert("저장 완료!");
+    } catch (e) { alert("저장 실패: " + e.message); }
+  };
+
+  function applyTool(x, y) {
+    const key = `${x},${y}`;
+    if (currentTool === "eraser") {
+      delete mapCells[key];
+    } else if (currentTool === "rack") {
+      mapCells[key] = { x, y, type: "rack", locationCode: mapCells[key]?.locationCode || "" };
+    } else if (currentTool === "aisle") {
+      mapCells[key] = { x, y, type: "aisle", locationCode: "" };
+    } else if (currentTool === "wall") {
+      mapCells[key] = { x, y, type: "wall", locationCode: "" };
+    }
+    const cellEl = qs(`#loc-map-grid [data-x="${x}"][data-y="${y}"]`);
+    if (cellEl) {
+      const cell = mapCells[key];
+      const type = cell ? cell.type : "empty";
+      const label = truncLocCode(cell?.locationCode || "");
+      cellEl.className = `loc-map-cell cell-${type}`;
+      cellEl.innerHTML = `${label ? `<span class="loc-cell-code">${esc(label)}</span>` : ""}${type === "rack" ? `<div class="loc-fill-handle" data-fhx="${x}" data-fhy="${y}"></div>` : ""}`;
+      cellEl.querySelector(".loc-fill-handle")?.addEventListener("mousedown", fillHandleMousedown);
+    }
+  }
+
+  function showCodePicker(cellEl, x, y) {
+    document.querySelectorAll(".loc-code-picker").forEach((el) => el.remove());
+    const allLocs = state.locations || [];
+    const usedTrunc = new Set(
+      Object.entries(mapCells)
+        .filter(([k]) => k !== `${x},${y}`)
+        .map(([, v]) => truncLocCode(v.locationCode))
+        .filter(Boolean)
+    );
+    const seen = new Set();
+    const items = [];
+    for (const loc of allLocs) {
+      const trunc = truncLocCode(loc.code);
+      if (!trunc || seen.has(trunc)) continue;
+      seen.add(trunc);
+      items.push({ trunc, code: loc.code, used: usedTrunc.has(trunc) });
+    }
+    items.sort((a, b) => a.trunc.localeCompare(b.trunc));
+
+    const picker = document.createElement("div");
+    picker.className = "loc-code-picker";
+    picker.style.cssText = "position:fixed;z-index:1000;background:#fff;border:1.5px solid #2563eb;border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.15);width:180px;max-height:280px;overflow-y:auto;padding:4px 0;";
+
+    if (!items.length) {
+      picker.innerHTML = `<div style="padding:12px;text-align:center;color:#94a3b8;font-size:13px;">등록된 로케이션 없음</div>`;
+    } else {
+      picker.innerHTML = items.map((it) => `
+        <div class="loc-picker-item" data-code="${esc(it.code)}" data-used="${it.used}"
+          style="padding:7px 14px;cursor:${it.used ? "default" : "pointer"};font-weight:700;font-family:monospace;font-size:13px;color:${it.used ? "#94a3b8" : "#2563eb"};border-bottom:1px solid #f1f5f9;user-select:none;">
+          ${esc(it.trunc)}${it.used ? ' <span style="font-weight:400;font-size:11px;">사용중</span>' : ""}
+        </div>`).join("");
+    }
+
+    const rect = cellEl.getBoundingClientRect();
+    picker.style.left = Math.min(rect.right + 4, window.innerWidth - 190) + "px";
+    picker.style.top = Math.max(0, Math.min(rect.top, window.innerHeight - 290)) + "px";
+    document.body.appendChild(picker);
+
+    picker.querySelectorAll(".loc-picker-item").forEach((item) => {
+      if (item.dataset.used === "true") return;
+      item.onmousedown = (e) => {
+        e.stopPropagation();
+        const code = item.dataset.code;
+        if (!mapCells[`${x},${y}`]) mapCells[`${x},${y}`] = { x, y, type: "rack", locationCode: "" };
+        mapCells[`${x},${y}`].locationCode = code;
+        picker.remove();
+        renderGrid();
+      };
+      item.onmouseenter = () => { item.style.background = "#eff6ff"; };
+      item.onmouseleave = () => { item.style.background = ""; };
+    });
+
+    setTimeout(() => {
+      document.addEventListener("mousedown", function outsideClose(e) {
+        if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener("mousedown", outsideClose); }
+      });
+    }, 50);
+  }
+
+  function fillHandleMousedown(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    const fh = e.currentTarget;
+    const x = Number(fh.dataset.fhx);
+    const y = Number(fh.dataset.fhy);
+    fillDrag = { active: true, startX: x, startY: y, startCode: mapCells[`${x},${y}`]?.locationCode || "" };
+    qs("#loc-map-grid")?.classList.add("is-fill-dragging");
+  }
+
+  function renderGrid() {
+    const grid = qs("#loc-map-grid");
+    if (!grid) return;
+    grid.style.setProperty("--grid-w", mapGridW);
+    grid.style.setProperty("--grid-h", mapGridH);
+
+    let html = "";
+    for (let y = 0; y < mapGridH; y++) {
+      for (let x = 0; x < mapGridW; x++) {
+        const cell = mapCells[`${x},${y}`];
+        const type = cell ? cell.type : "empty";
+        const label = truncLocCode(cell?.locationCode || "");
+        html += `<div class="loc-map-cell cell-${type}" data-x="${x}" data-y="${y}">${label ? `<span class="loc-cell-code">${esc(label)}</span>` : ""}${type === "rack" ? `<div class="loc-fill-handle" data-fhx="${x}" data-fhy="${y}"></div>` : ""}</div>`;
+      }
+    }
+    grid.innerHTML = html;
+
+    grid.querySelectorAll(".loc-fill-handle").forEach((fh) => {
+      fh.addEventListener("mousedown", fillHandleMousedown);
+    });
+
+    let paintActive = false;
+
+    grid.addEventListener("mousedown", (e) => {
+      if (e.target.classList.contains("loc-fill-handle")) return;
+      const cellEl = e.target.closest(".loc-map-cell");
+      if (!cellEl) return;
+      const x = Number(cellEl.dataset.x);
+      const y = Number(cellEl.dataset.y);
+      if (currentTool === "assign") {
+        if (fillDrag.active) return;
+        e.stopPropagation();
+        showCodePicker(cellEl, x, y);
+        return;
+      }
+      paintActive = true;
+      applyTool(x, y);
+    });
+
+    grid.addEventListener("mousemove", (e) => {
+      const cellEl = e.target.closest(".loc-map-cell");
+      if (!cellEl) return;
+      const x = Number(cellEl.dataset.x);
+      const y = Number(cellEl.dataset.y);
+      if (fillDrag.active) {
+        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
+        const dx = x - fillDrag.startX;
+        const dy = y - fillDrag.startY;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          const x0 = Math.min(fillDrag.startX, x), x1 = Math.max(fillDrag.startX, x);
+          for (let cx = x0; cx <= x1; cx++) grid.querySelector(`[data-x="${cx}"][data-y="${fillDrag.startY}"]`)?.classList.add("fill-preview");
+        } else {
+          const y0 = Math.min(fillDrag.startY, y), y1 = Math.max(fillDrag.startY, y);
+          for (let cy = y0; cy <= y1; cy++) grid.querySelector(`[data-x="${fillDrag.startX}"][data-y="${cy}"]`)?.classList.add("fill-preview");
+        }
+        return;
+      }
+      if (paintActive && currentTool !== "assign") applyTool(x, y);
+    });
+
+    const onMouseUp = (e) => {
+      if (fillDrag.active) {
+        grid.classList.remove("is-fill-dragging");
+        grid.querySelectorAll(".loc-map-cell").forEach((c) => c.classList.remove("fill-preview"));
+        const cellEl = document.elementFromPoint(e.clientX, e.clientY)?.closest?.(".loc-map-cell");
+        const endX = cellEl ? Number(cellEl.dataset.x) : fillDrag.startX;
+        const endY = cellEl ? Number(cellEl.dataset.y) : fillDrag.startY;
+        const dx = endX - fillDrag.startX, dy = endY - fillDrag.startY;
+
+        const cellList = [];
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          const step = dx >= 0 ? 1 : -1;
+          for (let cx = fillDrag.startX; cx !== endX + step; cx += step) cellList.push({ x: cx, y: fillDrag.startY });
+        } else {
+          const step = dy >= 0 ? 1 : -1;
+          for (let cy = fillDrag.startY; cy !== endY + step; cy += step) cellList.push({ x: fillDrag.startX, y: cy });
+        }
+
+        const validTrunc = new Set((state.locations || []).map((l) => truncLocCode(l.code)).filter(Boolean));
+        const startCode = fillDrag.startCode;
+        let rackStep = 0;
+
+        for (let i = 0; i < cellList.length; i++) {
+          const { x: cx, y: cy } = cellList[i];
+          const ckey = `${cx},${cy}`;
+          if (i === 0) {
+            if (!mapCells[ckey]) mapCells[ckey] = { x: cx, y: cy, type: "rack", locationCode: startCode };
+            continue;
+          }
+          if (mapCells[ckey]?.locationCode) { rackStep++; continue; }
+          let assigned = false;
+          for (let attempt = 0; attempt < 50 && !assigned; attempt++) {
+            rackStep++;
+            const candidate = nextLocCode(startCode, rackStep);
+            const trunc = truncLocCode(candidate);
+            if (!trunc || !validTrunc.has(trunc)) continue;
+            const alreadyUsed = Object.entries(mapCells).some(([k, v]) => k !== ckey && truncLocCode(v.locationCode) === trunc);
+            if (alreadyUsed) continue;
+            const matchingLoc = (state.locations || []).find((l) => truncLocCode(l.code) === trunc);
+            if (matchingLoc) {
+              mapCells[ckey] = { x: cx, y: cy, type: "rack", locationCode: matchingLoc.code };
+              assigned = true;
+            }
+          }
+        }
+
+        fillDrag = { active: false, startX: 0, startY: 0, startCode: "" };
+        renderGrid();
+      }
+      paintActive = false;
+      document.removeEventListener("mouseup", onMouseUp);
+    };
+    document.addEventListener("mouseup", onMouseUp);
+  }
+
+  renderGrid();
+}
+
+// ── 로케이션별 재고 ────────────────────────────────────────────────────────
+async function renderLocationStock() {
+  const wrap = qs("#view-location-stock");
+  wrap.innerHTML = `<div class="card"><h2>로케이션별 재고</h2><p class="muted" style="text-align:center;padding:32px;">불러오는 중...</p></div>`;
+  try {
+    const [res, stockRes] = await Promise.all([api("/api/location-stock"), api("/api/stock")]);
+    const items = res.items || [];
+
+    const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
+    const zones = [...new Set((state.locations || []).map((l) => l.zone).filter(Boolean))].sort();
+    const zoneOptions = zones.map((z) => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
+
+    wrap.innerHTML = `
+      <div class="card">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+          <h2 style="margin:0;">로케이션별 재고</h2>
+          <select id="ls-wh-filter" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
+            <option value="">창고 전체</option>${warehouseOptions}
+          </select>
+          <select id="ls-zone-filter" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
+            <option value="">존 전체</option>${zoneOptions}
+          </select>
+          <input id="ls-q" placeholder="상품코드/명 검색" style="height:32px;padding:0 10px;border:1px solid #e2e8f0;border-radius:6px;width:180px;" />
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="ls-hide-zero" checked /> 재고 0 숨기기
+          </label>
+        </div>
+        <div id="ls-table-wrap" style="overflow-x:auto;"></div>
+      </div>
+    `;
+
+    const allItems = items.map((it) => {
+      const loc = (state.locations || []).find((l) => l.code === it.locationCode);
+      return { ...it, zone: loc ? loc.zone : "", locName: loc ? loc.name : it.locationCode };
+    });
+
+    function draw() {
+      const wh = qs("#ls-wh-filter").value;
+      const zone = qs("#ls-zone-filter").value;
+      const q = (qs("#ls-q").value || "").trim().toLowerCase();
+      const hideZero = qs("#ls-hide-zero").checked;
+
+      let filtered = allItems;
+      if (wh) filtered = filtered.filter((r) => r.warehouse === wh);
+      if (zone) filtered = filtered.filter((r) => r.zone === zone);
+      if (q) filtered = filtered.filter((r) => r.productCode.toLowerCase().includes(q) || (r.productName||"").toLowerCase().includes(q));
+      if (hideZero) filtered = filtered.filter((r) => r.stock !== 0);
+
+      if (!filtered.length) {
+        qs("#ls-table-wrap").innerHTML = `<p class="muted" style="text-align:center;padding:32px;">조회 결과가 없습니다.</p>`;
+        return;
+      }
+
+      const rows = filtered.map((r) => `
+        <tr>
+          <td>${esc(r.warehouse)}</td>
+          <td>${esc(r.zone)}</td>
+          <td><strong>${esc(r.locationCode || "미지정")}</strong></td>
+          <td>${esc(r.locName)}</td>
+          <td>${esc(r.productCode)}</td>
+          <td>${esc(r.productName)}</td>
+          <td style="text-align:right;font-weight:600;color:${r.stock < 0 ? "#ef4444" : r.stock === 0 ? "#94a3b8" : "#111827"};">${r.stock.toLocaleString()}</td>
+        </tr>`).join("");
+
+      qs("#ls-table-wrap").innerHTML = `
+        <p style="font-size:13px;color:#64748b;margin-bottom:8px;">총 ${filtered.length}건</p>
+        <table class="data-table">
+          <thead><tr><th>창고</th><th>존</th><th>로케이션</th><th>이름</th><th>상품코드</th><th>상품명</th><th>재고</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    }
+
+    ["#ls-wh-filter", "#ls-zone-filter", "#ls-q", "#ls-hide-zero"].forEach((sel) => {
+      const el = qs(sel);
+      if (el) el.addEventListener("change", draw);
+      if (el && el.type !== "checkbox" && el.tagName === "INPUT") el.addEventListener("input", draw);
+    });
+    draw();
+  } catch (e) {
+    wrap.innerHTML = `<div class="card"><p class="muted">오류: ${esc(e.message)}</p></div>`;
+  }
 }
 
 function typeBadge(type, cancelled, memo, originType) {
@@ -5018,7 +6014,8 @@ function typeBadge(type, cancelled, memo, originType) {
     if (isInboundReopenRollback) return `<span class="badge blue">입고확정취소</span>`;
     return `<span class="badge blue">재고조정</span>`;
   }
-  if (type === "TRANSFER") return `<span class="badge blue">이동</span>`;
+  if (type === "TRANSFER") return `<span class="badge blue">창고이동</span>`;
+  if (type === "LOC_TRANSFER") return `<span class="badge blue">로케이션이동</span>`;
   if (type === "CANCEL") {
     const originLabel =
       originType === "IN"
@@ -5057,7 +6054,8 @@ async function renderHistory() {
           <option value="IN">입고</option>
           <option value="OUT">출고</option>
           <option value="ADJUST">재고조정</option>
-          <option value="TRANSFER">이동</option>
+          <option value="TRANSFER">창고이동</option>
+          <option value="LOC_TRANSFER">로케이션이동</option>
           <option value="CANCEL">취소반영</option>
         </select>
         <select id="history-warehouse-filter">
@@ -5304,8 +6302,8 @@ async function afterMovementDone() {
   await renderHistory();
   const active = document.querySelector(".main .view:not(.hidden)");
   if (active) {
-    if (active.id === "view-inbound") renderInbound();
-    if (active.id === "view-outbound") renderOutbound();
+    if (active.id === "view-inbound") { renderInbound(); await renderRecentMovements("IN"); }
+    if (active.id === "view-outbound") { renderOutbound(); await renderRecentMovements("OUT"); }
     if (active.id === "view-adjust") renderAdjust();
   }
 }
@@ -5320,11 +6318,11 @@ async function init() {
       if (v === "dashboard") await renderDashboard();
       if (v === "master") renderMaster();
       if (v === "products") renderProducts();
-      if (v === "stock") renderStock();
-      if (v === "inbound") renderInbound();
+      if (v === "stock") { await refreshCommon(); renderStock(); }
+      if (v === "inbound") { renderInbound(); await renderRecentMovements("IN"); }
       if (v === "inbound-plan") await renderInboundPlan();
       if (v === "inbound-plan-2") await renderInboundPlan2();
-      if (v === "outbound") renderOutbound();
+      if (v === "outbound") { renderOutbound(); await renderRecentMovements("OUT"); }
       if (v === "outbound-plan") renderOutboundPlanMenu();
       if (v === "outbound-upload-daiso") await renderOutboundPartnerUpload("다이소", "daiso");
       if (v === "outbound-upload-emart") await renderOutboundPartnerUpload("이마트", "emart");
@@ -5332,6 +6330,9 @@ async function init() {
       if (v === "adjust") renderAdjust();
       if (v === "history") await renderHistory();
       if (v === "alert") renderAlert();
+      if (v === "location-master") await renderLocationMaster();
+      if (v === "location-map") renderLocationMap();
+      if (v === "location-stock") await renderLocationStock();
     };
   });
 
@@ -5341,9 +6342,11 @@ async function init() {
   renderProducts();
   renderStock();
   renderInbound();
+  renderRecentMovements("IN");
   await renderInboundPlan();
   await renderInboundPlan2();
   renderOutbound();
+  renderRecentMovements("OUT");
   renderOutboundPlanMenu();
   await renderOutboundPartnerUpload("다이소", "daiso");
   await renderOutboundPartnerUpload("이마트", "emart");
@@ -5351,6 +6354,9 @@ async function init() {
   renderAdjust();
   await renderHistory();
   renderAlert();
+  await renderLocationMaster();
+  renderLocationMap();
+  await renderLocationStock();
   let initialView = "dashboard";
   try {
     const saved = localStorage.getItem(LAST_VIEW_KEY);

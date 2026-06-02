@@ -283,6 +283,7 @@ body {
   background: var(--sb-active);
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
    MAIN CONTENT
 ═══════════════════════════════════════════════════════════════ */
@@ -642,12 +643,17 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-x { width: 100%; overflow-x: auto; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
-#products-table { min-width: 2200px; }
+#products-table { width: auto; white-space: nowrap; }
+#products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
+#products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
+#products-table td { padding: 7px 14px; }
 #products-table thead th {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: #FAFBFC;
+  background: #1B3F6E;
+  color: rgba(255,255,255,.85);
+  padding: 7px 14px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -757,7 +763,7 @@ tbody tr:last-child td { border-bottom: 0; }
    PRODUCTS TOOLBAR (BH = BigHeader)
 ═══════════════════════════════════════════════════════════════ */
 .products-bh { min-width: 0; }
-.products-bh-card { display: flex; flex-direction: column; gap: 16px; padding: 20px 22px; }
+.products-bh-card { display: flex; flex-direction: column; gap: 6px; padding: 20px 22px; }
 
 .products-bh-toolbar {
   display: flex;
@@ -1135,6 +1141,11 @@ tbody tr:last-child td { border-bottom: 0; }
   box-shadow: var(--sh);
 }
 .products-bh-y-scroll { max-height: min(680px, calc(100vh - 220px)); overflow: auto; }
+.products-bh-y-scroll::-webkit-scrollbar { width: 5px; height: 15px; }
+.products-bh-y-scroll::-webkit-scrollbar-track { background: #F1F5F9; border-radius: 8px; }
+.products-bh-y-scroll::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 8px; }
+.products-bh-y-scroll::-webkit-scrollbar-thumb:hover { background: #64748B; }
+.products-bh-y-scroll { scrollbar-width: auto; }
 
 /* ── Pagination ──────────────────────────────────────────────── */
 .products-bh-pagination {
@@ -1668,6 +1679,28 @@ tbody tr:last-child td { border-bottom: 0; }
 .ob-file-label:hover { border-color: var(--accent); background: #EFF6FF; color: var(--accent); }
 .ob-file-label svg { flex-shrink: 0; }
 .hidden-file { display: none; }
+.ob-file-name-hint {
+  font-size: 0.82rem;
+  color: var(--accent);
+  font-weight: 500;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.batch-row-applied { background: #DBEAFE !important; }
+.batch-row-applied td { border-bottom: 1px solid #BFDBFE !important; }
+.batch-applied-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #2563EB;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
 .ob-divider {
   width: 1px;
   height: 22px;
@@ -1979,4 +2012,133 @@ tbody tr:last-child td { border-bottom: 0; }
   form { grid-template-columns: repeat(2, 1fr); }
   .grid3, .row, .product-top, .products-grid { grid-template-columns: 1fr; }
   .products-add-card #product-popup-form { grid-template-columns: repeat(2, 1fr); }
+  .loc-master-layout { grid-template-columns: 1fr; }
 }
+
+/* ── 로케이션 ─────────────────────────────────────────────────────── */
+.required-mark { color: #ef4444; font-weight: 700; }
+
+.loc-master-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.loc-master-left, .loc-master-right { min-width: 0; }
+
+/* 맵 에디터 툴바 */
+.loc-map-controls { margin-bottom: 10px; }
+.loc-map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+.loc-tool-btn {
+  padding: 4px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  color: #374151;
+  transition: background 0.12s, border-color 0.12s;
+}
+.loc-tool-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.loc-tool-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+/* 맵 그리드 */
+.loc-map-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-w, 15), 32px);
+  grid-template-rows: repeat(var(--grid-h, 10), 32px);
+  gap: 1px;
+  background: #cbd5e1;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  user-select: none;
+  width: fit-content;
+}
+.loc-map-cell {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  background: #fff;
+  cursor: crosshair;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  transition: background 0.06s;
+}
+.loc-map-cell:hover { filter: brightness(0.88); }
+.cell-rack   { background: #2563eb; }
+.cell-aisle  { background: #94a3b8; }
+.cell-wall   { background: #1e293b; }
+.cell-empty  { background: #fff; }
+.loc-cell-code {
+  font-size: 7px;
+  color: #fff;
+  text-align: center;
+  line-height: 1.1;
+  padding: 1px;
+  pointer-events: none;
+  word-break: break-all;
+}
+.loc-fill-handle {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #1d4ed8;
+  cursor: crosshair;
+  z-index: 5;
+  display: none;
+}
+.loc-map-cell:hover .loc-fill-handle { display: block; }
+.loc-map-cell.fill-preview { background: rgba(37,99,235,0.28) !important; outline: 1.5px solid #2563eb; }
+.loc-map-grid.is-fill-dragging .loc-map-cell { cursor: crosshair; }
+
+/* bh-btn-danger */
+.bh-btn-danger {
+  color: #ef4444;
+  border-color: #fca5a5;
+}
+.bh-btn-danger:hover { background: #fef2f2; border-color: #ef4444; }
+
+/* 코드 조합기 */
+.loc-code-builder-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+.lcb-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lcb-field label { font-size: 11px; color: #64748b; font-weight: 500; }
+.lcb-field input { width: 64px; height: 32px; padding: 0 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px; text-align: center; }
+.lcb-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  background: #dbeafe;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+/* 코드 지정 드롭다운 */
+.loc-code-picker { animation: fadeInPicker .1s ease; }
+@keyframes fadeInPicker { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
