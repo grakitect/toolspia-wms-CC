@@ -3382,8 +3382,6 @@ async function renderOutboundPartnerUpload(partner, key) {
             파일 선택
             <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
           </label>
-          <span class="ob-toolbar-hint" style="color:var(--t3);">주문일자</span>
-          <input type="date" id="outbound-upload-order-date-${key}" class="uc-date-input" value="${new Date().toISOString().slice(0,10)}" />
           <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-batch-open-${key}">업로드 파일리스트</button>
           <span id="outbound-upload-file-name-${key}" class="ob-file-name-hint"></span>
           <div class="ob-divider"></div>
@@ -4996,7 +4994,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     try {
       if (statusEl) statusEl.textContent = "파일 파싱 중...";
       const matrix = await parseSheetMatrix(file);
-      const orderDate = qs(`#outbound-upload-order-date-${key}`)?.value || "";
+      const orderDate = inferDateFromFilename(file.name) || "";
       const res = await api("/api/outbound-order-upload", {
         method: "POST",
         body: JSON.stringify({ partnerType: key, sourceFileName: file.name, orderDate, matrix })
