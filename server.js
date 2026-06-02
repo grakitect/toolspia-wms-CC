@@ -69,6 +69,31 @@ const PRODUCT_OPTION_KEYS = [
 const PUBLIC_DIR = path.join(__dirname, "public");
 const DATA_DIR = path.join(__dirname, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
+const DB_BACKUP_DIR = path.join(DATA_DIR, "db-backups");
+const DB_BACKUP_MIN_MS = Number(process.env.WMS_DB_BACKUP_MIN_MS) || 5 * 60 * 1000;
+const DB_BACKUP_KEEP = Number(process.env.WMS_DB_BACKUP_KEEP) || 50;
+let _lastBackupAt = 0;
+
+function maybeBackupBeforeWrite(payload) {
+  const now = Date.now();
+  if (now - _lastBackupAt < DB_BACKUP_MIN_MS) return;
+  try {
+    if (!fs.existsSync(DB_BACKUP_DIR)) fs.mkdirSync(DB_BACKUP_DIR, { recursive: true });
+    const tag = new Date().toISOString().replace(/[:.]/g, "-");
+    const dest = path.join(DB_BACKUP_DIR, `db-${tag}.json`);
+    fs.writeFileSync(dest, payload, "utf-8");
+    _lastBackupAt = now;
+    // 오래된 백업 정리
+    const files = fs.readdirSync(DB_BACKUP_DIR)
+      .filter(f => f.startsWith("db-") && f.endsWith(".json"))
+      .sort();
+    if (files.length > DB_BACKUP_KEEP) {
+      files.slice(0, files.length - DB_BACKUP_KEEP).forEach(f => {
+        try { fs.unlinkSync(path.join(DB_BACKUP_DIR, f)); } catch {}
+      });
+    }
+  } catch {}
+}
 
 function ensureDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -138,6 +163,7 @@ function readDb() {
 
 function writeDb(db) {
   const payload = JSON.stringify(db, null, 2);
+  maybeBackupBeforeWrite(payload);
   let lastErr;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
