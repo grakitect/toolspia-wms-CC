@@ -6,3 +6,8 @@ Thumbs.db
 .env
 .env.*
 data/db.json
+data/db-backups/
+ecvan-chrome-profile/
+ecvan-debug/
+ecvan capture/
+screenshot-test.js
