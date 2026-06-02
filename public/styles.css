@@ -2056,8 +2056,8 @@ tbody tr:last-child td { border-bottom: 0; }
 /* 맵 그리드 */
 .loc-map-grid {
   display: grid;
-  grid-template-columns: repeat(var(--grid-w, 15), 32px);
-  grid-template-rows: repeat(var(--grid-h, 10), 32px);
+  grid-template-columns: repeat(var(--grid-w, 15), 42px);
+  grid-template-rows: repeat(var(--grid-h, 10), 42px);
   gap: 1px;
   background: #cbd5e1;
   border: 1px solid #cbd5e1;
@@ -2067,8 +2067,8 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .loc-map-cell {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 42px;
+  height: 42px;
   background: #fff;
   cursor: crosshair;
   display: flex;
