@@ -6224,11 +6224,10 @@ function renderLocationMap3D() {
     }
 
     let totalRacks = 0;
+    const rackMat = new THREE.MeshLambertMaterial({ color: 0x00aa44 });
     rackPositions.forEach(({ x, z, code }) => {
       for (let f = 0; f < floorCount; f++) {
-        const brightness = 0.3 + (f / floorCount) * 0.7;
-        const color = new THREE.Color(0, 0.5 + brightness * 0.5, 0.3 + brightness * 0.3);
-        const mat = new THREE.MeshLambertMaterial({ color });
+        const mat = rackMat;
         const mesh = new THREE.Mesh(rackGeo, mat);
         mesh.position.set(x * s, f * s + size / 2, z * s);
         mesh.userData = { code: code ? `${code}-F${f + 1}` : `${x}-${z}-F${f + 1}`, floor: f + 1, x, z };
@@ -6251,7 +6250,7 @@ function renderLocationMap3D() {
       mouse.y = -((e.clientY - rect.top)  / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
       const hits = raycaster.intersectObjects(rackMeshes);
-      if (hovered) { hovered.material.color.setHSL(0.35, 0.8, 0.4); hovered = null; }
+      if (hovered) { hovered.material.color.set(0x00aa44); hovered = null; }
       if (hits.length) {
         hovered = hits[0].object;
         hovered.material.color.set(0x2563eb);
