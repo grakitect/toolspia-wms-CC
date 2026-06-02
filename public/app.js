@@ -6129,9 +6129,10 @@ function renderLocationMap3D() {
   const rackMeshes = [];
 
   const dispose = () => {
-    if (animFrameId) cancelAnimationFrame(animFrameId);
+    if (animFrameId) { cancelAnimationFrame(animFrameId); animFrameId = null; }
     rackMeshes.length = 0;
-    if (renderer) { renderer.dispose(); renderer.forceContextLoss(); }
+    try { if (renderer) { renderer.dispose(); renderer.getContext()?.getExtension("WEBGL_lose_context")?.loseContext(); } } catch {}
+    renderer = null; scene = null; camera = null; controls = null;
   };
   wrap._disposeMap3D = dispose;
 
@@ -6172,7 +6173,9 @@ function renderLocationMap3D() {
     const maxX = Math.max(...rackPositions.map(p => p.x)) + 1;
     const maxZ = Math.max(...rackPositions.map(p => p.z)) + 1;
 
-    const w = canvas.clientWidth || 800, h = canvas.clientHeight || 600;
+    const w = Math.max(canvas.clientWidth || canvas.offsetWidth || canvas.parentElement?.clientWidth || 800, 100);
+    const h = 600;
+    canvas.style.height = h + "px";
     camera = new THREE.PerspectiveCamera(55, w / h, 0.1, 2000);
     camera.position.set(maxX * s * 0.5, floorCount * s * 2, maxZ * s * 2);
     camera.lookAt(maxX * s * 0.5, floorCount * s * 0.5, maxZ * s * 0.3);
@@ -6280,7 +6283,6 @@ function renderLocationMap3D() {
   };
 
   buildBtn.addEventListener("click", build);
-  build();
 }
 
 // ── 로케이션별 재고 ────────────────────────────────────────────────────────
