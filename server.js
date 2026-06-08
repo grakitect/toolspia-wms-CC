@@ -2094,10 +2094,11 @@ function throwIfEcountSaveSaleFailed(result) {
       .map((x) => {
         const errArr = Array.isArray(x.Errors) ? x.Errors : [];
         const colMsgs = errArr.map((e) => [e.ColCd, e.Message, e.TotalError].filter(Boolean).join(":")).join("; ");
-        return x.TotalError || colMsgs || JSON.stringify(x).slice(0, 200);
+        const raw = JSON.stringify(x).slice(0, 300);
+        return (x.TotalError && x.TotalError.trim()) || colMsgs || raw;
       })
       .filter(Boolean);
-    throw new Error(`이카운트 판매입력 라인 오류: ${msgs.join(" | ") || JSON.stringify(data).slice(0, 500)}`);
+    throw new Error(`이카운트 판매입력 라인 오류: ${msgs.join(" | ") || JSON.stringify(data).slice(0, 800)}`);
   }
 }
 
