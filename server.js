@@ -3168,15 +3168,22 @@ async function handleApi(req, res, urlObj) {
       const body = await parseBody(req);
       const type = String(body.type || "").trim();
       const name = String(body.name || "").trim();
+      const newName = String(body.newName ?? body.name ?? "").trim();
+      const newType = String(body.newType ?? body.type ?? "").trim();
       const custCode = String(body.custCode || "").trim();
-      if (!["inbound", "outbound", "purchase"].includes(type)) {
-        throw new Error("유효하지 않은 거래처 구분입니다.");
+      if (!["inbound", "outbound", "purchase"].includes(type)) throw new Error("유효하지 않은 거래처 구분입니다.");
+      if (!["inbound", "outbound", "purchase"].includes(newType)) throw new Error("유효하지 않은 거래처 구분입니다.");
+      if (!name || !newName) throw new Error("거래처명은 필수입니다.");
+      const idx = db.partners[type].findIndex((p) => p.name === name);
+      if (idx === -1) throw new Error("거래처를 찾을 수 없습니다.");
+      db.partners[type].splice(idx, 1);
+      const existing = db.partners[newType].find((p) => p.name === newName);
+      if (existing) {
+        existing.custCode = custCode;
+      } else {
+        db.partners[newType].push({ name: newName, custCode });
       }
-      if (!name) throw new Error("거래처명은 필수입니다.");
-      const existing = db.partners[type].find((p) => p.name === name);
-      if (!existing) throw new Error("거래처를 찾을 수 없습니다.");
-      existing.custCode = custCode;
-      syncPartnerCustCodeToSettings(db, type, name, custCode);
+      syncPartnerCustCodeToSettings(db, newType, newName, custCode);
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {

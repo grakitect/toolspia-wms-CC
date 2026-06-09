@@ -880,17 +880,27 @@ function renderMaster() {
           ${partnerRows.length
             ? partnerRows.map((r) => `
                 <tr data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">
-                  <td>${esc(r.label)}</td>
-                  <td>${esc(r.name)}</td>
-                  <td class="partner-custcode-cell">
-                    <span class="partner-custcode-display">${esc(r.custCode || "")}</span>
-                    <input class="partner-custcode-input" type="text" value="${esc(r.custCode || "")}" placeholder="미입력" style="display:none; padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:140px;" />
+                  <td class="partner-view-cell">${esc(r.label)}</td>
+                  <td class="partner-view-cell">${esc(r.name)}</td>
+                  <td class="partner-view-cell">${esc(r.custCode || '<span class="muted">-</span>')}</td>
+                  <td class="partner-edit-cell" style="display:none;" colspan="3">
+                    <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                      <select class="partner-edit-type" style="padding:2px 4px; font-size:12px;">
+                        <option value="purchase" ${r.type==="purchase"?"selected":""}>구매처</option>
+                        <option value="outbound" ${r.type==="outbound"?"selected":""}>판매처</option>
+                      </select>
+                      <input class="partner-edit-name" type="text" value="${esc(r.name)}" placeholder="거래처명" style="padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:120px;" />
+                      <input class="partner-edit-custcode" type="text" value="${esc(r.custCode || "")}" placeholder="이카운트 거래처코드" style="padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:150px;" />
+                      <button type="button" class="primary del-small partner-save-btn">저장</button>
+                      <button type="button" class="cancel-btn del-small partner-cancel-btn">취소</button>
+                    </div>
                   </td>
-                  <td>
+                  <td class="partner-action-cell">
                     <button type="button" class="primary del-small partner-edit-toggle">수정</button>
-                    <button type="button" class="primary del-small partner-custcode-save" style="display:none;">저장</button>
                   </td>
-                  <td><button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
+                  <td class="partner-action-cell">
+                    <button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button>
+                  </td>
                 </tr>`).join("")
             : `<tr><td colspan="5"><span class="muted">없음</span></td></tr>`}
         </tbody>
@@ -955,46 +965,41 @@ function renderMaster() {
   preventEnterSubmit(qs("#manager-form"));
   preventEnterSubmit(qs("#warehouse-form"));
 
+  const setPartnerRowEditMode = (tr, editing) => {
+    tr.querySelectorAll(".partner-view-cell").forEach(td => td.style.display = editing ? "none" : "");
+    tr.querySelectorAll(".partner-action-cell").forEach(td => td.style.display = editing ? "none" : "");
+    const editCell = tr.querySelector(".partner-edit-cell");
+    if (editCell) editCell.style.display = editing ? "" : "none";
+  };
+
   qs("#view-master").querySelectorAll(".partner-edit-toggle").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const tr = btn.closest("tr");
-      const display = tr.querySelector(".partner-custcode-display");
-      const input = tr.querySelector(".partner-custcode-input");
-      const saveBtn = tr.querySelector(".partner-custcode-save");
-      const isEditing = btn.textContent === "취소";
-      if (isEditing) {
-        display.style.display = "";
-        input.style.display = "none";
-        saveBtn.style.display = "none";
-        btn.textContent = "수정";
-      } else {
-        display.style.display = "none";
-        input.style.display = "";
-        saveBtn.style.display = "";
-        btn.textContent = "취소";
-        input.focus();
-      }
+      setPartnerRowEditMode(btn.closest("tr"), true);
     });
   });
 
-  qs("#view-master").querySelectorAll(".partner-custcode-save").forEach((btn) => {
+  qs("#view-master").querySelectorAll(".partner-cancel-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setPartnerRowEditMode(btn.closest("tr"), false);
+    });
+  });
+
+  qs("#view-master").querySelectorAll(".partner-save-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const tr = btn.closest("tr");
       const type = tr.dataset.type;
       const name = decodeURIComponent(tr.dataset.name);
-      const input = tr.querySelector(".partner-custcode-input");
-      const display = tr.querySelector(".partner-custcode-display");
-      const editBtn = tr.querySelector(".partner-edit-toggle");
+      const newType = tr.querySelector(".partner-edit-type").value;
+      const newName = tr.querySelector(".partner-edit-name").value.trim();
+      const custCode = tr.querySelector(".partner-edit-custcode").value.trim();
+      if (!newName) return alert("거래처명을 입력하세요.");
       try {
         await api("/api/partners", {
           method: "PATCH",
-          body: JSON.stringify({ type, name, custCode: input.value.trim() })
+          body: JSON.stringify({ type, name, newType, newName, custCode })
         });
-        display.textContent = input.value.trim();
-        display.style.display = "";
-        input.style.display = "none";
-        btn.style.display = "none";
-        editBtn.textContent = "수정";
+        await refreshCommon();
+        renderMaster();
       } catch (e) {
         alert(e.message || "저장 실패");
       }
