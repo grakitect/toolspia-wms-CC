@@ -271,6 +271,11 @@ function normalizeDb(db) {
     if (!Array.isArray(db.unshipCompare[pt].officialRows)) db.unshipCompare[pt].officialRows = [];
     if (!Array.isArray(db.unshipCompare[pt].adjustments)) db.unshipCompare[pt].adjustments = [];
   }
+  if (!db.partnerSettings || typeof db.partnerSettings !== "object") db.partnerSettings = {};
+  for (const pt of ["emart", "daiso", "lotte"]) {
+    if (!db.partnerSettings[pt] || typeof db.partnerSettings[pt] !== "object") db.partnerSettings[pt] = {};
+    if (typeof db.partnerSettings[pt].custCode !== "string") db.partnerSettings[pt].custCode = "";
+  }
   if (!db.ecvanCredentials || typeof db.ecvanCredentials !== "object") db.ecvanCredentials = { id: "", pw: "" };
   if (!Array.isArray(db.locations)) db.locations = [];
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
@@ -1918,9 +1923,9 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
     normalizeDateCompact(new Date().toISOString().slice(0, 10));
   if (!ioDate || ioDate.length !== 8) throw new Error("확정일자(saveDateYmd)가 올바르지 않습니다.");
   const custByPartner = {
-    emart: String(process.env.ECOUNT_OUTBOUND_SALE_CUST_EMART || "2068650913").trim(),
-    daiso: String(process.env.ECOUNT_OUTBOUND_SALE_CUST_DAISO || "").trim(),
-    lotte: String(process.env.ECOUNT_OUTBOUND_SALE_CUST_LOTTE || "").trim()
+    emart: String((db.partnerSettings?.emart?.custCode) || process.env.ECOUNT_OUTBOUND_SALE_CUST_EMART || "2068650913").trim(),
+    daiso: String((db.partnerSettings?.daiso?.custCode) || process.env.ECOUNT_OUTBOUND_SALE_CUST_DAISO || "").trim(),
+    lotte: String((db.partnerSettings?.lotte?.custCode) || process.env.ECOUNT_OUTBOUND_SALE_CUST_LOTTE || "").trim()
   };
   const cust = String(custByPartner[partnerType] || process.env.ECOUNT_OUTBOUND_SALE_CUST || "").trim();
   const custDes = String(process.env.ECOUNT_OUTBOUND_SALE_CUST_DES || "").trim();
@@ -3093,6 +3098,27 @@ async function handleApi(req, res, urlObj) {
         : normalizeOptionValues([...(db.productOptions[field] || []), ...values]);
       writeDb(db);
       return sendJson(res, 200, { ok: true, items: db.productOptions });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/api/partner-settings") {
+    const pt = normalizeOutboundPartnerType(urlObj.searchParams.get("partnerType") || "");
+    if (!pt) return sendJson(res, 400, { error: "partnerType이 필요합니다." });
+    return sendJson(res, 200, { partnerType: pt, ...(db.partnerSettings?.[pt] || {}) });
+  }
+
+  if (req.method === "POST" && pathname === "/api/partner-settings") {
+    try {
+      const body = await parseBody(req);
+      const pt = normalizeOutboundPartnerType(body.partnerType || "");
+      if (!pt) throw new Error("partnerType이 필요합니다.");
+      const db2 = readDb();
+      normalizeDb(db2);
+      if (typeof body.custCode === "string") db2.partnerSettings[pt].custCode = body.custCode.trim();
+      writeDb(db2);
+      return sendJson(res, 200, { ok: true });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }

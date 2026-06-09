@@ -3397,7 +3397,16 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       <!-- 마스터 패널 -->
       <div id="outbound-master-panel-${key}" class="ob-panel hidden">
-        <div class="ob-toolbar">
+        <!-- 이카운트 설정 -->
+        <div class="ob-toolbar" style="flex-wrap:wrap; gap:8px; padding-bottom:12px; border-bottom:1px solid var(--border);">
+          <span style="font-weight:600; font-size:13px; min-width:100%;">이카운트 설정</span>
+          <label style="font-size:12px; color:var(--text-muted); white-space:nowrap;">거래처코드</label>
+          <input type="text" id="outbound-master-custcode-${key}" placeholder="이카운트 거래처코드" style="width:180px; padding:4px 8px; font-size:13px; border:1px solid var(--border); border-radius:4px;" />
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-master-custcode-save-${key}">저장</button>
+          <span id="outbound-master-custcode-status-${key}" class="muted" style="font-size:12px;"></span>
+        </div>
+        <!-- 코드마스터 업로드 -->
+        <div class="ob-toolbar" style="margin-top:12px;">
           <label class="ob-file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             파일 선택
@@ -4574,6 +4583,14 @@ async function renderOutboundPartnerUpload(partner, key) {
 
   const loadMaster = async () => {
     if (!masterTableEl) return;
+    // 거래처코드 로드
+    try {
+      const custInput = qs(`#outbound-master-custcode-${key}`);
+      if (custInput) {
+        const r = await api(`/api/partner-settings?partnerType=${encodeURIComponent(key)}`);
+        custInput.value = r.custCode || "";
+      }
+    } catch {}
     try {
       const res = await api(`/api/outbound-code-master?partnerType=${encodeURIComponent(key)}`);
       const items = Array.isArray(res.items) ? res.items : [];
@@ -4999,6 +5016,22 @@ async function renderOutboundPartnerUpload(partner, key) {
       await loadLines();
     } catch (e) {
       if (statusEl) statusEl.textContent = e.message || "업로드 실패";
+    }
+  });
+  qs(`#outbound-master-custcode-save-${key}`)?.addEventListener("click", async () => {
+    const custInput = qs(`#outbound-master-custcode-${key}`);
+    const statusSpan = qs(`#outbound-master-custcode-status-${key}`);
+    if (!custInput) return;
+    try {
+      if (statusSpan) statusSpan.textContent = "저장 중...";
+      await api("/api/partner-settings", {
+        method: "POST",
+        body: JSON.stringify({ partnerType: key, custCode: custInput.value.trim() })
+      });
+      if (statusSpan) statusSpan.textContent = "저장됨";
+      setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
+    } catch (e) {
+      if (statusSpan) statusSpan.textContent = e.message || "저장 실패";
     }
   });
   qs(`#outbound-master-run-${key}`)?.addEventListener("click", async () => {
