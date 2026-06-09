@@ -836,7 +836,7 @@ async function renderDashboard() {
   `;
 }
 
-function renderMaster() {
+async function renderMaster() {
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
   const listTags = (arr) => arr.map((v) => `<span class="tag">${esc(v)}</span>`).join("") || "<span class='muted'>없음</span>";
   const partnerChip = (type, name) => `
@@ -857,98 +857,138 @@ function renderMaster() {
   ];
   const managerRows = state.managers.map((v) => ({ name: v }));
 
+  // 이카운트 거래처코드 로드
+  const ecountCustCodes = {};
+  try {
+    for (const pt of ["daiso", "emart", "lotte"]) {
+      const r = await api(`/api/partner-settings?partnerType=${pt}`);
+      ecountCustCodes[pt] = r.custCode || "";
+    }
+  } catch {}
+
   qs("#view-master").innerHTML = `
-    <div class="card"><h2>기본 정보</h2><p class="muted">거래처/담당자 등록</p></div>
-    <div class="grid3">
-      <div class="card">
-        <h3>거래처 마스터 등록</h3>
-        <form id="partner-master-form">
-          <div><label>구분</label>
-            <select name="type" required>
-              <option value="purchase">구매처</option>
-              <option value="outbound">판매처</option>
-            </select>
-          </div>
-          <div><label>거래처명</label><input name="name" required /></div>
-          <div><button class="primary" type="submit">등록</button></div>
-        </form>
-        <table class="mini-table">
-          <thead><tr><th>구분</th><th>거래처</th><th>삭제</th></tr></thead>
-          <tbody>
-            ${partnerRows.length
-              ? partnerRows
-                  .map(
-                    (r) =>
-                      `<tr>
-                        <td>${esc(r.label)}</td>
-                        <td>${esc(r.name)}</td>
-                        <td>
-                          <button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button>
-                        </td>
-                      </tr>`
-                  )
-                  .join("")
-              : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
-          </tbody>
-        </table>
+    <div class="card"><h1 style="margin:0 0 4px;">기본 정보</h1><p class="muted">거래처/담당자/창고 등록</p></div>
+
+    <div class="card">
+      <h2>거래처 마스터 등록</h2>
+      <form id="partner-master-form">
+        <div><label>구분</label>
+          <select name="type" required>
+            <option value="purchase">구매처</option>
+            <option value="outbound">판매처</option>
+          </select>
+        </div>
+        <div><label>거래처명</label><input name="name" required /></div>
+        <div><button class="primary" type="submit">등록</button></div>
+      </form>
+      <table class="mini-table">
+        <thead><tr><th>구분</th><th>거래처</th><th>삭제</th></tr></thead>
+        <tbody>
+          ${partnerRows.length
+            ? partnerRows
+                .map(
+                  (r) =>
+                    `<tr>
+                      <td>${esc(r.label)}</td>
+                      <td>${esc(r.name)}</td>
+                      <td>
+                        <button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button>
+                      </td>
+                    </tr>`
+                )
+                .join("")
+            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
+        </tbody>
+      </table>
+      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+        <h3 style="margin:0 0 10px;">이카운트 거래처코드</h3>
+        ${[["daiso","다이소"],["emart","이마트"],["lotte","롯데마트"]].map(([pt, label]) => `
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+          <span style="width:64px; font-size:13px; font-weight:500;">${label}</span>
+          <input type="text" id="ecount-cust-${pt}" value="${esc(ecountCustCodes[pt] || "")}" placeholder="이카운트 거래처코드" style="width:180px; padding:4px 8px; font-size:13px; border:1px solid var(--border); border-radius:4px;" />
+          <button type="button" class="primary del-small ecount-cust-save" data-pt="${pt}">저장</button>
+          <span id="ecount-cust-status-${pt}" class="muted" style="font-size:12px;"></span>
+        </div>`).join("")}
       </div>
-      <div class="card">
-        <h3>담당자 등록</h3>
-        <form id="manager-form">
-          <div><label>담당자명</label><input name="name" required /></div>
-          <div><button class="primary" type="submit">등록</button></div>
-        </form>
-        <table class="mini-table">
-          <thead><tr><th>담당자</th><th>삭제</th></tr></thead>
-          <tbody>
-            ${managerRows.length
-              ? managerRows
-                  .map(
-                    (r) =>
-                      `<tr>
-                        <td>${esc(r.name)}</td>
-                        <td><button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
-                      </tr>`
-                  )
-                  .join("")
-              : `<tr><td colspan="2"><span class="muted">없음</span></td></tr>`}
-          </tbody>
-        </table>
-      </div>
-      <div class="card">
-        <h3>창고 등록</h3>
-        <form id="warehouse-form">
-          <div><label>창고명</label><input name="name" required /></div>
-          <div><button class="primary" type="submit">등록</button></div>
-        </form>
-        <table class="mini-table" id="warehouse-table">
-          <thead><tr><th>창고명</th><th>수정</th><th>삭제</th></tr></thead>
-          <tbody>
-            ${(state.warehouses || []).length
-              ? state.warehouses
-                  .map(
-                    (w) =>
-                      `<tr>
-                        <td>${esc(w)}</td>
-                        <td><button type="button" class="primary del-small warehouse-rename" data-name="${encodeURIComponent(w)}">수정</button></td>
-                        <td>${
-                          w === "유통사업부"
-                            ? `<span class="muted">기본창고</span>`
-                            : `<button type="button" class="cancel-btn del-small warehouse-del" data-name="${encodeURIComponent(w)}">삭제</button>`
-                        }</td>
-                      </tr>`
-                  )
-                  .join("")
-              : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
-          </tbody>
-        </table>
-      </div>
+    </div>
+
+    <div class="card">
+      <h2>담당자 등록</h2>
+      <form id="manager-form">
+        <div><label>담당자명</label><input name="name" required /></div>
+        <div><button class="primary" type="submit">등록</button></div>
+      </form>
+      <table class="mini-table">
+        <thead><tr><th>담당자</th><th>삭제</th></tr></thead>
+        <tbody>
+          ${managerRows.length
+            ? managerRows
+                .map(
+                  (r) =>
+                    `<tr>
+                      <td>${esc(r.name)}</td>
+                      <td><button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
+                    </tr>`
+                )
+                .join("")
+            : `<tr><td colspan="2"><span class="muted">없음</span></td></tr>`}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>창고 등록</h2>
+      <form id="warehouse-form">
+        <div><label>창고명</label><input name="name" required /></div>
+        <div><button class="primary" type="submit">등록</button></div>
+      </form>
+      <table class="mini-table" id="warehouse-table">
+        <thead><tr><th>창고명</th><th>수정</th><th>삭제</th></tr></thead>
+        <tbody>
+          ${(state.warehouses || []).length
+            ? state.warehouses
+                .map(
+                  (w) =>
+                    `<tr>
+                      <td>${esc(w)}</td>
+                      <td><button type="button" class="primary del-small warehouse-rename" data-name="${encodeURIComponent(w)}">수정</button></td>
+                      <td>${
+                        w === "유통사업부"
+                          ? `<span class="muted">기본창고</span>`
+                          : `<button type="button" class="cancel-btn del-small warehouse-del" data-name="${encodeURIComponent(w)}">삭제</button>`
+                      }</td>
+                    </tr>`
+                )
+                .join("")
+            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
+        </tbody>
+      </table>
     </div>
   `;
 
   preventEnterSubmit(qs("#partner-master-form"));
   preventEnterSubmit(qs("#manager-form"));
   preventEnterSubmit(qs("#warehouse-form"));
+
+  qs("#view-master").querySelectorAll(".ecount-cust-save").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const pt = btn.dataset.pt;
+      const input = qs(`#ecount-cust-${pt}`);
+      const statusSpan = qs(`#ecount-cust-status-${pt}`);
+      if (!input) return;
+      try {
+        if (statusSpan) statusSpan.textContent = "저장 중...";
+        await api("/api/partner-settings", {
+          method: "POST",
+          body: JSON.stringify({ partnerType: pt, custCode: input.value.trim() })
+        });
+        if (statusSpan) statusSpan.textContent = "저장됨";
+        setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
+      } catch (e) {
+        if (statusSpan) statusSpan.textContent = e.message || "저장 실패";
+      }
+    });
+  });
 
   qs("#partner-master-form").onsubmit = async (e) => {
     e.preventDefault();
@@ -3397,16 +3437,7 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       <!-- 마스터 패널 -->
       <div id="outbound-master-panel-${key}" class="ob-panel hidden">
-        <!-- 이카운트 설정 -->
-        <div class="ob-toolbar" style="flex-wrap:wrap; gap:8px; padding-bottom:12px; border-bottom:1px solid var(--border);">
-          <span style="font-weight:600; font-size:13px; min-width:100%;">이카운트 설정</span>
-          <label style="font-size:12px; color:var(--text-muted); white-space:nowrap;">거래처코드</label>
-          <input type="text" id="outbound-master-custcode-${key}" placeholder="이카운트 거래처코드" style="width:180px; padding:4px 8px; font-size:13px; border:1px solid var(--border); border-radius:4px;" />
-          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-master-custcode-save-${key}">저장</button>
-          <span id="outbound-master-custcode-status-${key}" class="muted" style="font-size:12px;"></span>
-        </div>
-        <!-- 코드마스터 업로드 -->
-        <div class="ob-toolbar" style="margin-top:12px;">
+        <div class="ob-toolbar">
           <label class="ob-file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             파일 선택
@@ -4583,14 +4614,6 @@ async function renderOutboundPartnerUpload(partner, key) {
 
   const loadMaster = async () => {
     if (!masterTableEl) return;
-    // 거래처코드 로드
-    try {
-      const custInput = qs(`#outbound-master-custcode-${key}`);
-      if (custInput) {
-        const r = await api(`/api/partner-settings?partnerType=${encodeURIComponent(key)}`);
-        custInput.value = r.custCode || "";
-      }
-    } catch {}
     try {
       const res = await api(`/api/outbound-code-master?partnerType=${encodeURIComponent(key)}`);
       const items = Array.isArray(res.items) ? res.items : [];
@@ -5016,22 +5039,6 @@ async function renderOutboundPartnerUpload(partner, key) {
       await loadLines();
     } catch (e) {
       if (statusEl) statusEl.textContent = e.message || "업로드 실패";
-    }
-  });
-  qs(`#outbound-master-custcode-save-${key}`)?.addEventListener("click", async () => {
-    const custInput = qs(`#outbound-master-custcode-${key}`);
-    const statusSpan = qs(`#outbound-master-custcode-status-${key}`);
-    if (!custInput) return;
-    try {
-      if (statusSpan) statusSpan.textContent = "저장 중...";
-      await api("/api/partner-settings", {
-        method: "POST",
-        body: JSON.stringify({ partnerType: key, custCode: custInput.value.trim() })
-      });
-      if (statusSpan) statusSpan.textContent = "저장됨";
-      setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
-    } catch (e) {
-      if (statusSpan) statusSpan.textContent = e.message || "저장 실패";
     }
   });
   qs(`#outbound-master-run-${key}`)?.addEventListener("click", async () => {
