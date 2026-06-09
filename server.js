@@ -185,9 +185,12 @@ function normalizeDb(db) {
   if (!db.partners) {
     db.partners = { inbound: [], outbound: [], purchase: [] };
   }
-  if (!Array.isArray(db.partners.inbound)) db.partners.inbound = [];
-  if (!Array.isArray(db.partners.outbound)) db.partners.outbound = [];
-  if (!Array.isArray(db.partners.purchase)) db.partners.purchase = [];
+  for (const type of ["inbound", "outbound", "purchase"]) {
+    if (!Array.isArray(db.partners[type])) db.partners[type] = [];
+    db.partners[type] = db.partners[type]
+      .map((p) => typeof p === "string" ? { name: p, custCode: "" } : { name: String(p.name || ""), custCode: String(p.custCode || "") })
+      .filter((p) => p.name);
+  }
   if (!Array.isArray(db.managers) || db.managers.length === 0) {
     db.managers = ["admin"];
   }
@@ -1258,6 +1261,14 @@ function partnerLabelFromType(t) {
   if (t === "emart") return "이마트";
   if (t === "lotte") return "롯데마트";
   return "";
+}
+
+const PARTNER_NAME_TO_TYPE = { "다이소": "daiso", "이마트": "emart", "롯데마트": "lotte" };
+
+function syncPartnerCustCodeToSettings(db, type, name, custCode) {
+  if (type !== "outbound") return;
+  const pt = PARTNER_NAME_TO_TYPE[name];
+  if (pt && db.partnerSettings?.[pt]) db.partnerSettings[pt].custCode = custCode;
 }
 
 function getOutboundCodeMasterMap(db, partnerType) {
@@ -3133,13 +3144,41 @@ async function handleApi(req, res, urlObj) {
       const body = await parseBody(req);
       const type = String(body.type || "").trim();
       const name = String(body.name || "").trim();
+      const custCode = String(body.custCode || "").trim();
       if (!["inbound", "outbound", "purchase"].includes(type)) {
         throw new Error("유효하지 않은 거래처 구분입니다.");
       }
       if (!name) throw new Error("거래처명은 필수입니다.");
-      if (!db.partners[type].includes(name)) db.partners[type].push(name);
+      const existing = db.partners[type].find((p) => p.name === name);
+      if (existing) {
+        existing.custCode = custCode;
+      } else {
+        db.partners[type].push({ name, custCode });
+      }
+      syncPartnerCustCodeToSettings(db, type, name, custCode);
       writeDb(db);
       return sendJson(res, 200, { ok: true, items: db.partners[type] });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/partners") {
+    try {
+      const body = await parseBody(req);
+      const type = String(body.type || "").trim();
+      const name = String(body.name || "").trim();
+      const custCode = String(body.custCode || "").trim();
+      if (!["inbound", "outbound", "purchase"].includes(type)) {
+        throw new Error("유효하지 않은 거래처 구분입니다.");
+      }
+      if (!name) throw new Error("거래처명은 필수입니다.");
+      const existing = db.partners[type].find((p) => p.name === name);
+      if (!existing) throw new Error("거래처를 찾을 수 없습니다.");
+      existing.custCode = custCode;
+      syncPartnerCustCodeToSettings(db, type, name, custCode);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3154,7 +3193,7 @@ async function handleApi(req, res, urlObj) {
         throw new Error("유효하지 않은 거래처 구분입니다.");
       }
       if (!name) throw new Error("거래처명은 필수입니다.");
-      db.partners[type] = db.partners[type].filter((x) => x !== name);
+      db.partners[type] = db.partners[type].filter((p) => p.name !== name);
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {

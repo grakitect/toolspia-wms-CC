@@ -836,7 +836,7 @@ async function renderDashboard() {
   `;
 }
 
-async function renderMaster() {
+function renderMaster() {
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
   const listTags = (arr) => arr.map((v) => `<span class="tag">${esc(v)}</span>`).join("") || "<span class='muted'>없음</span>";
   const partnerChip = (type, name) => `
@@ -851,20 +851,12 @@ async function renderMaster() {
       <button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(name)}">삭제</button>
     </span>
   `;
+  const toPartnerObj = (v) => typeof v === "object" ? v : { name: v, custCode: "" };
   const partnerRows = [
-    ...state.partners.purchase.map((v) => ({ type: "purchase", label: "구매처", name: v })),
-    ...state.partners.outbound.map((v) => ({ type: "outbound", label: "판매처", name: v }))
+    ...state.partners.purchase.map((v) => ({ type: "purchase", label: "구매처", ...toPartnerObj(v) })),
+    ...state.partners.outbound.map((v) => ({ type: "outbound", label: "판매처", ...toPartnerObj(v) }))
   ];
   const managerRows = state.managers.map((v) => ({ name: v }));
-
-  // 이카운트 거래처코드 로드
-  const ecountCustCodes = {};
-  try {
-    for (const pt of ["daiso", "emart", "lotte"]) {
-      const r = await api(`/api/partner-settings?partnerType=${pt}`);
-      ecountCustCodes[pt] = r.custCode || "";
-    }
-  } catch {}
 
   qs("#view-master").innerHTML = `
     <div class="card"><h1 style="margin:0 0 4px;">기본 정보</h1><p class="muted">거래처/담당자/창고 등록</p></div>
@@ -879,37 +871,30 @@ async function renderMaster() {
           </select>
         </div>
         <div><label>거래처명</label><input name="name" required /></div>
+        <div><label>이카운트 거래처코드</label><input name="custCode" placeholder="선택 입력" /></div>
         <div><button class="primary" type="submit">등록</button></div>
       </form>
       <table class="mini-table">
-        <thead><tr><th>구분</th><th>거래처</th><th>삭제</th></tr></thead>
+        <thead><tr><th>구분</th><th>거래처</th><th>이카운트 거래처코드</th><th>수정</th><th>삭제</th></tr></thead>
         <tbody>
           ${partnerRows.length
-            ? partnerRows
-                .map(
-                  (r) =>
-                    `<tr>
-                      <td>${esc(r.label)}</td>
-                      <td>${esc(r.name)}</td>
-                      <td>
-                        <button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button>
-                      </td>
-                    </tr>`
-                )
-                .join("")
-            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
+            ? partnerRows.map((r) => `
+                <tr data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">
+                  <td>${esc(r.label)}</td>
+                  <td>${esc(r.name)}</td>
+                  <td class="partner-custcode-cell">
+                    <span class="partner-custcode-display">${esc(r.custCode || "")}</span>
+                    <input class="partner-custcode-input" type="text" value="${esc(r.custCode || "")}" placeholder="미입력" style="display:none; padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:140px;" />
+                  </td>
+                  <td>
+                    <button type="button" class="primary del-small partner-edit-toggle">수정</button>
+                    <button type="button" class="primary del-small partner-custcode-save" style="display:none;">저장</button>
+                  </td>
+                  <td><button type="button" class="cancel-btn del-small partner-del" data-type="${r.type}" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
+                </tr>`).join("")
+            : `<tr><td colspan="5"><span class="muted">없음</span></td></tr>`}
         </tbody>
       </table>
-      <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
-        <h3 style="margin:0 0 10px;">이카운트 거래처코드</h3>
-        ${[["daiso","다이소"],["emart","이마트"],["lotte","롯데마트"]].map(([pt, label]) => `
-        <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-          <span style="width:64px; font-size:13px; font-weight:500;">${label}</span>
-          <input type="text" id="ecount-cust-${pt}" value="${esc(ecountCustCodes[pt] || "")}" placeholder="이카운트 거래처코드" style="width:180px; padding:4px 8px; font-size:13px; border:1px solid var(--border); border-radius:4px;" />
-          <button type="button" class="primary del-small ecount-cust-save" data-pt="${pt}">저장</button>
-          <span id="ecount-cust-status-${pt}" class="muted" style="font-size:12px;"></span>
-        </div>`).join("")}
-      </div>
     </div>
 
     <div class="card">
@@ -970,22 +955,48 @@ async function renderMaster() {
   preventEnterSubmit(qs("#manager-form"));
   preventEnterSubmit(qs("#warehouse-form"));
 
-  qs("#view-master").querySelectorAll(".ecount-cust-save").forEach((btn) => {
+  qs("#view-master").querySelectorAll(".partner-edit-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tr = btn.closest("tr");
+      const display = tr.querySelector(".partner-custcode-display");
+      const input = tr.querySelector(".partner-custcode-input");
+      const saveBtn = tr.querySelector(".partner-custcode-save");
+      const isEditing = btn.textContent === "취소";
+      if (isEditing) {
+        display.style.display = "";
+        input.style.display = "none";
+        saveBtn.style.display = "none";
+        btn.textContent = "수정";
+      } else {
+        display.style.display = "none";
+        input.style.display = "";
+        saveBtn.style.display = "";
+        btn.textContent = "취소";
+        input.focus();
+      }
+    });
+  });
+
+  qs("#view-master").querySelectorAll(".partner-custcode-save").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      const pt = btn.dataset.pt;
-      const input = qs(`#ecount-cust-${pt}`);
-      const statusSpan = qs(`#ecount-cust-status-${pt}`);
-      if (!input) return;
+      const tr = btn.closest("tr");
+      const type = tr.dataset.type;
+      const name = decodeURIComponent(tr.dataset.name);
+      const input = tr.querySelector(".partner-custcode-input");
+      const display = tr.querySelector(".partner-custcode-display");
+      const editBtn = tr.querySelector(".partner-edit-toggle");
       try {
-        if (statusSpan) statusSpan.textContent = "저장 중...";
-        await api("/api/partner-settings", {
-          method: "POST",
-          body: JSON.stringify({ partnerType: pt, custCode: input.value.trim() })
+        await api("/api/partners", {
+          method: "PATCH",
+          body: JSON.stringify({ type, name, custCode: input.value.trim() })
         });
-        if (statusSpan) statusSpan.textContent = "저장됨";
-        setTimeout(() => { if (statusSpan) statusSpan.textContent = ""; }, 2000);
+        display.textContent = input.value.trim();
+        display.style.display = "";
+        input.style.display = "none";
+        btn.style.display = "none";
+        editBtn.textContent = "수정";
       } catch (e) {
-        if (statusSpan) statusSpan.textContent = e.message || "저장 실패";
+        alert(e.message || "저장 실패");
       }
     });
   });
@@ -2120,7 +2131,7 @@ function enableColumnDrag(tableSelector) {
 
 function movementFormHtml(type, title, hint, partnerType, partnerLabel, partnerOptional = false) {
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const partnerOptions = (state.partners[partnerType] || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const partnerOptions = (state.partners[partnerType] || []).map((v) => { const n = typeof v === "object" ? v.name : v; return `<option value="${esc(n)}">${esc(n)}</option>`; }).join("");
   const managerOptions = state.managers.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
   const partnerHint =
@@ -2167,7 +2178,7 @@ function movementInboundPageHtml() {
   const partnerLabel = "구매처";
   const hint = "등록 버튼 클릭시에만 등록됩니다.";
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const partnerOptions = (state.partners.purchase || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const partnerOptions = (state.partners.purchase || []).map((v) => { const n = typeof v === "object" ? v.name : v; return `<option value="${esc(n)}">${esc(n)}</option>`; }).join("");
   const managerOptions = state.managers.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
   const partnerHint = `<span class="muted" style="font-size:12px;display:block;margin-top:4px;">미입력 시 해당 상품 기본정보의 구매처가 자동 적용됩니다.</span>`;
@@ -2255,7 +2266,7 @@ function movementOutboundPageHtml() {
   const partnerLabel = "출고처";
   const hint = "등록 버튼 클릭시에만 등록됩니다.";
   const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const partnerOptions = (state.partners.outbound || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const partnerOptions = (state.partners.outbound || []).map((v) => { const n = typeof v === "object" ? v.name : v; return `<option value="${esc(n)}">${esc(n)}</option>`; }).join("");
   const managerOptions = state.managers.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
   return `
