@@ -288,7 +288,7 @@ body {
    MAIN CONTENT
 ═══════════════════════════════════════════════════════════════ */
 .main {
-  padding: 30px 34px 64px;
+  padding: 30px 24px 64px 29px;
   min-width: 0;
   overflow-x: hidden;
 }
