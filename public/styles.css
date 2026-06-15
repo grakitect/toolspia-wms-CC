@@ -1638,9 +1638,20 @@ tbody tr:last-child td { border-bottom: 0; }
   padding: 14px 20px 0;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .ob-tab-bar .seg-tabs {
   margin-bottom: -1px;
+  flex-shrink: 0;
+}
+.ob-tabbar-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 8px;
 }
 .ob-panel {
   padding: 20px 20px 16px;

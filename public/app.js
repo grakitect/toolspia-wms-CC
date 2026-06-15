@@ -3428,6 +3428,22 @@ async function renderOutboundPartnerUpload(partner, key) {
           <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
           ${key === "emart" ? `<button type="button" class="seg-tab" id="outbound-tab-compare-${key}">미출 대조</button>` : ""}
         </div>
+        ${key === "emart" ? `
+        <div id="compare-tabbar-tools-${key}" class="ob-tabbar-tools hidden">
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            이마트 미출 파일
+            <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-upload-${key}">업로드</button>
+          <span id="uc-upload-hint-${key}" class="ob-toolbar-hint"></span>
+          <div class="ob-divider"></div>
+          <input type="date" class="uc-date-input" id="uc-start-${key}" />
+          <span class="ob-pi-arrow">~</span>
+          <input type="date" class="uc-date-input" id="uc-end-${key}" />
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-search-${key}">조회</button>
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="uc-clear-${key}">초기화</button>
+        </div>` : ""}
       </div>
 
       <!-- 주문서 패널 -->
@@ -3538,24 +3554,6 @@ async function renderOutboundPartnerUpload(partner, key) {
           </div>
         </div>
 
-        <!-- 수동 업로드 툴바 -->
-        <div class="ob-toolbar">
-          <span class="ob-toolbar-hint" style="color:var(--t3);font-size:11.5px;">또는 직접 업로드:</span>
-          <label class="ob-file-label">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            이마트 미출 파일
-            <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
-          </label>
-          <button type="button" class="bh-btn bh-btn-sm" id="uc-upload-${key}">업로드</button>
-          <span class="ob-toolbar-hint" id="uc-upload-hint-${key}"></span>
-          <div class="ob-divider"></div>
-          <input type="date" class="uc-date-input" id="uc-start-${key}" />
-          <span class="ob-pi-arrow">~</span>
-          <input type="date" class="uc-date-input" id="uc-end-${key}" />
-          <button type="button" class="bh-btn bh-btn-sm" id="uc-search-${key}">조회</button>
-          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" style="margin-left:auto;" id="uc-clear-${key}">초기화</button>
-        </div>
-
         <!-- 컬럼 매핑 안내 -->
         <div class="uc-guide" id="uc-guide-${key}">
           <div class="uc-guide-title">📋 엑셀 컬럼 매핑 안내</div>
@@ -3650,6 +3648,7 @@ async function renderOutboundPartnerUpload(partner, key) {
   const tabUnshipBtn = qs(`#outbound-tab-unship-${key}`);
   const tabCompareBtn = qs(`#outbound-tab-compare-${key}`);
   const comparePanel = qs(`#outbound-compare-panel-${key}`);
+  const compareTabbarTools = qs(`#compare-tabbar-tools-${key}`);
   const confirmAllBtn = qs(`#outbound-confirm-all-${key}`);
   let slipItems = [];
   let selectedSlipKeys = new Set();
@@ -3682,6 +3681,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     if (tabConfirmListBtn) tabConfirmListBtn.className = isConfirmList ? "seg-tab active" : "seg-tab";
     if (tabUnshipBtn) tabUnshipBtn.className = isUnship ? "seg-tab active" : "seg-tab";
     if (tabCompareBtn) tabCompareBtn.className = isCompare ? "seg-tab active" : "seg-tab";
+    compareTabbarTools?.classList.toggle("hidden", !isCompare);
   };
   tabOrdersBtn?.addEventListener("click", () => switchTopTab("orders"));
   tabMasterBtn?.addEventListener("click", async () => {
