@@ -1627,6 +1627,9 @@ tbody tr:last-child td { border-bottom: 0; }
   line-height: 1.5;
 }
 
+#view-outbound-upload-emart {
+  margin-top: -15px;
+}
 .ob-main-card {
   padding: 0;
   overflow: hidden;
