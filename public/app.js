@@ -3501,27 +3501,13 @@ async function renderOutboundPartnerUpload(partner, key) {
       <!-- 미출 대조 패널 (이마트 전용) -->
       <div id="outbound-compare-panel-${key}" class="ob-panel hidden">
 
-        <!-- eCvan 자동수집 섹션 + 수동 업로드 (같은 행 오른쪽 정렬) -->
+        <!-- eCvan 자동수집 섹션 -->
         <div class="ecvan-section">
           <div class="ecvan-section-head">
             <span class="ecvan-logo">eCvan</span>
             <span class="ecvan-label">자동 미출 수집</span>
             <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="ecvan-start-${key}">로그인 &amp; 수집 시작</button>
             <div id="ecvan-status-${key}" class="ecvan-status-bar hidden"></div>
-            <span style="margin-left:auto;color:rgba(255,255,255,.6);font-size:11.5px;white-space:nowrap;">또는 직접 업로드:</span>
-            <label class="ob-file-label">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              이마트 미출 파일
-              <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
-            </label>
-            <button type="button" class="bh-btn bh-btn-sm" id="uc-upload-${key}">업로드</button>
-            <span id="uc-upload-hint-${key}" style="color:rgba(255,255,255,.7);font-size:11.5px;"></span>
-            <div class="ob-divider" style="background:rgba(255,255,255,.25);"></div>
-            <input type="date" class="uc-date-input" id="uc-start-${key}" />
-            <span class="ob-pi-arrow">~</span>
-            <input type="date" class="uc-date-input" id="uc-end-${key}" />
-            <button type="button" class="bh-btn bh-btn-sm" id="uc-search-${key}">조회</button>
-            <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" id="uc-clear-${key}">초기화</button>
           </div>
         </div>
 
@@ -3550,6 +3536,24 @@ async function renderOutboundPartnerUpload(partner, key) {
               <div id="ecvan-progress-text-${key}" class="ecvan-progress-text">처리 중...</div>
             </div>
           </div>
+        </div>
+
+        <!-- 수동 업로드 툴바 -->
+        <div class="ob-toolbar">
+          <span class="ob-toolbar-hint" style="color:var(--t3);font-size:11.5px;">또는 직접 업로드:</span>
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            이마트 미출 파일
+            <input type="file" id="uc-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-upload-${key}">업로드</button>
+          <span class="ob-toolbar-hint" id="uc-upload-hint-${key}"></span>
+          <div class="ob-divider"></div>
+          <input type="date" class="uc-date-input" id="uc-start-${key}" />
+          <span class="ob-pi-arrow">~</span>
+          <input type="date" class="uc-date-input" id="uc-end-${key}" />
+          <button type="button" class="bh-btn bh-btn-sm" id="uc-search-${key}">조회</button>
+          <button type="button" class="bh-btn bh-btn-sm bh-btn-danger-outline" style="margin-left:auto;" id="uc-clear-${key}">초기화</button>
         </div>
 
         <!-- 컬럼 매핑 안내 -->
