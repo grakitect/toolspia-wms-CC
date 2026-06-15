@@ -103,31 +103,28 @@ const _findAndClick = async (text, timeout = 5000) => {
 };
 
 const _closePopups = async () => {
-  for (let i = 0; i < 10; i++) {
-    await _sleep(1000);
-    let clicked = false;
-    const allPages = await browser.pages().catch(() => [pg]);
-    for (const p of allPages) {
-      for (const frame of [p, ...p.frames()]) {
-        try {
-          const el = await frame.evaluateHandle(() => {
-            const kws = ["닫기", "확인", "오늘 하루 보지 않기", "7일동안 보지 않기"];
-            const btns = [...document.querySelectorAll("button,a,input[type=button]")];
-            const byText = btns.find(b => {
-              const t = (b.textContent || b.value || "").trim();
-              return kws.some(k => t === k);
-            });
-            if (byText) return byText;
-            return document.querySelector(".close,.btn-close,[class*='close'],[class*='Close'],[aria-label*='닫'],[title*='닫']") || null;
-          });
-          const btn = el.asElement();
-          if (btn) { await btn.click().catch(() => {}); clicked = true; break; }
-        } catch {}
-      }
-      if (clicked) break;
-    }
-    session.progress = `로그인 후 팝업 닫는 중... (${i+1}/10) ${clicked ? "클릭됨" : "버튼없음"}`;
-    if (!clicked) break;
+  await _sleep(800);
+  // 팝업/레이어를 DOM에서 직접 제거 — 페이지 이동 없이 확실히 닫음
+  // pg 탭에서만 실행 (다른 탭 건드리지 않음)
+  for (let i = 0; i < 3; i++) {
+    const removed = await pg.evaluate(() => {
+      const sel = [
+        '[class*="modal"]','[class*="popup"]','[class*="layer"]',
+        '[class*="banner"]','[class*="dim"]','[class*="dialog"]',
+        '[class*="alert"]','[class*="notice"]'
+      ].join(",");
+      const visible = [...document.querySelectorAll(sel)].filter(el => {
+        const s = window.getComputedStyle(el);
+        return s.display !== "none" && s.visibility !== "hidden"
+          && el.offsetParent !== null && el.offsetWidth > 100 && el.offsetHeight > 100;
+      });
+      visible.forEach(el => el.remove());
+      document.body.style.overflow = "";
+      return visible.length;
+    }).catch(() => 0);
+    session.progress = `로그인 후 팝업 닫는 중... (${i+1}/3) DOM제거 ${removed}개`;
+    if (removed === 0) break;
+    await _sleep(500);
   }
 };
 
@@ -236,18 +233,29 @@ await pg.mouse.move(minapRegRect.x + minapRegRect.width / 2, minapRegRect.y + mi
 await _sleep(300);
 await pg.mouse.click(minapRegRect.x + minapRegRect.width / 2, minapRegRect.y + minapRegRect.height / 2);
 await pg.waitForNavigation({ waitUntil: "networkidle2", timeout: 10000 }).catch(() => {});
-await _sleep(2000);
+// Nexacro가 div_work 안에 폼을 렌더링할 때까지 대기 (고정 sleep 대신 동적 폴링, 최대 25초)
+session.progress = "미납사유등록 페이지 렌더링 대기 중...";
+await pg.waitForFunction(() => {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+  let node;
+  while ((node = walker.nextNode())) {
+    const t = node.textContent.trim();
+    if (t === "상품별" || t === "조회") return true;
+  }
+  return false;
+}, { timeout: 25000, polling: 500 }).catch(() => {});
+await _sleep(500);
 await _snap("03-minapsa-reg");
 
 // 상품별 탭 + 조회 (Nexacro 버튼 — 실제 마우스 클릭 필요)
 session.progress = "상품별 탭 클릭 중...";
-const clickedSangpum = await _mouseClickText("상품별", 5000);
+const clickedSangpum = await _mouseClickText("상품별", 12000);
 if (!clickedSangpum) { await _snap("err-no-sangpum"); throw new Error("상품별 탭을 찾지 못했습니다"); }
 await _sleep(800);
 await _snap("04-sangpum-clicked");
 
 session.progress = "조회 중...";
-const clickedJohoe = await _mouseClickText("조회", 5000);
+const clickedJohoe = await _mouseClickText("조회", 8000);
 if (!clickedJohoe) { await _snap("err-no-johoe"); throw new Error("조회 버튼을 찾지 못했습니다"); }
 await _sleep(3000);
 await _snap("04-result");
