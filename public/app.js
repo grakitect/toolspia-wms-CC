@@ -3428,7 +3428,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
           ${key === "emart" ? `<button type="button" class="seg-tab" id="outbound-tab-compare-${key}">미출 대조</button>` : ""}
         </div>
-        <div class="ob-topbar-actions">
+        <div id="outbound-orders-actions-${key}" class="ob-topbar-actions">
           <label class="ob-file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             파일 선택
@@ -3649,6 +3649,7 @@ async function renderOutboundPartnerUpload(partner, key) {
   const tabUnshipBtn = qs(`#outbound-tab-unship-${key}`);
   const tabCompareBtn = qs(`#outbound-tab-compare-${key}`);
   const comparePanel = qs(`#outbound-compare-panel-${key}`);
+  const ordersActions = qs(`#outbound-orders-actions-${key}`);
   const confirmAllBtn = qs(`#outbound-confirm-all-${key}`);
   let slipItems = [];
   let selectedSlipKeys = new Set();
@@ -3681,6 +3682,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     if (tabConfirmListBtn) tabConfirmListBtn.className = isConfirmList ? "seg-tab active" : "seg-tab";
     if (tabUnshipBtn) tabUnshipBtn.className = isUnship ? "seg-tab active" : "seg-tab";
     if (tabCompareBtn) tabCompareBtn.className = isCompare ? "seg-tab active" : "seg-tab";
+    ordersActions?.classList.toggle("hidden", !isOrders);
   };
   tabOrdersBtn?.addEventListener("click", () => switchTopTab("orders"));
   tabMasterBtn?.addEventListener("click", async () => {
