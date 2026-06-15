@@ -3414,19 +3414,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           <span>판매입력 전송</span>
         </div>
       </div>
-      <div class="ob-topbar-actions">
-        <label class="ob-file-label">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-          파일 선택
-          <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
-        </label>
-        <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-batch-open-${key}">업로드 파일리스트</button>
-        <span id="outbound-upload-file-name-${key}" class="ob-file-name-hint"></span>
-        <div class="ob-divider"></div>
-        <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-refresh-${key}">새로고침</button>
-        <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-template-${key}">엑셀 템플릿</button>
-        <span id="outbound-upload-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
-      </div>
+      <span id="outbound-upload-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
     </div>
 
     <!-- 탭 + 패널 -->
@@ -3439,6 +3427,18 @@ async function renderOutboundPartnerUpload(partner, key) {
           <button type="button" class="seg-tab" id="outbound-tab-confirmlist-${key}">확정리스트</button>
           <button type="button" class="seg-tab" id="outbound-tab-unship-${key}">미출내역</button>
           ${key === "emart" ? `<button type="button" class="seg-tab" id="outbound-tab-compare-${key}">미출 대조</button>` : ""}
+        </div>
+        <div class="ob-topbar-actions">
+          <label class="ob-file-label">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            파일 선택
+            <input type="file" id="outbound-upload-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
+          </label>
+          <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-upload-batch-open-${key}">업로드 파일리스트</button>
+          <span id="outbound-upload-file-name-${key}" class="ob-file-name-hint"></span>
+          <div class="ob-divider"></div>
+          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-refresh-${key}">새로고침</button>
+          <button type="button" class="bh-btn bh-btn-sm" id="outbound-upload-template-${key}">엑셀 템플릿</button>
         </div>
       </div>
 

@@ -1566,6 +1566,8 @@ tbody tr:last-child td { border-bottom: 0; }
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  margin-left: auto;
+  padding-bottom: 8px;
 }
 .ob-topbar-title {
   font-size: 13.5px;
@@ -1644,9 +1646,12 @@ tbody tr:last-child td { border-bottom: 0; }
   padding: 14px 20px 0;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  display: flex;
+  align-items: center;
 }
 .ob-tab-bar .seg-tabs {
   margin-bottom: -1px;
+  flex-shrink: 0;
 }
 .ob-panel {
   padding: 20px 20px 16px;
