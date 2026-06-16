@@ -1517,7 +1517,11 @@ function renderProducts() {
       if (total === 0) pageInfoEl.textContent = "0 - 0 / 0";
       else pageInfoEl.textContent = `${start + 1} - ${Math.min(total, start + size)} / ${total}`;
     }
-    if (resultEl) resultEl.textContent = q ? `\uac80\uc0c9 \uacb0\uacfc: ${total}\uac74` : `\uc804\uccb4 ${allRows.length}\uac74`;
+    if (resultEl) {
+      if (q) resultEl.textContent = `\uac80\uc0c9 \uacb0\uacfc: ${total}\uac74`;
+      else if (total < allRows.length) resultEl.textContent = `\ud544\ud130 \uacb0\uacfc: ${total}\uac74 (\uc804\uccb4 ${allRows.length}\uac74)`;
+      else resultEl.textContent = `\uc804\uccb4 ${allRows.length}\uac74`;
+    }
   };
 
   if (searchBtn && searchInput && resultEl) {
