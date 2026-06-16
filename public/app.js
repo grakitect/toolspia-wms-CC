@@ -4655,6 +4655,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           <tbody>${rows || `<tr><td colspan="5" class="muted">등록된 코드마스터 없음</td></tr>`}</tbody>
         </table>
       </div>`;
+      delete TABLE_FILTER_MEMORY[`#outbound-master-table-list-${key}`];
       applyExcelLikeFilter(`#outbound-master-table-list-${key}`);
       if (masterStatusEl) masterStatusEl.textContent = `코드마스터 ${items.length}건`;
     } catch (e) {
