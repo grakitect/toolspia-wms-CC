@@ -3459,6 +3459,7 @@ async function renderOutboundPartnerUpload(partner, key) {
             <input type="file" id="outbound-master-file-${key}" accept=".xlsx,.xls,.csv" class="hidden-file" />
           </label>
           <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-master-run-${key}">업로드</button>
+          <button type="button" class="bh-btn bh-btn-danger bh-btn-sm" id="outbound-master-clear-${key}">전체 삭제</button>
           <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
           <span class="ob-toolbar-hint">상품코드 매핑용 코드마스터 파일을 업로드합니다.</span>
         </div>
@@ -5075,6 +5076,17 @@ async function renderOutboundPartnerUpload(partner, key) {
       await loadMaster();
     } catch (e) {
       if (masterStatusEl) masterStatusEl.textContent = e.message || "코드마스터 업로드 실패";
+    }
+  });
+  qs(`#outbound-master-clear-${key}`)?.addEventListener("click", async () => {
+    if (!confirm(`롯데마트 코드마스터 전체를 삭제하시겠습니까?`.replace("롯데마트", { daiso: "다이소", emart: "이마트", lotte: "롯데마트" }[key] || key))) return;
+    try {
+      if (masterStatusEl) masterStatusEl.textContent = "삭제 중...";
+      await api("/api/outbound-code-master", { method: "DELETE", body: JSON.stringify({ partnerType: key }) });
+      if (masterStatusEl) masterStatusEl.textContent = "코드마스터 삭제 완료";
+      await loadMaster();
+    } catch (e) {
+      if (masterStatusEl) masterStatusEl.textContent = e.message || "삭제 실패";
     }
   });
   qs(`#outbound-upload-refresh-${key}`)?.addEventListener("click", () => loadList());

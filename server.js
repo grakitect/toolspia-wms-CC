@@ -3845,6 +3845,19 @@ async function handleApi(req, res, urlObj) {
     }
   }
 
+  if (req.method === "DELETE" && pathname === "/api/outbound-code-master") {
+    try {
+      const body = await parseBody(req);
+      const partnerType = normalizeOutboundPartnerType(body.partnerType);
+      if (!partnerType) return sendJson(res, 400, { error: "partnerType(daiso/emart/lotte)가 필요합니다." });
+      db.outboundCodeMasters = (db.outboundCodeMasters || []).filter((x) => x.partnerType !== partnerType);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
   if (req.method === "GET" && pathname === "/api/outbound-order-upload/template") {
     try {
       const partnerType = normalizeOutboundPartnerType(urlObj.searchParams.get("partnerType") || "");
