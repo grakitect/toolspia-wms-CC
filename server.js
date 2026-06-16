@@ -1271,6 +1271,24 @@ function syncPartnerCustCodeToSettings(db, type, name, custCode) {
   if (pt && db.partnerSettings?.[pt]) db.partnerSettings[pt].custCode = custCode;
 }
 
+function buildProductBarcodeMap(db) {
+  const map = new Map();
+  for (const p of db.products || []) {
+    const code = String(p.code || "").trim();
+    if (!code) continue;
+    for (const field of ["barcode", "logisticsBarcode", "middleBarcode"]) {
+      const bc = String(p[field] || "").trim();
+      if (!bc) continue;
+      if (!map.has(bc)) map.set(bc, code);
+      const loose = normalizeInputLoose(bc);
+      if (loose && !map.has(loose)) map.set(loose, code);
+      const num = bc.replace(/,/g, "").trim().replace(/\.0+$/, "");
+      if (num !== bc && !map.has(num)) map.set(num, code);
+    }
+  }
+  return map;
+}
+
 function getOutboundCodeMasterMap(db, partnerType) {
   const map = new Map();
   for (const row of db.outboundCodeMasters || []) {
@@ -1414,6 +1432,7 @@ function parseOutboundOrderRowsByPartner(matrix, partnerType, uploadBatchId, sou
   const errorRows = [];
   const partner = partnerLabelFromType(partnerType);
   const masterMap = getOutboundCodeMasterMap(db || {}, partnerType);
+  const productBarcodeMap = partnerType === "lotte" ? buildProductBarcodeMap(db || {}) : null;
   const startRow = headerRow + 1;
   for (let r = startRow; r < rows.length; r++) {
     const row = rows[r] || [];
@@ -1428,6 +1447,7 @@ function parseOutboundOrderRowsByPartner(matrix, partnerType, uploadBatchId, sou
     const productCodeLoose = normalizeInputLoose(productCodeRaw);
     const productCodeNum = productCodeRaw.replace(/,/g, "").trim().replace(/\.0+$/, "");
     const productCodeMapped =
+      (productBarcodeMap && (productBarcodeMap.get(productCodeRaw) || productBarcodeMap.get(productCodeLoose) || productBarcodeMap.get(productCodeNum))) ||
       masterMap.get(productCodeRaw) || masterMap.get(productCodeLoose) || masterMap.get(productCodeNum) || "";
     const productCode = productCodeMapped || productCodeRaw;
     const orderQty = Number(String(row[idx.orderQty] ?? "").replace(/,/g, "").trim());
