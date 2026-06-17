@@ -4578,15 +4578,18 @@ async function renderOutboundPartnerUpload(partner, key) {
         </div>`;
         delete TABLE_FILTER_MEMORY[`#outbound-unship-table-list-${key}`];
         applyExcelLikeFilter(`#outbound-unship-table-list-${key}`, () => {
+          const countEl = qs(`#outbound-unship-count-${key}`);
+          if (!countEl) return;
           const tbl = qs(`#outbound-unship-table-list-${key}`);
-          if (!tbl || !unshipCountEl) return;
-          const visRows = Array.from(tbl.tBodies[0]?.rows || []).filter((r) => r.dataset.wmsExcelVisible === "1");
+          if (!tbl) return;
+          const allRows = Array.from(tbl.tBodies[0]?.rows || []);
+          const visRows = allRows.filter((r) => r.style.display !== "none");
           if (visRows.length === groups.length) {
-            unshipCountEl.textContent = `${groups.length}개 상품`;
+            countEl.textContent = `${groups.length}개 상품`;
           } else {
             const sumOrder = visRows.reduce((s, r) => s + (Number(String(r.cells[5]?.textContent || "0").replace(/,/g, "")) || 0), 0);
             const sumUnship = visRows.reduce((s, r) => s + (Number(String(r.cells[7]?.textContent || "0").replace(/,/g, "")) || 0), 0);
-            unshipCountEl.textContent = `필터 ${visRows.length}/${groups.length}개 · 주문 ${sumOrder.toLocaleString()} / 미출 ${sumUnship.toLocaleString()}`;
+            countEl.textContent = `필터 ${visRows.length}/${groups.length}개 · 주문 ${sumOrder.toLocaleString()} / 미출 ${sumUnship.toLocaleString()}`;
           }
         });
         if (unshipStatusEl) unshipStatusEl.textContent = `미출 ${itemsRaw.length}건 → 상품 ${groups.length}종`;
@@ -4637,15 +4640,18 @@ async function renderOutboundPartnerUpload(partner, key) {
         </div>`;
         delete TABLE_FILTER_MEMORY[`#outbound-unship-table-list-${key}`];
         applyExcelLikeFilter(`#outbound-unship-table-list-${key}`, () => {
+          const countEl = qs(`#outbound-unship-count-${key}`);
+          if (!countEl) return;
           const tbl = qs(`#outbound-unship-table-list-${key}`);
-          if (!tbl || !unshipCountEl) return;
-          const visRows = Array.from(tbl.tBodies[0]?.rows || []).filter((r) => r.dataset.wmsExcelVisible === "1");
+          if (!tbl) return;
+          const allRows = Array.from(tbl.tBodies[0]?.rows || []);
+          const visRows = allRows.filter((r) => r.style.display !== "none");
           if (visRows.length === items.length) {
-            unshipCountEl.textContent = `현재 탭·검색 기준 ${items.length}건`;
+            countEl.textContent = `현재 탭·검색 기준 ${items.length}건`;
           } else {
             const sumOrder = visRows.reduce((s, r) => s + (Number(String(r.cells[8]?.textContent || "0").replace(/,/g, "")) || 0), 0);
             const sumFixed = visRows.reduce((s, r) => s + (Number(String(r.cells[9]?.textContent || "0").replace(/,/g, "")) || 0), 0);
-            unshipCountEl.textContent = `필터 ${visRows.length}/${items.length}건 · 주문 ${sumOrder.toLocaleString()} / 미출 ${(sumOrder - sumFixed).toLocaleString()}`;
+            countEl.textContent = `필터 ${visRows.length}/${items.length}건 · 주문 ${sumOrder.toLocaleString()} / 미출 ${(sumOrder - sumFixed).toLocaleString()}`;
           }
         });
         unshipTableEl.querySelectorAll(`.outbound-unship-slip-open-${key}`).forEach((btn) =>
