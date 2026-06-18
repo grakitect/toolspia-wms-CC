@@ -10,6 +10,7 @@ const views = [
   "outbound-plan",
   "outbound-upload-daiso",
   "outbound-upload-emart",
+  "outbound-upload-emart2",
   "outbound-upload-lotte",
   "adjust",
   "history",
@@ -6805,6 +6806,7 @@ async function init() {
       if (v === "outbound-plan") renderOutboundPlanMenu();
       if (v === "outbound-upload-daiso") await renderOutboundPartnerUpload("다이소", "daiso");
       if (v === "outbound-upload-emart") await renderOutboundPartnerUpload("이마트", "emart");
+      if (v === "outbound-upload-emart2") await renderOutboundPartnerUpload("이마트", "emart");
       if (v === "outbound-upload-lotte") await renderOutboundPartnerUpload("롯데마트", "lotte");
       if (v === "adjust") renderAdjust();
       if (v === "history") await renderHistory();
