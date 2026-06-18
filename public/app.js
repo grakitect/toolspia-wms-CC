@@ -236,10 +236,19 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
     return String(cell.textContent || "").trim();
   }
 
+  function readCellFilterValues(cell) {
+    if (!cell) return [""];
+    if (cell.dataset.filterMulti !== undefined) {
+      const vals = (cell.dataset.filterMulti || "").split("|").map((v) => v.trim()).filter(Boolean);
+      return vals.length ? vals : [""];
+    }
+    return [readCellFilterValue(cell)];
+  }
+
   const colValues = Array.from({ length: colCount }, () => new Set());
   rows.forEach((row) => {
     for (let i = 0; i < colCount; i += 1) {
-      colValues[i].add(readCellFilterValue(row.cells[i]));
+      readCellFilterValues(row.cells[i]).forEach((v) => colValues[i].add(v));
     }
   });
 
@@ -279,11 +288,13 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
     rows.forEach((row) => {
       let visible = true;
       for (let i = 0; i < colCount; i += 1) {
-        const val = cellValue(row, i);
         const st = filterState[i];
-        if (st.selected.size !== st.allValues.length && !st.selected.has(val)) {
-          visible = false;
-          break;
+        if (st.selected.size !== st.allValues.length) {
+          const vals = readCellFilterValues(row.cells[i]);
+          if (!vals.some((v) => st.selected.has(v))) {
+            visible = false;
+            break;
+          }
         }
       }
       row.dataset.wmsExcelVisible = visible ? "1" : "0";
@@ -1175,20 +1186,20 @@ function renderProducts() {
       <td>${esc(p.logisticsBarcode)}</td>
       <td>${esc(p.ecountName || p.name)}</td>
       <td${statusStyle}>${esc(p.status || "")}</td>
-      <td>${renderVendorChips(p.deliveryVendors)}</td>
+      <td data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
       <td>${esc(p.deliveryVendorCode || "")}</td>
       <td>${esc(p.deliveryItemName || "")}</td>
       <td>${esc(p.spec || "")}</td>
       <td>${esc(p.purchaseVendor || "")}</td>
       <td>${esc(p.supplyType || "")}</td>
       <td>${esc(p.orderDept || "")}</td>
-      <td>${renderTagChips(p.orderManagers)}</td>
+      <td data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
       <td>${esc(p.purchaseItemCode || "")}</td>
       <td>${esc(p.purchaseItemName || "")}</td>
       <td>${esc(p.warehouseGroup || "")}</td>
-      <td>${renderWarehouseChips(p.usedWarehouses)}</td>
+      <td data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td>${esc(p.itemType || "")}</td>
-      <td>${renderCategoryChips(p.categories)}</td>
+      <td data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
     </tr>`;
     })
     .join("");
