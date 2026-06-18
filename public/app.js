@@ -3468,9 +3468,14 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       <!-- 마스터 패널 -->
       <div id="outbound-master-panel-${key}" class="ob-panel hidden">
-        ${key === "lotte" ? `<div class="ob-info-banner" style="padding:10px 14px;margin-bottom:8px;background:#EBF3FF;border:1px solid #BFD9FB;border-radius:6px;font-size:12.5px;color:#1A6FDB;">
-          기본상품정보의 바코드(바코드·물류바코드·중간바코드)로 자동 매핑됩니다. 아래 코드마스터는 자동 매핑 실패 시 사용되는 보조 수단입니다.
-        </div>` : ""}
+        ${key === "lotte" ? `
+        <div class="ob-info-banner" style="padding:10px 14px;margin-bottom:8px;background:#EBF3FF;border:1px solid #BFD9FB;border-radius:6px;font-size:12.5px;color:#1A6FDB;">
+          기본상품정보에 등록된 롯데마트 판매처 상품 목록입니다. 수정·등록은 <strong><a href="#" onclick="event.preventDefault();switchView('products');" style="color:#1A6FDB;">기본상품정보</a></strong> 페이지에서만 가능합니다.
+        </div>
+        <div class="ob-toolbar">
+          <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
+        </div>
+        ` : `
         <div class="ob-toolbar">
           <label class="ob-file-label">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -3480,8 +3485,9 @@ async function renderOutboundPartnerUpload(partner, key) {
           <button type="button" class="bh-btn bh-btn-primary bh-btn-sm" id="outbound-master-run-${key}">업로드</button>
           <button type="button" class="bh-btn bh-btn-danger bh-btn-sm" id="outbound-master-clear-${key}">전체 삭제</button>
           <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
-          <span class="ob-toolbar-hint">${key === "lotte" ? "(선택) 자동 매핑 안 될 때만 등록" : "상품코드 매핑용 코드마스터 파일을 업로드합니다."}</span>
+          <span class="ob-toolbar-hint">상품코드 매핑용 코드마스터 파일을 업로드합니다.</span>
         </div>
+        `}
         <div id="outbound-master-table-${key}" class="ob-table-wrap"></div>
       </div>
 
@@ -4679,6 +4685,40 @@ async function renderOutboundPartnerUpload(partner, key) {
 
   const loadMaster = async () => {
     if (!masterTableEl) return;
+    if (key === "lotte") {
+      try {
+        const partnerName = "롯데마트";
+        const items = (state.products || []).filter(
+          (p) => Array.isArray(p.deliveryVendors) && p.deliveryVendors.includes(partnerName)
+        );
+        const rows = items
+          .map(
+            (p, idx) => `<tr>
+              <td>${idx + 1}</td>
+              <td>${esc(p.barcode || "")}</td>
+              <td>${esc(p.middleBarcode || "")}</td>
+              <td>${esc(p.logisticsBarcode || "")}</td>
+              <td>${esc(p.ecountCode || p.code || "")}</td>
+              <td>${esc(p.ecountName || p.name || "")}</td>
+              <td>${esc(p.status || "")}</td>
+            </tr>`
+          )
+          .join("");
+        masterTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:690px;">
+          <table id="outbound-master-table-list-${key}">
+            <thead><tr><th>순번</th><th>바코드(SKU)</th><th>바코드(중포)</th><th>바코드(카톤)</th><th>이카운트코드</th><th>품명</th><th>상태</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="7" class="muted">롯데마트 판매처 상품 없음</td></tr>`}</tbody>
+          </table>
+        </div>`;
+        delete TABLE_FILTER_MEMORY[`#outbound-master-table-list-${key}`];
+        applyExcelLikeFilter(`#outbound-master-table-list-${key}`);
+        if (masterStatusEl) masterStatusEl.textContent = `롯데마트 상품 ${items.length}건`;
+      } catch (e) {
+        if (masterStatusEl) masterStatusEl.textContent = e.message || "상품 조회 실패";
+        masterTableEl.innerHTML = `<span class="muted">${esc(e.message || "오류")}</span>`;
+      }
+      return;
+    }
     try {
       const res = await api(`/api/outbound-code-master?partnerType=${encodeURIComponent(key)}`);
       const items = Array.isArray(res.items) ? res.items : [];
