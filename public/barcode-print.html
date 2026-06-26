@@ -1,0 +1,2913 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>바코드 라벨 인쇄</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #F4F5F7;
+  --surface: #FFFFFF;
+  --surface2: #F8F9FB;
+  --border: #E2E5EA;
+  --border2: #C8CDD6;
+  --text: #1A1D23;
+  --text2: #5A6172;
+  --text3: #9299A8;
+  --accent: #4361EE;
+  --accent-light: #EEF1FD;
+  --accent-hover: #3451D1;
+  --green: #2EC27E;
+  --green-light: #E8F8F1;
+  --red: #E84855;
+  --red-light: #FEF0F1;
+  --yellow: #F5A623;
+  --yellow-light: #FEF6E8;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,0.12);
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Pretendard', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; font-size: 14px; }
+
+/* Layout */
+.app { display: grid; grid-template-columns: 260px 1fr; grid-template-rows: 56px 1fr; min-height: 100vh; }
+.topbar { grid-column: 1/-1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; box-shadow: var(--shadow-sm); z-index: 10; }
+.topbar-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; color: var(--accent); letter-spacing: -0.3px; }
+.topbar-logo svg { width: 28px; height: 28px; }
+.topbar-divider { width: 1px; height: 20px; background: var(--border); }
+.topbar-title { color: var(--text2); font-size: 13px; }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+/* Sidebar */
+.sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 0; overflow-y: auto; }
+.sidebar-section { padding: 0 12px; margin-bottom: 4px; }
+.sidebar-label { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.8px; padding: 0 8px; margin-bottom: 4px; }
+.sidebar-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: var(--radius-sm); cursor: pointer; color: var(--text2); font-size: 13.5px; font-weight: 500; transition: all 0.15s; }
+.sidebar-item:hover { background: var(--bg); color: var(--text); }
+.sidebar-item.active { background: var(--accent-light); color: var(--accent); }
+.sidebar-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.sidebar-sep { height: 1px; background: var(--border); margin: 12px 16px; }
+
+/* Main */
+.main { overflow-y: auto; display: flex; flex-direction: column; }
+.main-header { padding: 28px 32px 0; }
+.main-header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; margin-bottom: 4px; }
+.main-header p { color: var(--text2); font-size: 13.5px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 32px; margin-top: 20px; }
+.tab { padding: 10px 16px; cursor: pointer; font-size: 13.5px; font-weight: 500; color: var(--text2); border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab:hover:not(.active) { color: var(--text); }
+
+/* Content Panels */
+.panel { padding: 24px 32px; display: none; }
+.panel.active { display: block; }
+
+/* Product DB Panel */
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+.search-box { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; flex: 1; min-width: 220px; max-width: 380px; transition: border-color 0.15s; }
+.search-box:focus-within { border-color: var(--accent); }
+.search-box svg { color: var(--text3); width: 15px; height: 15px; flex-shrink: 0; }
+.search-box input { border: none; outline: none; background: transparent; font-size: 13.5px; color: var(--text); width: 100%; font-family: inherit; }
+.search-box input::placeholder { color: var(--text3); }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; font-family: inherit; white-space: nowrap; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-secondary { background: var(--surface); border: 1.5px solid var(--border); color: var(--text2); }
+.btn-secondary:hover { border-color: var(--border2); color: var(--text); background: var(--surface2); }
+.btn-ghost { background: transparent; color: var(--text2); padding: 6px 10px; }
+.btn-ghost:hover { background: var(--bg); color: var(--text); }
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-danger { background: var(--red-light); color: var(--red); }
+.btn-danger:hover { background: var(--red); color: white; }
+.btn svg { width: 14px; height: 14px; }
+
+/* Table */
+.table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+.table { width: 100%; border-collapse: collapse; }
+.table thead th { padding: 11px 16px; text-align: left; font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; background: var(--surface2); border-bottom: 1px solid var(--border); }
+.table tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
+.table tbody tr:last-child { border-bottom: none; }
+.table tbody tr:hover { background: var(--accent-light); }
+.table tbody tr.selected { background: var(--accent-light); }
+.table td { padding: 12px 16px; font-size: 13.5px; }
+.table td.cb-col { width: 40px; }
+.table input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 11.5px; font-weight: 500; }
+.badge-green { background: var(--green-light); color: var(--green); }
+.badge-yellow { background: var(--yellow-light); color: var(--yellow); }
+.badge-red { background: var(--red-light); color: var(--red); }
+.code { font-family: 'DM Mono', monospace; font-size: 12.5px; color: var(--text2); }
+
+/* Selection Bar */
+.selection-bar { background: var(--accent); color: white; padding: 10px 20px; display: flex; align-items: center; gap: 12px; border-radius: var(--radius-sm); margin-bottom: 12px; font-size: 13px; font-weight: 500; }
+.selection-bar .spacer { flex: 1; }
+.selection-bar .btn-white { background: white; color: var(--accent); font-size: 12.5px; padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer; font-weight: 600; border: none; }
+
+/* Label Templates Panel */
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.template-card { background: var(--surface); border: 2px solid var(--border); border-radius: var(--radius); padding: 16px; cursor: pointer; transition: all 0.2s; position: relative; }
+.template-card:hover { border-color: var(--accent); box-shadow: var(--shadow); }
+.template-card.active { border-color: var(--accent); background: var(--accent-light); }
+.template-card.active::after { content: '✓'; position: absolute; top: 10px; right: 12px; color: var(--accent); font-weight: 700; font-size: 15px; }
+.template-preview { background: white; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.template-name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+.template-desc { font-size: 12px; color: var(--text3); }
+.add-template-card { border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--text3); min-height: 160px; }
+.add-template-card:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.add-template-card svg { width: 28px; height: 28px; }
+
+/* Print Panel */
+.print-layout { display: grid; grid-template-columns: 1fr 340px; gap: 24px; align-items: start; }
+.print-preview-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow-sm); }
+.preview-title { font-weight: 600; font-size: 14px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.print-canvas { background: #f0f0f0; border-radius: 6px; display: flex; flex-wrap: wrap; gap: 8px; padding: 20px; min-height: 300px; justify-content: flex-start; align-content: flex-start; }
+.label-item { background: white; border: 1px solid #ddd; border-radius: 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 6px; gap: 2px; flex-shrink: 0; }
+.label-item .label-name { font-size: 9px; color: #333; text-align: center; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-item .label-code { font-family: 'DM Mono', monospace; font-size: 8px; color: #666; }
+
+/* Settings Panel */
+.settings-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; box-shadow: var(--shadow-sm); margin-bottom: 16px; }
+.settings-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 120px; }
+.form-group label { font-size: 12px; font-weight: 500; color: var(--text2); }
+.form-control { padding: 8px 10px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; background: var(--surface); color: var(--text); font-family: inherit; outline: none; transition: border-color 0.15s; }
+.form-control:focus { border-color: var(--accent); }
+select.form-control { cursor: pointer; }
+
+/* Custom Template Builder */
+.builder-wrap { display: grid; grid-template-columns: 240px 1fr 260px; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+.builder-left, .builder-right { background: var(--surface2); border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; }
+.builder-right { border-right: none; border-left: 1px solid var(--border); }
+.builder-canvas-wrap { padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; overflow: auto; }
+.builder-canvas { background: white; border: 1px dashed var(--border2); position: relative; cursor: crosshair; }
+.builder-section { margin-bottom: 16px; }
+.builder-section-title { font-size: 11px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.7px; margin-bottom: 8px; }
+.element-btn { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; background: white; font-size: 12.5px; color: var(--text); font-family: inherit; width: 100%; margin-bottom: 6px; transition: all 0.15s; font-weight: 500; }
+.element-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.canvas-element { position: absolute; cursor: move; border: 1.5px solid transparent; border-radius: 3px; }
+.canvas-element:hover { border-color: var(--accent); }
+.canvas-element.selected { border-color: var(--accent); }
+.canvas-element .resize-handle { position: absolute; right: -8px; bottom: -8px; width: 16px; height: 16px; background: var(--accent); border-radius: 4px; cursor: se-resize; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.25); }
+.prop-row { margin-bottom: 10px; }
+.prop-label { font-size: 11.5px; font-weight: 500; color: var(--text2); margin-bottom: 4px; }
+.prop-input { width: 100%; padding: 6px 8px; border: 1.5px solid var(--border); border-radius: 4px; font-size: 12.5px; font-family: inherit; outline: none; }
+.prop-input:focus { border-color: var(--accent); }
+.prop-row-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+/* Modal */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal { background: var(--surface); border-radius: 14px; padding: 28px; max-width: 560px; width: 90%; box-shadow: var(--shadow-lg); transform: translateY(12px); transition: transform 0.2s; }
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+.modal p { color: var(--text2); font-size: 13.5px; margin-bottom: 20px; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+/* Builder fullscreen override */
+#builderModal { padding: 0; align-items: stretch; justify-content: stretch; }
+#builderModal .modal { transform: none !important; border-radius: 0; }
+
+/* Qty Control */
+.qty-control { display: flex; align-items: center; gap: 4px; }
+.qty-btn { width: 26px; height: 26px; border: 1.5px solid var(--border); border-radius: 5px; background: white; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; color: var(--text2); line-height: 1; padding: 0; }
+.qty-btn:hover { border-color: var(--accent); color: var(--accent); }
+.qty-num { width: 36px; text-align: center; font-size: 13px; font-weight: 500; }
+
+/* Toast */
+.toast { position: fixed; bottom: 24px; right: 24px; background: var(--text); color: white; padding: 12px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 500; box-shadow: var(--shadow-lg); transform: translateY(60px); opacity: 0; transition: all 0.3s; z-index: 200; }
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.success { background: var(--green); }
+.toast.error { background: var(--red); }
+
+/* Print styles - iframe 방식으로 대체됨, 이 스타일은 사용 안 함 */
+
+.empty-state { text-align: center; padding: 48px 24px; color: var(--text3); }
+.empty-state svg { width: 48px; height: 48px; margin-bottom: 12px; opacity: 0.4; }
+.empty-state p { font-size: 14px; }
+
+.section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.section-title { font-size: 15px; font-weight: 700; }
+
+/* Product add form */
+.add-product-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.chip { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-light); color: var(--accent); border-radius: 20px; padding: 3px 10px; font-size: 12px; font-weight: 500; }
+
+/* Excel Upload */
+.upload-zone { border: 2px dashed var(--border2); border-radius: var(--radius); padding: 36px 24px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface2); position: relative; }
+.upload-zone:hover, .upload-zone.drag-over { border-color: var(--accent); background: var(--accent-light); }
+.upload-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+.upload-zone svg { width: 40px; height: 40px; color: var(--text3); margin-bottom: 10px; transition: color 0.2s; }
+.upload-zone:hover svg { color: var(--accent); }
+.upload-zone h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.upload-zone p { font-size: 13px; color: var(--text3); }
+.upload-zone .browse-link { color: var(--accent); font-weight: 500; }
+
+.col-map-table { width: 100%; border-collapse: collapse; }
+.col-map-table th { padding: 8px 12px; text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; background: var(--surface2); border-bottom: 1px solid var(--border); }
+.col-map-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; }
+.col-map-table tr:last-child td { border-bottom: none; }
+.col-map-table select { width: 100%; padding: 5px 8px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12.5px; font-family: inherit; outline: none; background: white; }
+.col-map-table select:focus { border-color: var(--accent); }
+
+.preview-table-wrap { max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.preview-table th { padding: 7px 10px; background: var(--surface2); border-bottom: 1px solid var(--border); font-weight: 600; color: var(--text2); white-space: nowrap; position: sticky; top: 0; }
+.preview-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text); white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.preview-table tr:last-child td { border-bottom: none; }
+
+.step-indicator { display: flex; align-items: center; gap: 0; margin-bottom: 24px; }
+.step { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--text3); }
+.step.active { color: var(--accent); }
+.step.done { color: var(--green); }
+.step-num { width: 24px; height: 24px; border-radius: 50%; border: 2px solid currentColor; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.step.done .step-num { background: var(--green); border-color: var(--green); color: white; }
+.step.active .step-num { background: var(--accent); border-color: var(--accent); color: white; }
+.step-line { width: 32px; height: 2px; background: var(--border); margin: 0 4px; }
+.step-line.done { background: var(--green); }
+
+.import-result { background: var(--green-light); border: 1.5px solid var(--green); border-radius: var(--radius-sm); padding: 14px 16px; display: flex; align-items: center; gap: 10px; font-size: 13.5px; font-weight: 500; color: var(--green); }
+.import-result svg { width: 20px; height: 20px; flex-shrink: 0; }
+.import-warn { background: var(--yellow-light); border: 1.5px solid var(--yellow); color: var(--yellow); border-radius: var(--radius-sm); padding: 10px 14px; font-size: 12.5px; margin-top: 10px; }
+
+.btn-excel { background: #1D7044; color: white; }
+.btn-excel:hover { background: #155a34; }
+.btn-excel svg { width: 14px; height: 14px; }
+
+/* Alignment buttons */
+.align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 4px; }
+.align-btn {
+  display: flex; align-items: center; justify-content: center;
+  height: 28px; border: 1.5px solid var(--border); border-radius: 5px;
+  background: white; cursor: pointer; color: var(--text2); transition: all 0.15s;
+}
+.align-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+.align-btn svg { width: 14px; height: 14px; pointer-events: none; }
+
+/* Multi-select: selected elements get blue border */
+.canvas-element.selected  { border-color: var(--accent) !important; z-index: 10; }
+.canvas-element.multi-sel { border-color: #f59e0b !important; border-style: dashed !important; z-index: 9; }
+
+/* Align mode tabs in prop panel */
+.align-mode-tabs { display: flex; border: 1.5px solid var(--border); border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+.align-mode-tab  { flex: 1; padding: 5px 4px; font-size: 11px; font-weight: 600; text-align: center; cursor: pointer; background: white; color: var(--text3); border: none; transition: all 0.15s; }
+.align-mode-tab.active { background: var(--accent); color: white; }
+.align-section { display: none; }
+.align-section.visible { display: block; }
+
+/* Multi-select info bar */
+.multi-sel-bar { background: #fef3c7; border: 1.5px solid #f59e0b; border-radius: 6px; padding: 8px 10px; font-size: 12px; color: #92400e; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.multi-sel-bar svg { width: 13px; height: 13px; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Top Bar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="28" height="28" rx="7" fill="#4361EE"/>
+        <rect x="5" y="8" width="3" height="12" rx="1" fill="white"/>
+        <rect x="10" y="6" width="2" height="16" rx="1" fill="white"/>
+        <rect x="14" y="8" width="3" height="12" rx="1" fill="white"/>
+        <rect x="19" y="5" width="2" height="18" rx="1" fill="white"/>
+        <rect x="23" y="9" width="2" height="10" rx="1" fill="white"/>
+      </svg>
+      바코드 라벨 인쇄
+    </div>
+    <div class="topbar-divider"></div>
+    <span class="topbar-title">재고 관리 시스템</span>
+    <div class="topbar-right">
+      <span class="chip">✓ 데이터 저장됨</span>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">메뉴</div>
+      <div class="sidebar-item active" onclick="showTab('products')" id="nav-products">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        상품 데이터베이스
+      </div>
+      <div class="sidebar-item" onclick="showTab('labels')" id="nav-labels">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+        라벨 템플릿
+      </div>
+      <div class="sidebar-item" onclick="showTab('print')" id="nav-print">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        바코드 인쇄
+      </div>
+    </div>
+    <div class="sidebar-sep"></div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">선택된 상품</div>
+      <div style="padding: 8px; background: var(--bg); border-radius: 6px; font-size: 12.5px;">
+        <div id="sidebar-selected" style="color: var(--text3);">선택된 상품 없음</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <div class="main">
+    <!-- Products Panel -->
+    <div class="panel active" id="panel-products">
+      <div class="main-header">
+        <h1>📦 상품 데이터베이스</h1>
+        <p>상품을 검색하고 바코드를 인쇄할 항목을 선택하세요.</p>
+      </div>
+      <div style="padding: 0 32px; margin-top: 24px;">
+        <div class="toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" placeholder="상품명, 바코드, SKU 검색..." oninput="filterProducts()">
+          </div>
+          <select class="form-control" id="categoryFilter" onchange="filterProducts()" style="max-width:160px;">
+            <option value="">전체 카테고리</option>
+          </select>
+          <button class="btn btn-excel" onclick="openModal('excelUploadModal')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            엑셀 업로드
+          </button>
+          <button class="btn btn-secondary" onclick="downloadTemplate()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            양식 다운로드
+          </button>
+          <button class="btn btn-secondary" onclick="openAddProductModal()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            상품 추가
+          </button>
+          <button class="btn btn-primary" onclick="goToPrint()" id="btn-print-selected" style="display:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            선택 인쇄
+          </button>
+        </div>
+
+        <div id="selection-bar" class="selection-bar" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <span id="sel-count">0개 선택됨</span>
+          <div class="spacer"></div>
+          <button class="btn-white" onclick="goToPrint()">🖨 선택 상품 인쇄하기</button>
+          <button class="btn-white" onclick="clearSelection()" style="background: transparent; color: white; border: 1px solid rgba(255,255,255,0.4);">선택 해제</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr>
+                <th class="cb-col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
+                <th>상품명</th>
+                <th>바코드</th>
+                <th>SKU</th>
+                <th>카테고리</th>
+                <th>가격</th>
+                <th>재고</th>
+                <th>수량</th>
+              </tr>
+            </thead>
+            <tbody id="productTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Labels Panel -->
+    <div class="panel" id="panel-labels">
+      <div class="main-header">
+        <h1>🏷 라벨 템플릿</h1>
+        <p>기본 제공 템플릿을 선택하거나 커스텀 템플릿을 만들어 등록하세요.</p>
+      </div>
+      <div style="padding: 0 32px; margin-top: 24px;">
+        <div class="section-header">
+          <div class="section-title">기본 템플릿</div>
+        </div>
+        <div class="template-grid" id="template-grid"></div>
+
+        <div class="section-header" style="margin-top: 8px;">
+          <div class="section-title">커스텀 템플릿</div>
+          <button class="btn btn-primary" onclick="openBuilder()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            새 템플릿 만들기
+          </button>
+        </div>
+        <div class="template-grid" id="custom-template-grid"></div>
+      </div>
+    </div>
+
+    <!-- Print Panel -->
+    <div class="panel" id="panel-print">
+      <div class="main-header">
+        <h1>🖨 바코드 인쇄</h1>
+        <p>선택한 상품의 바코드 라벨을 미리보고 인쇄하세요.</p>
+      </div>
+      <div style="padding: 0 32px; margin-top: 24px;">
+        <div class="print-layout">
+          <div>
+            <div class="settings-card">
+              <h3>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M12 2v2M12 20v2M20 12h2M2 12h2M19.07 19.07l-1.41-1.41M4.93 19.07l1.41-1.41"/></svg>
+                인쇄 설정
+              </h3>
+
+              <!-- 라벨 템플릿 / 바코드 형식 -->
+              <div class="form-row">
+                <div class="form-group">
+                  <label>라벨 디자인</label>
+                  <select class="form-control" id="printTemplate" onchange="renderPrintPreview()"></select>
+                </div>
+                <div class="form-group">
+                  <label>바코드 형식</label>
+                  <select class="form-control" id="barcodeFormat" onchange="renderPrintPreview()">
+                    <option value="CODE128">Code128 (기본)</option>
+                    <option value="CODE39">Code39</option>
+                    <option value="EAN13">EAN-13</option>
+                    <option value="ITF14">ITF-14</option>
+                    <option value="QR">QR코드</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>라벨 내부 여백 (mm)</label>
+                  <input class="form-control" type="number" id="labelPad" value="1.5" min="0" max="10" step="0.5" oninput="renderPrintPreview()">
+                </div>
+              </div>
+
+              <!-- 프린터 모드 -->
+              <div class="form-row" style="margin-bottom:8px;">
+                <div class="form-group" style="flex:1;">
+                  <label>프린터 종류</label>
+                  <div style="display:flex;gap:10px;margin-top:4px;">
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:500;">
+                      <input type="radio" name="printerMode" value="sheet" checked onchange="onPrinterModeChange()"> 일반 (A4 라벨지)
+                    </label>
+                    <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px;font-weight:500;">
+                      <input type="radio" name="printerMode" value="roll" onchange="onPrinterModeChange()"> 라벨 프린터 (롤지)
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 폼텍 라벨지 선택 (sheet 모드) -->
+              <div id="sheet-settings">
+                <div class="form-row">
+                  <div class="form-group" style="flex:2;">
+                    <label>폼텍 라벨지 규격</label>
+                    <select class="form-control" id="formtecPreset" onchange="applyFormtecPreset()">
+                      <option value="custom">─ 직접 입력 ─</option>
+                      <optgroup label="★ 바코드 / 물류용">
+                        <option value="3105">3105 · 63.5×38.1mm · 3열×7행=21칸</option>
+                        <option value="3107">3107 · 99.1×33.9mm · 2열×8행=16칸</option>
+                        <option value="3108">3108 · 99.1×42.3mm · 2열×7행=14칸</option>
+                        <option value="3109">3109 · 99.1×67.7mm · 2열×4행=8칸</option>
+                        <option value="3218">3218 · 63.5×45.0mm · 3열×6행=18칸</option>
+                        <option value="3622">3622 · 48.5×25.4mm · 4열×13행=52칸</option>
+                        <option value="3629">3629 · 38.1×21.2mm · 5열×13행=65칸</option>
+                        <option value="3636">3636 · 48.5×16.9mm · 4열×17행=68칸</option>
+                      </optgroup>
+                      <optgroup label="주소용">
+                        <option value="3620">3620 · 119.3×42.8mm · 1열×6행=6칸</option>
+                        <option value="3106">3106 · 99.1×57.0mm · 2열×5행=10칸</option>
+                        <option value="3212">3212 · 88.9×46.6mm · 2열×6행=12칸</option>
+                        <option value="3102">3102 · 63.5×46.6mm · 3열×6행=18칸</option>
+                      </optgroup>
+                      <optgroup label="물류 대형">
+                        <option value="3203">3203 · 200×93.0mm · 1열×3행=3칸</option>
+                        <option value="3120">3120 · 200×140mm · 1열×2행=2칸</option>
+                        <option value="3130">3130 · 210×297mm · 1열×1행=1칸</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>라벨 가로 (mm)</label>
+                    <input class="form-control" type="number" id="labelW" value="63.5" min="10" max="210" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>라벨 세로 (mm)</label>
+                    <input class="form-control" type="number" id="labelH" value="38.1" min="5" max="297" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>열 수</label>
+                    <input class="form-control" type="number" id="labelCols" value="3" min="1" max="20" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>행 수</label>
+                    <input class="form-control" type="number" id="labelRows" value="7" min="1" max="40" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>좌측 여백 (mm)</label>
+                    <input class="form-control" type="number" id="marginL" value="4.7" min="0" max="30" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>상단 여백 (mm)</label>
+                    <input class="form-control" type="number" id="marginT" value="10.7" min="0" max="30" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>가로 간격 (mm)</label>
+                    <input class="form-control" type="number" id="gapH" value="2.5" min="0" max="20" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>세로 간격 (mm)</label>
+                    <input class="form-control" type="number" id="gapV" value="0" min="0" max="20" step="0.1" oninput="setCustomPreset();renderPrintPreview()">
+                  </div>
+                </div>
+              </div>
+
+              <!-- 라벨 프린터 (롤지) 설정 -->
+              <div id="roll-settings" style="display:none;">
+                <div style="background:var(--yellow-light);border:1.5px solid var(--yellow);border-radius:var(--radius-sm);padding:12px 14px;font-size:12.5px;color:#7a5200;margin-bottom:12px;">
+                  <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <strong>인쇄 전 필수: 프린터 드라이버 용지 크기 설정</strong>
+                  </div>
+                  <div style="line-height:1.7;font-size:12px;">
+                    브라우저는 <code style="background:rgba(0,0,0,0.08);padding:1px 4px;border-radius:3px;">@page size</code>를 지원하지만, <strong>프린터 드라이버의 용지 크기가 일치해야</strong> 정확하게 출력됩니다.<br>
+                    <strong>설정 경로:</strong> Windows 제어판 → 프린터 및 스캐너 → 해당 프린터 → 인쇄 기본 설정 → 용지 크기를 아래 입력값과 동일하게 설정<br>
+                    <span id="roll-size-hint" style="color:var(--accent);font-weight:600;"></span>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>라벨 가로 (mm)</label>
+                    <input class="form-control" type="number" id="rollW" value="80" min="10" max="200" step="0.1" oninput="updateRollSizeHint();renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>라벨 세로 (mm)</label>
+                    <input class="form-control" type="number" id="rollH" value="50" min="5" max="300" step="0.1" oninput="updateRollSizeHint();renderPrintPreview()">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group" style="flex:1;">
+                    <label>출력 방향</label>
+                    <select class="form-control" id="rollOrientation" onchange="updateRollSizeHint();renderPrintPreview()">
+                      <option value="auto">자동 (입력값 그대로)</option>
+                      <option value="landscape">가로 출력 (Landscape)</option>
+                      <option value="portrait">세로 출력 (Portrait)</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>라벨 간 여백 (mm)</label>
+                    <input class="form-control" type="number" id="rollGap" value="2" min="0" max="20" step="0.1" oninput="renderPrintPreview()">
+                  </div>
+                  <div class="form-group">
+                    <label>내부 패딩 (mm)</label>
+                    <input class="form-control" type="number" id="rollPad" value="2" min="0" max="10" step="0.5" oninput="renderPrintPreview()">
+                  </div>
+                </div>
+              </div>
+
+              <div style="background:var(--accent-light);border-radius:var(--radius-sm);padding:10px 14px;font-size:12.5px;color:var(--accent);display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span id="print-info-text">페이지당 <strong id="labels-per-page">21</strong>개 · 전체 <strong id="total-labels-count">0</strong>개 라벨 · <strong id="total-pages-count">0</strong>페이지</span>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h3>인쇄 대상 목록</h3>
+              <div id="print-product-list" style="max-height:300px; overflow-y:auto;"></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="print-preview-wrap">
+              <div class="preview-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                미리보기
+              </div>
+              <div class="print-canvas" id="print-preview" style="min-height:400px; display:flex; flex-direction:column; align-items:flex-start; gap:12px; overflow-x:auto;"></div>
+              <div style="margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+                <button class="btn btn-primary" style="flex:1;" onclick="printLabels()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  인쇄하기
+                </button>
+                <button class="btn btn-secondary" onclick="savePDF()">PDF 저장</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Excel Upload Modal -->
+<div class="modal-overlay" id="excelUploadModal">
+  <div class="modal" style="max-width:720px; max-height:90vh; overflow-y:auto;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px;">
+      <div>
+        <h2 style="margin-bottom:4px;">📊 엑셀 파일 업로드</h2>
+        <p style="margin:0;">엑셀(.xlsx/.xls) 또는 CSV 파일로 상품을 한번에 가져오세요.</p>
+      </div>
+      <button class="btn btn-ghost" onclick="closeModal('excelUploadModal'); resetUpload();" style="margin-top:-4px; font-size:16px;">✕</button>
+    </div>
+
+    <!-- Step Indicator -->
+    <div class="step-indicator">
+      <div class="step active" id="step1-indicator">
+        <div class="step-num">1</div>
+        <span>파일 선택</span>
+      </div>
+      <div class="step-line" id="step-line-1"></div>
+      <div class="step" id="step2-indicator">
+        <div class="step-num">2</div>
+        <span>컬럼 매핑</span>
+      </div>
+      <div class="step-line" id="step-line-2"></div>
+      <div class="step" id="step3-indicator">
+        <div class="step-num">3</div>
+        <span>가져오기 완료</span>
+      </div>
+    </div>
+
+    <!-- Step 1: File Upload -->
+    <div id="upload-step1">
+      <div class="upload-zone" id="upload-zone"
+        ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <input type="file" accept=".xlsx,.xls,.csv" onchange="handleFileSelect(event)" id="excel-file-input">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <path d="M8 13h2l2 3 2-5 1.5 2H18"/>
+        </svg>
+        <h3>파일을 드래그하거나 클릭해서 선택하세요</h3>
+        <p>지원 형식: <strong>.xlsx, .xls, .csv</strong> &nbsp;·&nbsp; 최대 10MB</p>
+        <p style="margin-top:6px;"><span class="browse-link">파일 찾아보기 →</span></p>
+      </div>
+
+      <div style="margin-top:20px; background: var(--surface2); border-radius: var(--radius-sm); padding: 16px; border: 1px solid var(--border);">
+        <div style="font-size:13px; font-weight:600; margin-bottom:10px; color: var(--text2);">📋 권장 컬럼 형식</div>
+        <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap: 8px;" id="col-guide"></div>
+        <div style="font-size:12px; color:var(--text3); margin-top:8px;"><span style="color:var(--red);">*</span> 필수 항목 &nbsp;·&nbsp; 컬럼 순서는 자유롭게 — 다음 단계에서 매핑합니다</div>
+      </div>
+    </div>
+
+    <!-- Step 2: Column Mapping -->
+    <div id="upload-step2" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <div style="font-size:14px; font-weight:600;" id="file-name-display"></div>
+          <div style="font-size:12.5px; color:var(--text3);" id="row-count-display"></div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="resetUpload()">← 다시 선택</button>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:8px;">파일 미리보기 (상위 5행)</div>
+        <div class="preview-table-wrap" id="preview-table-container"></div>
+      </div>
+
+      <div style="font-size:13px; font-weight:600; margin-bottom:10px;">컬럼 매핑 설정</div>
+      <div style="background: var(--surface2); border-radius: var(--radius-sm); border: 1px solid var(--border); overflow:hidden; margin-bottom:16px;">
+        <table class="col-map-table">
+          <thead>
+            <tr>
+              <th style="width:38%;">시스템 필드</th>
+              <th>엑셀 컬럼 선택</th>
+              <th style="width:26%;">미리보기 값</th>
+            </tr>
+          </thead>
+          <tbody id="col-map-body"></tbody>
+        </table>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:10px; padding: 12px 16px; background: var(--accent-light); border-radius: var(--radius-sm); font-size:13px; margin-bottom:14px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" style="width:16px;height:16px;flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span style="color:var(--accent);">바코드가 없는 행은 자동으로 생성됩니다. 기존 상품에 <strong>추가</strong>하거나 전체 <strong>교체</strong>도 가능합니다.</span>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:16px; margin-bottom:16px; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: white;">
+        <span style="font-size:13px; font-weight:600; color:var(--text2);">가져오기 방식</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+          <input type="radio" name="importMode" value="append" checked> 기존 데이터에 추가
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+          <input type="radio" name="importMode" value="replace"> 기존 데이터 교체
+        </label>
+      </div>
+
+      <div class="modal-footer" style="padding-top:0; margin-top:0; border-top: 1px solid var(--border); padding-top:16px;">
+        <button class="btn btn-secondary" onclick="resetUpload()">취소</button>
+        <button class="btn btn-excel" onclick="importData()" id="btn-import">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          데이터 가져오기
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 3: Result -->
+    <div id="upload-step3" style="display:none;">
+      <div class="import-result" id="import-result-msg">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:20px;height:20px;flex-shrink:0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span id="import-result-text"></span>
+      </div>
+      <div class="import-warn" id="import-warn" style="display:none;"></div>
+      <div style="margin-top:20px;">
+        <div style="font-size:13px; font-weight:600; margin-bottom:8px;">가져온 상품 미리보기</div>
+        <div class="preview-table-wrap" id="imported-preview"></div>
+      </div>
+      <div class="modal-footer" style="margin-top:16px; border-top: 1px solid var(--border); padding-top:16px;">
+        <button class="btn btn-secondary" onclick="resetUpload(); closeModal('excelUploadModal');">닫기</button>
+        <button class="btn btn-primary" onclick="resetUpload(); closeModal('excelUploadModal'); showTab('products');">
+          상품 목록 확인하기 →
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Product Modal -->
+<div class="modal-overlay" id="addProductModal">
+  <div class="modal" style="max-width:600px;">
+    <h2>상품 추가</h2>
+    <p>새 상품 정보를 입력하세요. 바코드를 비워두면 자동 생성됩니다.</p>
+    <div class="add-product-grid">
+      <div class="form-group">
+        <label>상품명 *</label>
+        <input class="form-control" id="np-name" placeholder="예: 아메리카노 원두 250g">
+      </div>
+      <div class="form-group">
+        <label>SKU</label>
+        <input class="form-control" id="np-sku" placeholder="예: COFFEE-001">
+      </div>
+      <div class="form-group">
+        <label>바코드 (빈칸 시 자동생성)</label>
+        <input class="form-control" id="np-barcode" placeholder="예: 8801234567890">
+      </div>
+      <div class="form-group">
+        <label>카테고리</label>
+        <input class="form-control" id="np-category" placeholder="예: 음료">
+      </div>
+      <div class="form-group">
+        <label>가격 (원)</label>
+        <input class="form-control" type="number" id="np-price" placeholder="예: 15000">
+      </div>
+      <div class="form-group">
+        <label>재고 수량</label>
+        <input class="form-control" type="number" id="np-stock" placeholder="예: 100">
+      </div>
+      <div class="form-group">
+        <label>브랜드</label>
+        <input class="form-control" id="np-brand" placeholder="예: 스타벅스">
+      </div>
+      <div class="form-group">
+        <label>단위</label>
+        <input class="form-control" id="np-unit" placeholder="예: 개, g, ml">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('addProductModal')">취소</button>
+      <button class="btn btn-primary" onclick="addProduct()">추가하기</button>
+    </div>
+  </div>
+</div>
+
+<!-- Custom Builder Modal -->
+<div class="modal-overlay" id="builderModal">
+  <div class="modal" style="width:100vw; max-width:100vw; height:100vh; max-height:100vh; padding:0; overflow:hidden; border-radius:0; display:flex; flex-direction:column;">
+    <div style="padding:14px 20px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex-shrink:0; background:var(--surface);">
+      <div>
+        <div style="font-size:16px; font-weight:700;">커스텀 라벨 디자인</div>
+        <div style="font-size:12px; color:var(--text3); margin-top:1px;">요소를 추가하고 배치해 나만의 라벨을 만드세요</div>
+      </div>
+      <div style="margin-left:auto; display:flex; gap:8px; align-items:center;">
+        <input class="form-control" id="custom-name" placeholder="템플릿 이름" style="font-size:13px; width:160px;">
+        <button class="btn btn-primary" onclick="saveCustomTemplate()">저장하기</button>
+        <button class="btn btn-ghost" onclick="closeModal('builderModal')">✕</button>
+      </div>
+    </div>
+    <div class="builder-wrap" style="border:none; border-radius:0; flex:1; overflow:hidden;">
+      <!-- Left Tools -->
+      <div class="builder-left" style="height:calc(100vh - 57px); overflow-y:auto;">
+        <div class="builder-section">
+          <div class="builder-section-title">용지 설정</div>
+          <div class="prop-row">
+            <div class="prop-label">가로 (mm)</div>
+            <input class="prop-input" type="number" id="b-width-mm" value="60" min="10" max="300" oninput="syncCanvasFromMm()">
+          </div>
+          <div class="prop-row">
+            <div class="prop-label">세로 (mm)</div>
+            <input class="prop-input" type="number" id="b-height-mm" value="40" min="5" max="300" oninput="syncCanvasFromMm()">
+          </div>
+          <div class="prop-row">
+            <div class="prop-label">배경색</div>
+            <input class="prop-input" type="color" id="b-bg" value="#ffffff" oninput="updateCanvasBg()">
+          </div>
+        </div>
+        <div class="builder-section">
+          <div class="builder-section-title">요소 추가</div>
+          <button class="element-btn" onclick="addElement('barcode')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="2" y="6" width="2" height="12"/><rect x="6" y="4" width="1" height="16"/><rect x="9" y="6" width="2" height="12"/><rect x="13" y="4" width="1" height="16"/><rect x="16" y="6" width="2" height="12"/><rect x="20" y="4" width="2" height="16"/></svg>
+            바코드 (1D)
+          </button>
+          <button class="element-btn" onclick="addElement('qr')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="4" height="4"/><line x1="18" y1="14" x2="21" y2="14"/><line x1="21" y1="18" x2="21" y2="21"/><line x1="18" y1="21" x2="21" y2="21"/></svg>
+            QR코드
+          </button>
+          <button class="element-btn" onclick="addElement('text')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+            텍스트
+          </button>
+          <button class="element-btn" onclick="addElement('price')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            가격 표시
+          </button>
+          <button class="element-btn" onclick="addElement('line')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            구분선
+          </button>
+          <button class="element-btn" onclick="addElement('rect')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+            박스
+          </button>
+        </div>
+        <div class="builder-section">
+          <div class="builder-section-title">변수 삽입</div>
+          <div style="font-size:11.5px; color:var(--text3); margin-bottom:8px;">텍스트 선택 후 클릭</div>
+          <button class="element-btn" onclick="insertVar('{{상품명}}')" style="font-size:11.5px;">{{상품명}}</button>
+          <button class="element-btn" onclick="insertVar('{{바코드}}')" style="font-size:11.5px;">{{바코드}}</button>
+          <button class="element-btn" onclick="insertVar('{{SKU}}')" style="font-size:11.5px;">{{SKU}}</button>
+          <button class="element-btn" onclick="insertVar('{{가격}}')" style="font-size:11.5px;">{{가격}}</button>
+          <button class="element-btn" onclick="insertVar('{{브랜드}}')" style="font-size:11.5px;">{{브랜드}}</button>
+          <button class="element-btn" onclick="insertVar('{{카테고리}}')" style="font-size:11.5px;">{{카테고리}}</button>
+        </div>
+      </div>
+      <!-- Canvas -->
+      <div class="builder-canvas-wrap" style="height:calc(100vh - 57px); overflow:auto; background:#e8e8e8; display:flex; flex-direction:column; align-items:center; gap:20px; padding:28px 24px;">
+        <div id="builder-canvas" class="builder-canvas" onclick="handleCanvasClick(event)"></div>
+        <div style="font-size:11.5px; color:var(--text3); line-height:1.6; text-align:center;">
+          드래그로 이동 · <kbd style="background:rgba(0,0,0,0.08);padding:1px 5px;border-radius:3px;font-size:10px;">Shift</kbd> 클릭으로 다중선택
+        </div>
+        <!-- 캔버스 아래 실시간 미리보기 -->
+        <div style="width:100%;max-width:600px;background:white;border-radius:10px;padding:16px;box-shadow:0 2px 12px rgba(0,0,0,0.1);">
+          <div style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:10px;">실제 출력 미리보기</div>
+          <div style="margin-bottom:10px;">
+            <select class="prop-input" id="preview-product-select" onchange="refreshBuilderPreview()" style="width:100%;font-size:12px;">
+              <option value="">— 예시 상품 선택 —</option>
+            </select>
+          </div>
+          <div id="builder-preview-box" style="background:#f5f5f5;border-radius:6px;padding:16px;display:flex;align-items:center;justify-content:center;min-height:100px;">
+            <div style="color:var(--text3);font-size:12px;text-align:center;">상품을 선택하면 실제 인쇄 결과를 미리볼 수 있습니다</div>
+          </div>
+        </div>
+      </div>
+      <!-- Right Properties -->
+      <div class="builder-right" style="height:calc(100vh - 57px); overflow-y:auto;">
+        <div class="builder-section-title">속성</div>
+        <div id="prop-panel">
+          <div style="color:var(--text3); font-size:12.5px; padding: 12px 0;">요소를 선택하면<br>속성을 편집할 수 있습니다</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div id="print-area" style="display:none;"></div>
+
+<script>
+// ─── DATA ──────────────────────────────────────────────────────────────────
+let products = []; // WMS API에서 로드
+
+let selectedProducts = {}; // id -> qty
+let printQueue = [];
+
+// ─── TEMPLATES ─────────────────────────────────────────────────────────────
+let templates = [
+  { id:'t1', name:'타입 1: 기본 바코드', desc:'바코드 + 상품명', preset: true, type:'barcode-name', w:160, h:80 },
+  { id:'t2', name:'타입 2: 상세 정보형', desc:'바코드 + 이름 + 가격 + SKU', preset: true, type:'barcode-detail', w:160, h:100 },
+  { id:'t3', name:'타입 3: QR코드형', desc:'QR코드 + 상품명', preset: true, type:'qr-name', w:120, h:120 },
+];
+let customTemplates = [];
+
+// ─── INIT ───────────────────────────────────────────────────────────────────
+async function init() {
+  // WMS 기본상품정보 로드
+  try {
+    const res = await fetch('/api/products');
+    const data = await res.json();
+    const wmsItems = data.items || [];
+    products = wmsItems
+      .map((p, i) => ({
+        id: p.code || p.ecountCode || String(i),
+        name: p.ecountName || p.name || '',
+        barcode: p.barcode || '',
+        sku: p.code || p.ecountCode || '',
+        category: (Array.isArray(p.categories) && p.categories[0]) || '',
+        price: 0,
+        stock: 0,
+        brand: '',
+        unit: p.spec || '',
+      }))
+      .filter(p => p.name || p.barcode);
+  } catch(e) {
+    console.warn('WMS 상품 로드 실패:', e);
+    products = [];
+  }
+
+  renderProducts();
+  populateCategoryFilter();
+  renderTemplates();
+  populatePrintTemplateSelect();
+  renderColGuide();
+  setTimeout(() => {
+    document.getElementById('formtecPreset').value = '3105';
+    applyFormtecPreset();
+  }, 0);
+  getJsBarcodeSource();
+}
+
+// ─── PRODUCTS ───────────────────────────────────────────────────────────────
+function renderProducts(list) {
+  list = list || products;
+  const tbody = document.getElementById('productTable');
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="empty-state"><p>검색 결과가 없습니다</p></div></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = list.map(p => {
+    const qty = selectedProducts[p.id] || 1;
+    const checked = p.id in selectedProducts;
+    const stockBadge = p.stock > 50 ? 'badge-green' : p.stock > 10 ? 'badge-yellow' : 'badge-red';
+    return `<tr class="${checked ? 'selected' : ''}" id="row-${p.id}">
+      <td class="cb-col"><input type="checkbox" ${checked ? 'checked' : ''} onchange="toggleProduct(${p.id})" onclick="e=>e.stopPropagation()"></td>
+      <td><strong>${p.name}</strong><br><span style="font-size:11.5px;color:var(--text3);">${p.brand || ''}</span></td>
+      <td class="code">${p.barcode}</td>
+      <td class="code" style="color:var(--accent);">${p.sku || '-'}</td>
+      <td><span class="badge badge-green" style="background:var(--accent-light);color:var(--accent);">${p.category}</span></td>
+      <td><strong>₩${p.price.toLocaleString()}</strong></td>
+      <td><span class="badge ${stockBadge}">${p.stock.toLocaleString()}${p.unit ? ' '+p.unit : ''}</span></td>
+      <td>
+        <div class="qty-control">
+          <button class="qty-btn" onclick="changeQty(${p.id},-1)">−</button>
+          <span class="qty-num" id="qty-${p.id}">${qty}</span>
+          <button class="qty-btn" onclick="changeQty(${p.id},1)">+</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+  updateSelectionBar();
+}
+
+function filterProducts() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  const cat = document.getElementById('categoryFilter').value;
+  const filtered = products.filter(p => {
+    const match = p.name.toLowerCase().includes(q) || p.barcode.includes(q) || (p.sku||'').toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q);
+    const catMatch = !cat || p.category === cat;
+    return match && catMatch;
+  });
+  renderProducts(filtered);
+}
+
+function populateCategoryFilter() {
+  const cats = [...new Set(products.map(p => p.category))];
+  const sel = document.getElementById('categoryFilter');
+  sel.innerHTML = '<option value="">전체 카테고리</option>' + cats.map(c => `<option>${c}</option>`).join('');
+}
+
+function toggleProduct(id) {
+  if (id in selectedProducts) {
+    delete selectedProducts[id];
+    document.getElementById('row-'+id)?.classList.remove('selected');
+  } else {
+    selectedProducts[id] = parseInt(document.getElementById('qty-'+id)?.textContent) || 1;
+    document.getElementById('row-'+id)?.classList.add('selected');
+  }
+  updateSelectionBar();
+  updateSidebar();
+}
+
+function toggleSelectAll() {
+  const all = document.getElementById('selectAll').checked;
+  const rows = document.querySelectorAll('#productTable input[type=checkbox]');
+  products.forEach(p => {
+    if (all) selectedProducts[p.id] = parseInt(document.getElementById('qty-'+p.id)?.textContent) || 1;
+    else delete selectedProducts[p.id];
+  });
+  renderProducts();
+  document.getElementById('selectAll').checked = all;
+}
+
+function changeQty(id, delta) {
+  const el = document.getElementById('qty-'+id);
+  if (!el) return;
+  let v = parseInt(el.textContent) + delta;
+  v = Math.max(1, v);
+  el.textContent = v;
+  if (id in selectedProducts) selectedProducts[id] = v;
+}
+
+function clearSelection() {
+  selectedProducts = {};
+  renderProducts();
+  document.getElementById('selectAll').checked = false;
+  updateSelectionBar();
+  updateSidebar();
+}
+
+function updateSelectionBar() {
+  const count = Object.keys(selectedProducts).length;
+  const bar = document.getElementById('selection-bar');
+  const btn = document.getElementById('btn-print-selected');
+  bar.style.display = count ? 'flex' : 'none';
+  btn.style.display = count ? 'inline-flex' : 'none';
+  document.getElementById('sel-count').textContent = `${count}개 상품 선택됨`;
+}
+
+function updateSidebar() {
+  const el = document.getElementById('sidebar-selected');
+  const ids = Object.keys(selectedProducts);
+  if (!ids.length) { el.innerHTML = '<span style="color:var(--text3);">선택된 상품 없음</span>'; return; }
+  el.innerHTML = ids.slice(0,4).map(id => {
+    const p = products.find(x=>x.id==id);
+    return p ? `<div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;">${p.name}</span><span style="font-size:11px;color:var(--accent);font-weight:600;">×${selectedProducts[id]}</span></div>` : '';
+  }).join('') + (ids.length > 4 ? `<div style="font-size:11.5px;color:var(--text3);margin-top:4px;">외 ${ids.length-4}개</div>` : '');
+}
+
+function openAddProductModal() { openModal('addProductModal'); }
+
+function addProduct() {
+  const name = document.getElementById('np-name').value.trim();
+  if (!name) { showToast('상품명을 입력하세요', 'error'); return; }
+  const barcode = document.getElementById('np-barcode').value.trim() || genBarcode();
+  const newP = {
+    id: Date.now(),
+    name,
+    barcode,
+    sku: document.getElementById('np-sku').value.trim() || '',
+    category: document.getElementById('np-category').value.trim() || '기타',
+    price: parseInt(document.getElementById('np-price').value) || 0,
+    stock: parseInt(document.getElementById('np-stock').value) || 0,
+    brand: document.getElementById('np-brand').value.trim() || '',
+    unit: document.getElementById('np-unit').value.trim() || '개',
+  };
+  products.push(newP);
+  populateCategoryFilter();
+  renderProducts();
+  closeModal('addProductModal');
+  showToast('✓ 상품이 추가되었습니다', 'success');
+  ['np-name','np-barcode','np-sku','np-category','np-price','np-stock','np-brand','np-unit'].forEach(id => document.getElementById(id).value = '');
+}
+
+function genBarcode() {
+  return '880' + Math.floor(Math.random()*10000000000).toString().padStart(10,'0');
+}
+
+// ─── TEMPLATES ─────────────────────────────────────────────────────────────
+function renderTemplates() {
+  const grid = document.getElementById('template-grid');
+  grid.innerHTML = templates.map(t => `
+    <div class="template-card ${t.id === selectedTemplate ? 'active' : ''}" onclick="selectTemplate('${t.id}')">
+      <div class="template-preview" style="height:${t.id==='t3'?'100px':'80px'}; padding: 8px;">
+        ${getTemplatePreviewHTML(t)}
+      </div>
+      <div class="template-name">${t.name}</div>
+      <div class="template-desc">${t.desc}</div>
+    </div>
+  `).join('');
+
+  const cGrid = document.getElementById('custom-template-grid');
+  cGrid.innerHTML = customTemplates.map(t => `
+    <div class="template-card ${t.id === selectedTemplate ? 'active' : ''}" onclick="selectTemplate('${t.id}')">
+      <div class="template-preview" style="height:80px; padding: 8px; display:flex; align-items:center; justify-content:center;">
+        <svg viewBox="0 0 60 40" width="60" height="40" style="border:1px solid #ddd;border-radius:3px;">
+          <rect width="60" height="40" fill="${t.bg||'white'}"/>
+          ${t.elements.map(el => renderElementSVG(el, 60/t.w, 40/t.h)).join('')}
+        </svg>
+      </div>
+      <div class="template-name">${t.name}</div>
+      <div class="template-desc">커스텀 템플릿 · ${t.wmm||Math.round(t.w/MM_TO_PX)}×${t.hmm||Math.round(t.h/MM_TO_PX)}mm</div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="editCustomTemplate('${t.id}');event.stopPropagation()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          수정
+        </button>
+        <button class="btn btn-danger btn-sm" style="flex:1;" onclick="deleteCustomTemplate('${t.id}');event.stopPropagation()">삭제</button>
+      </div>
+    </div>
+  `).join('') + `
+    <div class="template-card add-template-card" onclick="openBuilder()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      <div style="font-size:13px; font-weight:500;">새 템플릿 만들기</div>
+    </div>
+  `;
+}
+
+function renderElementSVG(el, sx, sy) {
+  if (el.type === 'text' || el.type === 'price') {
+    const text = el.type === 'price' ? '₩12,000' : (el.content || '텍스트');
+    return `<text x="${el.x*sx+2}" y="${el.y*sy+el.fontSize*(sy||1)}" font-size="${el.fontSize*(sy||1)}" fill="${el.color||'#333'}">${text.replace(/{{[^}]+}}/g,'■■')}</text>`;
+  }
+  if (el.type === 'barcode') {
+    return `<rect x="${el.x*sx}" y="${el.y*sy}" width="${el.w*sx}" height="${el.h*sy}" fill="#222" rx="1" opacity="0.8"/>
+    ${Array.from({length:8},(_,i)=>`<rect x="${el.x*sx+i*(el.w*sx/8)+1}" y="${el.y*sy}" width="${el.w*sx/16}" height="${el.h*sy}" fill="white"/>`).join('')}`;
+  }
+  if (el.type === 'qr') {
+    return `<rect x="${el.x*sx}" y="${el.y*sy}" width="${el.w*sx}" height="${el.h*sy}" fill="#f5f5f5" stroke="#ddd" rx="2"/>
+    <text x="${(el.x+el.w/2)*sx}" y="${(el.y+el.h/2+4)*sy}" text-anchor="middle" font-size="6" fill="#999">QR</text>`;
+  }
+  if (el.type === 'line') {
+    return `<line x1="${el.x*sx}" y1="${el.y*sy}" x2="${(el.x+el.w)*sx}" y2="${el.y*sy}" stroke="${el.color||'#ccc'}" stroke-width="1"/>`;
+  }
+  if (el.type === 'rect') {
+    return `<rect x="${el.x*sx}" y="${el.y*sy}" width="${el.w*sx}" height="${el.h*sy}" fill="${el.fill||'none'}" stroke="${el.color||'#ccc'}" stroke-width="1"/>`;
+  }
+  return '';
+}
+
+function getTemplatePreviewHTML(t) {
+  if (t.type === 'barcode-name') return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+    <svg id="tprev-${t.id}" style="width:120px;height:40px;"></svg>
+    <span style="font-size:10px;color:#333;">상품명</span></div>`;
+  if (t.type === 'barcode-detail') return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+    <svg id="tprev-${t.id}" style="width:120px;height:36px;"></svg>
+    <span style="font-size:10px;color:#333;">상품명</span>
+    <div style="display:flex;gap:8px;font-size:9px;color:#888;"><span>SKU-001</span><span>₩15,000</span></div></div>`;
+  if (t.type === 'qr-name') return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+    <div id="tprev-${t.id}" style="width:60px;height:60px;"></div>
+    <span style="font-size:10px;color:#333;">상품명</span></div>`;
+  return '';
+}
+
+let selectedTemplate = 't1';
+
+function selectTemplate(id) {
+  selectedTemplate = id;
+  renderTemplates();
+  showToast('템플릿이 선택되었습니다');
+}
+
+function populatePrintTemplateSelect() {
+  const sel = document.getElementById('printTemplate');
+  const all = [...templates, ...customTemplates];
+  sel.innerHTML = all.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+  if (selectedTemplate) sel.value = selectedTemplate;
+}
+
+function deleteCustomTemplate(id) {
+  customTemplates = customTemplates.filter(t => t.id !== id);
+  if (selectedTemplate === id) selectedTemplate = 't1';
+  renderTemplates();
+  populatePrintTemplateSelect();
+  showToast('템플릿이 삭제되었습니다');
+}
+
+// ─── BUILDER ───────────────────────────────────────────────────────────────
+const BUILDER_PX_PER_MM = 9.0; // 1mm = 9px (50% 축소)
+
+let builderElements = [];
+let selectedEl = null;
+let nextElId = 1;
+let dragging = null;
+let dragOffset = {x:0,y:0};
+let resizing = null;
+let resizeStart = null;
+let _suppressDeselect = false; // guard: block deselectAll right after selectEl
+
+function getBuilderMm() {
+  const wmm = Math.max(10, parseFloat(document.getElementById('b-width-mm').value) || 60);
+  const hmm = Math.max(5,  parseFloat(document.getElementById('b-height-mm').value) || 40);
+  return { wmm, hmm };
+}
+function mmToPx(mm) { return Math.round(mm * BUILDER_PX_PER_MM); }
+
+function syncCanvasFromMm() {
+  updateCanvas();
+}
+function updateCanvasBg() {
+  const canvas = document.getElementById('builder-canvas');
+  if (canvas) canvas.style.background = document.getElementById('b-bg').value;
+}
+
+// ── 편집 중인 템플릿 ID (null이면 신규)
+let editingTemplateId = null;
+
+function openBuilder(editId) {
+  editingTemplateId = editId || null;
+  selectedEl = null;
+  selectedEls = new Set();
+  alignModeTab = 'canvas';
+  nextElId = 1;
+  _suppressDeselect = false;
+
+  if (editId) {
+    // 기존 템플릿 로드
+    const t = customTemplates.find(x => x.id === editId);
+    if (!t) return;
+    document.getElementById('custom-name').value = t.name;
+    document.getElementById('b-width-mm').value  = t.wmm || Math.round(t.w / BUILDER_PX_PER_MM * (3.7795/BUILDER_PX_PER_MM*BUILDER_PX_PER_MM));
+    document.getElementById('b-height-mm').value = t.hmm || Math.round(t.h / BUILDER_PX_PER_MM * (3.7795/BUILDER_PX_PER_MM*BUILDER_PX_PER_MM));
+    // wmm/hmm이 저장돼 있으면 사용, 없으면 px → mm 역산
+    document.getElementById('b-width-mm').value  = t.wmm || +(t.w / MM_TO_PX).toFixed(1);
+    document.getElementById('b-height-mm').value = t.hmm || +(t.h / MM_TO_PX).toFixed(1);
+    document.getElementById('b-bg').value = t.bg || '#ffffff';
+    // elements의 px값을 mm로 역산해 builderElements에 로드
+    builderElements = t.elements.map((el, i) => ({
+      ...el,
+      id: i + 1,
+      xmm: +(el.x / MM_TO_PX).toFixed(2),
+      ymm: +(el.y / MM_TO_PX).toFixed(2),
+      wmm: +(el.w / MM_TO_PX).toFixed(2),
+      hmm: +(el.h / MM_TO_PX).toFixed(2),
+    }));
+    nextElId = builderElements.length + 1;
+  } else {
+    builderElements = [];
+    document.getElementById('custom-name').value = '';
+    document.getElementById('b-width-mm').value = 60;
+    document.getElementById('b-height-mm').value = 40;
+    document.getElementById('b-bg').value = '#ffffff';
+  }
+
+  document.getElementById('prop-panel').innerHTML = '<div style="color:var(--text3);font-size:12.5px;padding:12px 0;">요소를 선택하면<br>속성을 편집할 수 있습니다</div>';
+  populateBuilderPreviewSelect();
+  updateCanvas();
+  openModal('builderModal');
+}
+
+function editCustomTemplate(id) {
+  openBuilder(id);
+}
+
+// 빌더 미리보기용 상품 목록 채우기
+function populateBuilderPreviewSelect() {
+  const sel = document.getElementById('preview-product-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— 예시 상품 선택 —</option>' +
+    products.slice(0, 20).map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+}
+
+// 미리보기 렌더링 (canvas 위에 실제 데이터 오버레이)
+function refreshBuilderPreview() {
+  const box = document.getElementById('builder-preview-box');
+  if (!box) return;
+  const sel = document.getElementById('preview-product-select');
+  const pid = sel?.value;
+  if (!pid) {
+    box.innerHTML = '<div style="color:var(--text3);font-size:11.5px;text-align:center;">상품을 선택하면<br>미리보기가 표시됩니다</div>';
+    return;
+  }
+  const prod = products.find(x => x.id == pid);
+  if (!prod) return;
+
+  const { wmm, hmm } = getBuilderMm();
+  const PREV_SCALE = 3.0; // 미리보기용 축소 배율 (mm→px)
+  const pw = wmm * PREV_SCALE;
+  const ph = hmm * PREV_SCALE;
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `position:relative;width:${pw}px;height:${ph}px;background:${document.getElementById('b-bg').value||'white'};border:1px solid #ddd;border-radius:3px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);`;
+
+  builderElements.forEach(el => {
+    const xpx = el.xmm * PREV_SCALE;
+    const ypx = el.ymm * PREV_SCALE;
+    const wpx = el.wmm * PREV_SCALE;
+    const hpx = el.hmm * PREV_SCALE;
+    const div = document.createElement('div');
+    div.style.cssText = `position:absolute;left:${xpx}px;top:${ypx}px;width:${wpx}px;height:${hpx}px;overflow:hidden;box-sizing:border-box;`;
+
+    if (el.type === 'text' || el.type === 'price') {
+      const ptToMm = 0.3528;
+      const fsPx = (el.fontSize || 10) * ptToMm * PREV_SCALE;
+      div.style.fontSize   = fsPx + 'px';
+      div.style.color      = el.color || '#333';
+      div.style.fontWeight = el.fontWeight || 'normal';
+      div.style.display    = 'flex';
+      div.style.alignItems     = el.alignItems     || 'flex-start';
+      div.style.justifyContent = el.justifyContent || 'flex-start';
+      div.style.whiteSpace = 'pre-wrap';
+      div.style.wordBreak  = 'break-word';
+      div.textContent = resolveVars(el.content || '', prod);
+    } else if (el.type === 'barcode') {
+      div.style.display        = 'flex';
+      div.style.alignItems     = el.alignItems     || 'center';
+      div.style.justifyContent = el.justifyContent || 'center';
+      const svgH = Math.max(4, hpx * 0.78);
+      const svgW = Math.max(8, Math.min(wpx * 0.7, svgH * 2.2));
+      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('width', svgW+''); svg.setAttribute('height', svgH+'');
+      svg.style.flexShrink = '0';
+      div.appendChild(svg);
+      try { JsBarcode(svg, cleanBarcode(resolveVars(el.value||'{{바코드}}', prod)), { format:el.format||'CODE128', displayValue:false, margin:0, width:Math.max(1,svgW/80), height:svgH-2 }); } catch(e){}
+    } else if (el.type === 'qr') {
+      div.style.display        = 'flex';
+      div.style.alignItems     = el.alignItems     || 'center';
+      div.style.justifyContent = el.justifyContent || 'center';
+      const sz = Math.min(wpx, hpx) * 0.72;
+      const inner = document.createElement('div');
+      inner.style.cssText = `width:${sz}px;height:${sz}px;background:#e8e8e8;display:flex;align-items:center;justify-content:center;font-size:8px;color:#999;border-radius:2px;flex-shrink:0;`;
+      inner.textContent = 'QR';
+      div.appendChild(inner);
+    } else if (el.type === 'line') {
+      div.style.background = el.color || '#ccc';
+      div.style.height = '1px';
+    } else if (el.type === 'rect') {
+      div.style.border     = `1px solid ${el.color||'#ccc'}`;
+      div.style.background = el.fill === 'none' ? 'transparent' : (el.fill || 'transparent');
+    }
+    wrap.appendChild(div);
+  });
+
+  box.innerHTML = '';
+  box.appendChild(wrap);
+
+  // 상품명 표시
+  const label = document.createElement('div');
+  label.style.cssText = 'font-size:11px;color:var(--text3);margin-top:6px;text-align:center;';
+  label.textContent = prod.name.length > 20 ? prod.name.slice(0,18)+'…' : prod.name;
+  box.appendChild(label);
+}
+
+function updateCanvas() {
+  const { wmm, hmm } = getBuilderMm();
+  const wpx = mmToPx(wmm);
+  const hpx = mmToPx(hmm);
+  const bg = document.getElementById('b-bg').value;
+  const canvas = document.getElementById('builder-canvas');
+  if (!canvas) return;
+  canvas.style.width  = wpx + 'px';
+  canvas.style.height = hpx + 'px';
+  canvas.style.background = bg;
+
+  canvas.innerHTML = '';
+  builderElements.forEach(el => {
+    const div = createElDiv(el, wpx, hpx);
+    canvas.appendChild(div);
+  });
+  // 미리보기 갱신
+  refreshBuilderPreview();
+}
+
+function addElement(type) {
+  const { wmm, hmm } = getBuilderMm();
+  const wpx = mmToPx(wmm);
+  const hpx = mmToPx(hmm);
+  let el;
+  if (type === 'barcode') el = { id: nextElId++, type, xmm:2, ymm:2, wmm:wmm-4, hmm:12, value:'{{바코드}}', format:'CODE128' };
+  else if (type === 'qr')  el = { id: nextElId++, type, xmm:2, ymm:2, wmm:20, hmm:20, value:'{{바코드}}' };
+  else if (type === 'text') el = { id: nextElId++, type, xmm:2, ymm:hmm*0.6, wmm:wmm-4, hmm:5, content:'{{상품명}}', fontSize:10, color:'#333333', fontWeight:'normal' };
+  else if (type === 'price') el = { id: nextElId++, type, xmm:2, ymm:hmm*0.75, wmm:wmm*0.5, hmm:5, content:'{{가격}}', fontSize:11, color:'#1a1d23', fontWeight:'bold' };
+  else if (type === 'line') el = { id: nextElId++, type, xmm:1, ymm:hmm*0.7, wmm:wmm-2, hmm:0.5, color:'#cccccc' };
+  else if (type === 'rect') el = { id: nextElId++, type, xmm:1, ymm:1, wmm:wmm-2, hmm:hmm-2, color:'#cccccc', fill:'none' };
+  builderElements.push(el);
+  updateCanvas();
+  selectEl(el.id);
+}
+
+function createElDiv(el, canvasWpx, canvasHpx) {
+  const xpx = mmToPx(el.xmm);
+  const ypx = mmToPx(el.ymm);
+  const wpx = Math.max(4, mmToPx(el.wmm));
+  const hpx = Math.max(2, mmToPx(el.hmm));
+
+  const div = document.createElement('div');
+  div.className = 'canvas-element' + (el.id === selectedEl ? ' selected' : '');
+  div.dataset.id = el.id;
+  div.style.left   = xpx + 'px';
+  div.style.top    = ypx + 'px';
+  div.style.width  = wpx + 'px';
+  div.style.height = hpx + 'px';
+
+  if (el.type === 'barcode') {
+    div.style.display        = 'flex';
+    div.style.alignItems     = el.alignItems     || 'center';
+    div.style.justifyContent = el.justifyContent || 'center';
+    div.style.overflow       = 'hidden';
+    div.style.background     = 'white';
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    // ── 바코드 SVG는 자연 크기: 높이는 div의 80%, 너비는 자동(barcode 막대 수 기반)
+    // 너비를 div보다 작게 두어야 좌/중/우 정렬이 의미를 가짐
+    const svgH = Math.max(4, hpx * 0.78);
+    const svgW = Math.max(10, Math.min(wpx * 0.7, svgH * 2.2)); // 바코드 자연 비율
+    svg.setAttribute('width',  svgW + '');
+    svg.setAttribute('height', svgH + '');
+    svg.style.display    = 'block';
+    svg.style.flexShrink = '0';
+    div.appendChild(svg);
+    try {
+      JsBarcode(svg, '1234567890', {
+        format: el.format || 'CODE128',
+        displayValue: false,
+        margin: 0,
+        width:  Math.max(1, svgW / 80),
+        height: svgH - 2
+      });
+    } catch(e) {}
+
+  } else if (el.type === 'qr') {
+    div.style.display        = 'flex';
+    div.style.alignItems     = el.alignItems     || 'center';
+    div.style.justifyContent = el.justifyContent || 'center';
+    div.style.overflow       = 'hidden';
+    div.style.background     = 'white';
+    const sz = Math.max(10, Math.min(wpx, hpx) * 0.72); // div보다 작은 고정 크기
+    const inner = document.createElement('div');
+    inner.style.cssText = `width:${sz}px;height:${sz}px;background:#e8e8e8;display:flex;align-items:center;justify-content:center;border-radius:2px;font-size:9px;color:#999;flex-shrink:0;`;
+    inner.textContent = 'QR';
+    div.appendChild(inner);
+  } else if (el.type === 'text' || el.type === 'price') {
+    const ptToMm = 0.3528;
+    const scaledFontPx = (el.fontSize || 10) * ptToMm * BUILDER_PX_PER_MM;
+    div.style.fontSize    = scaledFontPx + 'px';
+    div.style.color       = el.color||'#333';
+    div.style.fontWeight  = el.fontWeight||'normal';
+    div.style.display     = 'flex';
+    div.style.alignItems  = el.alignItems     || 'flex-start';
+    div.style.justifyContent = el.justifyContent || 'flex-start';
+    div.style.padding     = '2px 3px';
+    div.style.overflow    = 'hidden';
+    div.style.whiteSpace  = 'pre-wrap'; // 띄어쓰기 + 줄바꿈 모두 지원
+    div.style.wordBreak   = 'break-word';
+    div.style.lineHeight  = '1.3';
+    div.textContent = el.content || '';
+  } else if (el.type === 'line') {
+    div.style.background = el.color||'#ccc';
+    div.style.height     = Math.max(1, hpx)+'px';
+  } else if (el.type === 'rect') {
+    div.style.border     = `1px solid ${el.color||'#ccc'}`;
+    div.style.background = el.fill==='none'?'transparent':(el.fill||'transparent');
+  }
+
+  // Resize handle
+  const rh = document.createElement('div');
+  rh.className = 'resize-handle';
+  rh.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); startResize(e, el.id); });
+  div.appendChild(rh);
+
+  // Drag
+  div.addEventListener('mousedown', e => {
+    if (e.target.classList.contains('resize-handle')) return;
+    e.stopPropagation();
+    e.preventDefault();
+    selectEl(el.id, e.shiftKey);
+    if (!e.shiftKey) {
+      const cRect = document.getElementById('builder-canvas').getBoundingClientRect();
+      dragging = el.id;
+      dragOffset = { x: e.clientX - cRect.left - xpx, y: e.clientY - cRect.top - ypx };
+    }
+  });
+
+  return div;
+}
+
+// ─── Canvas click: only deselect when clicking empty background
+function handleCanvasClick(e) {
+  if (e.target === document.getElementById('builder-canvas')) {
+    deselectAll();
+  }
+}
+
+document.addEventListener('mousemove', e => {
+  if (dragging) {
+    const canvas = document.getElementById('builder-canvas');
+    if (!canvas) return;
+    const cRect = canvas.getBoundingClientRect();
+    const { wmm, hmm } = getBuilderMm();
+    const el = builderElements.find(x=>x.id===dragging);
+    if (!el) return;
+    let newXpx = e.clientX - cRect.left - dragOffset.x;
+    let newYpx = e.clientY - cRect.top  - dragOffset.y;
+    const maxXpx = mmToPx(wmm) - mmToPx(el.wmm);
+    const maxYpx = mmToPx(hmm) - mmToPx(el.hmm);
+    newXpx = Math.max(0, Math.min(newXpx, maxXpx));
+    newYpx = Math.max(0, Math.min(newYpx, maxYpx));
+    el.xmm = newXpx / BUILDER_PX_PER_MM;
+    el.ymm = newYpx / BUILDER_PX_PER_MM;
+    const div = canvas.querySelector(`[data-id="${dragging}"]`);
+    if (div) { div.style.left = newXpx+'px'; div.style.top = newYpx+'px'; }
+    // Update position fields in prop panel without full re-render
+    updatePropPanelPositionOnly(el);
+  }
+  if (resizing) {
+    const el = builderElements.find(x=>x.id===resizing);
+    if (!el) return;
+    const newWpx = Math.max(8, resizeStart.wpx + e.clientX - resizeStart.mx);
+    const newHpx = Math.max(4, resizeStart.hpx + e.clientY - resizeStart.my);
+    el.wmm = newWpx / BUILDER_PX_PER_MM;
+    el.hmm = newHpx / BUILDER_PX_PER_MM;
+    const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${resizing}"]`);
+    if (div) { div.style.width = newWpx+'px'; div.style.height = newHpx+'px'; }
+    updatePropPanelPositionOnly(el);
+  }
+});
+
+document.addEventListener('mouseup', () => {
+  if (dragging || resizing) refreshBuilderPreview();
+  dragging = null; resizing = null;
+});
+
+function startResize(e, id) {
+  resizing = id;
+  const el = builderElements.find(x=>x.id===id);
+  resizeStart = { mx: e.clientX, my: e.clientY, wpx: mmToPx(el.wmm), hpx: mmToPx(el.hmm) };
+}
+
+// Update only x/y/w/h number inputs without rebuilding the whole panel
+function updatePropPanelPositionOnly(el) {
+  const ids = ['pp-x','pp-y','pp-w','pp-h'];
+  const vals = [el.xmm, el.ymm, el.wmm, el.hmm];
+  ids.forEach((id,i) => {
+    const inp = document.getElementById(id);
+    if (inp) inp.value = vals[i].toFixed(1);
+  });
+}
+
+function deselectAll() {
+  selectedEl = null;
+  selectedEls.clear();
+  document.querySelectorAll('.canvas-element').forEach(d => {
+    d.classList.remove('selected','multi-sel');
+  });
+  const pp = document.getElementById('prop-panel');
+  if (pp) pp.innerHTML = '<div style="color:var(--text3);font-size:12.5px;padding:12px 0;">요소를 선택하면<br>속성을 편집할 수 있습니다</div>';
+}
+
+// ── 다중 선택 Set
+let selectedEls = new Set(); // 보조 선택 (Shift 클릭)
+
+function selectEl(id, shiftKey) {
+  if (shiftKey) {
+    // Shift 클릭: 다중선택 토글
+    if (selectedEls.has(id)) {
+      selectedEls.delete(id);
+      const d = document.getElementById('builder-canvas')?.querySelector(`[data-id="${id}"]`);
+      if (d) d.classList.remove('selected','multi-sel');
+    } else {
+      selectedEls.add(id);
+      const d = document.getElementById('builder-canvas')?.querySelector(`[data-id="${id}"]`);
+      if (d) { d.classList.remove('selected'); d.classList.add('multi-sel'); }
+    }
+    // 첫 번째 선택이 없으면 메인 선택으로 설정
+    if (selectedEl === null && selectedEls.size > 0) {
+      selectedEl = [...selectedEls][0];
+    }
+    renderPropPanel(selectedEl, true);
+  } else {
+    // 일반 클릭: 단일 선택
+    selectedEls.clear();
+    selectedEl = id;
+    document.querySelectorAll('.canvas-element').forEach(d => {
+      d.classList.remove('selected','multi-sel');
+    });
+    document.getElementById('builder-canvas')?.querySelector(`[data-id="${id}"]`)?.classList.add('selected');
+    renderPropPanel(id, false);
+  }
+}
+
+// ── 현재 선택된 모든 id (단일 + 다중)
+function getSelectedIds() {
+  const ids = new Set(selectedEls);
+  if (selectedEl !== null) ids.add(selectedEl);
+  return [...ids];
+}
+
+// ── 정렬 모드 탭 상태
+let alignModeTab = 'canvas'; // 'canvas' | 'content' | 'multi'
+
+function setAlignTab(tab) {
+  alignModeTab = tab;
+  document.querySelectorAll('.align-mode-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.tab === tab);
+  });
+  document.querySelectorAll('.align-section').forEach(s => {
+    s.classList.toggle('visible', s.dataset.section === tab);
+  });
+}
+
+// ── 정렬 실행
+function doAlign(mode) {
+  const { wmm: cW, hmm: cH } = getBuilderMm();
+
+  if (alignModeTab === 'multi') {
+    // 다중선택된 요소끼리 정렬
+    const ids = getSelectedIds();
+    if (ids.length < 2) { showToast('요소를 2개 이상 선택하세요 (Shift+클릭)', 'error'); return; }
+    const els = ids.map(id => builderElements.find(x => x.id === id)).filter(Boolean);
+
+    // 기준: 바운딩 박스
+    const minX = Math.min(...els.map(e => e.xmm));
+    const maxX = Math.max(...els.map(e => e.xmm + e.wmm));
+    const minY = Math.min(...els.map(e => e.ymm));
+    const maxY = Math.max(...els.map(e => e.ymm + e.hmm));
+    const boxW = maxX - minX, boxH = maxY - minY;
+
+    els.forEach((el, i) => {
+      switch(mode) {
+        case 'left':    el.xmm = minX; break;
+        case 'right':   el.xmm = maxX - el.wmm; break;
+        case 'centerH': el.xmm = minX + (boxW - el.wmm) / 2; break;
+        case 'top':     el.ymm = minY; break;
+        case 'bottom':  el.ymm = maxY - el.hmm; break;
+        case 'centerV': el.ymm = minY + (boxH - el.hmm) / 2; break;
+        case 'distH': {
+          // 가로 균등 분배 (x순 정렬 후)
+          const sorted = [...els].sort((a,b) => a.xmm - b.xmm);
+          const totalW = sorted.reduce((s,e) => s + e.wmm, 0);
+          const gap = (boxW - totalW) / (sorted.length - 1);
+          let cur = minX;
+          sorted.forEach(e => { e.xmm = cur; cur += e.wmm + gap; });
+          break;
+        }
+        case 'distV': {
+          const sorted = [...els].sort((a,b) => a.ymm - b.ymm);
+          const totalH = sorted.reduce((s,e) => s + e.hmm, 0);
+          const gap = (boxH - totalH) / (sorted.length - 1);
+          let cur = minY;
+          sorted.forEach(e => { e.ymm = cur; cur += e.hmm + gap; });
+          break;
+        }
+      }
+    });
+    els.forEach(el => applyElToDOM(el));
+    return;
+  }
+
+  if (alignModeTab === 'content') {
+    const el = builderElements.find(x => x.id === selectedEl);
+    if (!el) return;
+
+    const hMap = { left:'flex-start', centerH:'center', right:'flex-end' };
+    const vMap = { top:'flex-start',  centerV:'center', bottom:'flex-end' };
+
+    if (el.type === 'text' || el.type === 'price' || el.type === 'barcode' || el.type === 'qr') {
+      if (hMap[mode]) el.justifyContent = hMap[mode];
+      if (vMap[mode]) el.alignItems     = vMap[mode];
+
+      const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${el.id}"]`);
+      if (div) {
+        if (hMap[mode]) div.style.justifyContent = hMap[mode];
+        if (vMap[mode]) div.style.alignItems     = vMap[mode];
+      }
+    }
+    return;
+  }
+
+  // canvas 모드: 대지 기준 정렬
+  const el = builderElements.find(x => x.id === selectedEl);
+  if (!el) return;
+  switch(mode) {
+    case 'left':    el.xmm = 0; break;
+    case 'right':   el.xmm = cW - el.wmm; break;
+    case 'centerH': el.xmm = (cW - el.wmm) / 2; break;
+    case 'top':     el.ymm = 0; break;
+    case 'bottom':  el.ymm = cH - el.hmm; break;
+    case 'centerV': el.ymm = (cH - el.hmm) / 2; break;
+    case 'fillW':   el.xmm = 0; el.wmm = cW; break;
+    case 'fillH':   el.ymm = 0; el.hmm = cH; break;
+    case 'fill':    el.xmm = 0; el.ymm = 0; el.wmm = cW; el.hmm = cH; break;
+  }
+  el.xmm = Math.max(0, el.xmm);
+  el.ymm = Math.max(0, el.ymm);
+  applyElToDOM(el);
+  updatePropPanelPositionOnly(el);
+  const pw = document.getElementById('pp-w'); if (pw) pw.value = el.wmm.toFixed(1);
+  const ph = document.getElementById('pp-h'); if (ph) ph.value = el.hmm.toFixed(1);
+}
+
+function applyElToDOM(el) {
+  const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${el.id}"]`);
+  if (!div) return;
+  div.style.left   = mmToPx(el.xmm) + 'px';
+  div.style.top    = mmToPx(el.ymm) + 'px';
+  div.style.width  = Math.max(4, mmToPx(el.wmm)) + 'px';
+  div.style.height = Math.max(2, mmToPx(el.hmm)) + 'px';
+  if (el.type === 'barcode') rebuildElContent(el, div);
+}
+
+function renderPropPanel(id, isMulti) {
+  const el = builderElements.find(x=>x.id===id);
+  const pp = document.getElementById('prop-panel');
+  if (!pp) return;
+
+  const selIds = getSelectedIds();
+  const multiCount = selIds.length;
+
+  // ── 정렬 패널 빌드
+  const mkAlignGrid = (btns) => `<div class="align-grid">${btns.map(b =>
+    `<button class="align-btn" title="${b.t}" onclick="doAlign('${b.m}')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${b.s}</svg>
+    </button>`
+  ).join('')}</div>`;
+
+  const CANVAS_BTNS = [
+    {m:'left',    t:'왼쪽',    s:'<rect x="5" y="6" width="9" height="12" rx="1"/><line x1="3" y1="3" x2="3" y2="21"/>'},
+    {m:'centerH', t:'가로중앙', s:'<line x1="12" y1="3" x2="12" y2="21"/><rect x="6" y="8" width="12" height="8" rx="1"/>'},
+    {m:'right',   t:'오른쪽',  s:'<rect x="10" y="6" width="9" height="12" rx="1"/><line x1="21" y1="3" x2="21" y2="21"/>'},
+    {m:'top',     t:'위',      s:'<line x1="3" y1="3" x2="21" y2="3"/><rect x="8" y="3" width="8" height="10" rx="1"/>'},
+    {m:'centerV', t:'세로중앙', s:'<line x1="3" y1="12" x2="21" y2="12"/><rect x="8" y="6" width="8" height="12" rx="1"/>'},
+    {m:'bottom',  t:'아래',    s:'<rect x="8" y="11" width="8" height="10" rx="1"/><line x1="3" y1="21" x2="21" y2="21"/>'},
+    {m:'fillW',   t:'가로채움', s:'<rect x="3" y="9" width="18" height="6" rx="1"/><line x1="3" y1="4" x2="3" y2="20"/><line x1="21" y1="4" x2="21" y2="20"/>'},
+    {m:'fillH',   t:'세로채움', s:'<rect x="9" y="3" width="6" height="18" rx="1"/><line x1="4" y1="3" x2="20" y2="3"/><line x1="4" y1="21" x2="20" y2="21"/>'},
+    {m:'fill',    t:'꽉채움',   s:'<rect x="3" y="3" width="18" height="18" rx="1"/>'},
+  ];
+  const CONTENT_BTNS = [
+    {m:'left',    t:'왼쪽',    s:'<line x1="3" y1="6" x2="14" y2="6"/><line x1="3" y1="12" x2="19" y2="12"/><line x1="3" y1="18" x2="11" y2="18"/><line x1="3" y1="3" x2="3" y2="21"/>'},
+    {m:'centerH', t:'가로중앙', s:'<line x1="8" y1="6" x2="16" y2="6"/><line x1="5" y1="12" x2="19" y2="12"/><line x1="9" y1="18" x2="15" y2="18"/><line x1="12" y1="3" x2="12" y2="21"/>'},
+    {m:'right',   t:'오른쪽',  s:'<line x1="10" y1="6" x2="21" y2="6"/><line x1="5" y1="12" x2="21" y2="12"/><line x1="13" y1="18" x2="21" y2="18"/><line x1="21" y1="3" x2="21" y2="21"/>'},
+    {m:'top',     t:'위',      s:'<rect x="6" y="3" width="12" height="7" rx="1"/><line x1="3" y1="3" x2="21" y2="3"/>'},
+    {m:'centerV', t:'세로중앙', s:'<rect x="6" y="8" width="12" height="8" rx="1"/><line x1="3" y1="12" x2="21" y2="12"/>'},
+    {m:'bottom',  t:'아래',    s:'<rect x="6" y="14" width="12" height="7" rx="1"/><line x1="3" y1="21" x2="21" y2="21"/>'},
+  ];
+  const MULTI_BTNS = [
+    {m:'left',    t:'왼쪽 맞춤',   s:'<rect x="5" y="5" width="7" height="5" rx="0.5"/><rect x="5" y="14" width="12" height="5" rx="0.5"/><line x1="3" y1="3" x2="3" y2="21"/>'},
+    {m:'centerH', t:'가로중앙 맞춤',s:'<rect x="8" y="5" width="8" height="4" rx="0.5"/><rect x="5" y="14" width="14" height="4" rx="0.5"/><line x1="12" y1="3" x2="12" y2="21"/>'},
+    {m:'right',   t:'오른쪽 맞춤', s:'<rect x="12" y="5" width="7" height="5" rx="0.5"/><rect x="7" y="14" width="12" height="5" rx="0.5"/><line x1="21" y1="3" x2="21" y2="21"/>'},
+    {m:'top',     t:'위 맞춤',     s:'<rect x="5" y="3" width="5" height="8" rx="0.5"/><rect x="14" y="3" width="5" height="14" rx="0.5"/><line x1="3" y1="3" x2="21" y2="3"/>'},
+    {m:'centerV', t:'세로중앙 맞춤',s:'<rect x="5" y="8" width="5" height="8" rx="0.5"/><rect x="14" y="5" width="5" height="14" rx="0.5"/><line x1="3" y1="12" x2="21" y2="12"/>'},
+    {m:'bottom',  t:'아래 맞춤',   s:'<rect x="5" y="13" width="5" height="8" rx="0.5"/><rect x="14" y="7" width="5" height="14" rx="0.5"/><line x1="3" y1="21" x2="21" y2="21"/>'},
+    {m:'distH',   t:'가로 균등배치',s:'<rect x="3" y="8" width="4" height="8" rx="0.5"/><rect x="10" y="8" width="4" height="8" rx="0.5"/><rect x="17" y="8" width="4" height="8" rx="0.5"/><line x1="3" y1="5" x2="3" y2="19"/><line x1="21" y1="5" x2="21" y2="19"/>'},
+    {m:'distV',   t:'세로 균등배치',s:'<rect x="8" y="3" width="8" height="4" rx="0.5"/><rect x="8" y="10" width="8" height="4" rx="0.5"/><rect x="8" y="17" width="8" height="4" rx="0.5"/><line x1="5" y1="3" x2="19" y2="3"/><line x1="5" y1="21" x2="19" y2="21"/>'},
+  ];
+
+  const multiBar = multiCount >= 2
+    ? `<div class="multi-sel-bar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>${multiCount}개 선택됨 (Shift+클릭으로 추가)</div>`
+    : `<div style="font-size:11.5px;color:var(--text3);margin-bottom:8px;">Shift+클릭으로 여러 요소 선택</div>`;
+
+  let html = `
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">정렬</div>
+    <div class="align-mode-tabs">
+      <button class="align-mode-tab ${alignModeTab==='canvas'?'active':''}" data-tab="canvas" onclick="setAlignTab('canvas')">대지 기준</button>
+      <button class="align-mode-tab ${alignModeTab==='content'?'active':''}" data-tab="content" onclick="setAlignTab('content')">내용 정렬</button>
+      <button class="align-mode-tab ${alignModeTab==='multi'?'active':''}" data-tab="multi" onclick="setAlignTab('multi')">요소끼리</button>
+    </div>
+    <div class="align-section ${alignModeTab==='canvas'?'visible':''}" data-section="canvas">
+      ${mkAlignGrid(CANVAS_BTNS)}
+    </div>
+    <div class="align-section ${alignModeTab==='content'?'visible':''}" data-section="content">
+      <div style="font-size:11.5px;color:var(--text3);margin-bottom:6px;">텍스트 요소의 내부 정렬</div>
+      ${mkAlignGrid(CONTENT_BTNS)}
+    </div>
+    <div class="align-section ${alignModeTab==='multi'?'visible':''}" data-section="multi">
+      ${multiBar}
+      ${mkAlignGrid(MULTI_BTNS)}
+    </div>
+    <div style="height:1px;background:var(--border);margin:10px 0;"></div>`;
+
+  if (!el) { pp.innerHTML = html; return; }
+
+  html += `
+    <div style="font-size:11px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">위치 / 크기 (mm)</div>
+    <div class="prop-row"><div class="prop-label">X / Y</div>
+      <div class="prop-row-grid">
+        <input class="prop-input" id="pp-x" type="number" step="0.1" value="${el.xmm.toFixed(1)}" onchange="updateElPropMm(${el.id},'xmm',this.value)">
+        <input class="prop-input" id="pp-y" type="number" step="0.1" value="${el.ymm.toFixed(1)}" onchange="updateElPropMm(${el.id},'ymm',this.value)">
+      </div>
+    </div>
+    <div class="prop-row"><div class="prop-label">너비 / 높이</div>
+      <div class="prop-row-grid">
+        <input class="prop-input" id="pp-w" type="number" step="0.1" value="${el.wmm.toFixed(1)}" onchange="updateElPropMm(${el.id},'wmm',this.value)">
+        <input class="prop-input" id="pp-h" type="number" step="0.1" value="${el.hmm.toFixed(1)}" onchange="updateElPropMm(${el.id},'hmm',this.value)">
+      </div>
+    </div>
+    <div style="height:1px;background:var(--border);margin:10px 0;"></div>`;
+
+  if (el.type === 'text' || el.type === 'price') {
+    const escaped = (el.content||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    html += `
+    <div class="prop-row"><div class="prop-label">내용 <span style="color:var(--text3);font-weight:400;">(엔터=줄바꿈)</span></div>
+      <textarea class="prop-input" rows="3" style="resize:vertical;white-space:pre;font-family:inherit;"
+        onchange="updateElPropStr(${el.id},'content',this.value)"
+        oninput="updateElPropStr(${el.id},'content',this.value)">${escaped}</textarea>
+    </div>
+    <div class="prop-row"><div class="prop-label">폰트 크기 (pt)</div>
+      <input class="prop-input" type="number" step="0.5" value="${el.fontSize||10}" onchange="updateElPropMm(${el.id},'fontSize',this.value)">
+    </div>
+    <div class="prop-row"><div class="prop-label">색상</div>
+      <input class="prop-input" type="color" value="${el.color||'#333333'}" onchange="updateElPropStr(${el.id},'color',this.value)">
+    </div>
+    <div class="prop-row"><div class="prop-label">굵기</div>
+      <select class="prop-input" onchange="updateElPropStr(${el.id},'fontWeight',this.value)">
+        <option value="normal" ${el.fontWeight==='normal'?'selected':''}>보통</option>
+        <option value="bold"   ${el.fontWeight==='bold'  ?'selected':''}>굵게</option>
+      </select>
+    </div>`;
+  }
+  if (el.type === 'barcode') {
+    html += `
+    <div class="prop-row"><div class="prop-label">데이터</div>
+      <input class="prop-input" value="${(el.value||'').replace(/"/g,'&quot;')}" onchange="updateElPropStr(${el.id},'value',this.value)">
+    </div>
+    <div class="prop-row"><div class="prop-label">형식</div>
+      <select class="prop-input" onchange="updateElPropStr(${el.id},'format',this.value)">
+        ${['CODE128','CODE39','EAN13','ITF14'].map(f=>`<option value="${f}" ${el.format===f?'selected':''}>${f}</option>`).join('')}
+      </select>
+    </div>`;
+  }
+  if (el.type === 'qr') {
+    html += `<div class="prop-row"><div class="prop-label">데이터</div>
+      <input class="prop-input" value="${(el.value||'').replace(/"/g,'&quot;')}" onchange="updateElPropStr(${el.id},'value',this.value)">
+    </div>`;
+  }
+  if (el.type === 'line' || el.type === 'rect') {
+    html += `<div class="prop-row"><div class="prop-label">테두리 색상</div>
+      <input class="prop-input" type="color" value="${el.color||'#cccccc'}" onchange="updateElPropStr(${el.id},'color',this.value)">
+    </div>`;
+  }
+  if (el.type === 'rect') {
+    html += `
+    <div class="prop-row"><div class="prop-label">채우기</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input class="prop-input" type="color" value="${el.fill==='none'||!el.fill?'#ffffff':el.fill}" style="flex:1;" onchange="updateElPropStr(${el.id},'fill',this.value)">
+        <label style="font-size:11.5px;display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;">
+          <input type="checkbox" ${el.fill==='none'?'checked':''} onchange="updateElPropStr(${el.id},'fill',this.checked?'none':'#ffffff')"> 투명
+        </label>
+      </div>
+    </div>`;
+  }
+
+  html += `
+    <div style="height:1px;background:var(--border);margin:10px 0;"></div>
+    <button class="btn btn-danger" style="width:100%;font-size:12px;" onclick="deleteElement(${el.id})">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:12px;height:12px;"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+      요소 삭제
+    </button>`;
+
+  pp.innerHTML = html;
+}
+
+// Update numeric mm/size props — does NOT call selectEl (avoids re-render loop)
+function updateElPropMm(id, key, val) {
+  const el = builderElements.find(x=>x.id===id);
+  if (!el) return;
+  el[key] = parseFloat(val) || 0;
+  // Partial DOM update: move/resize the element div directly
+  const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${id}"]`);
+  if (div) {
+    if (key==='xmm') div.style.left   = mmToPx(el.xmm)+'px';
+    if (key==='ymm') div.style.top    = mmToPx(el.ymm)+'px';
+    if (key==='wmm') div.style.width  = Math.max(4, mmToPx(el.wmm))+'px';
+    if (key==='hmm') div.style.height = Math.max(2, mmToPx(el.hmm))+'px';
+    // For font size, update inline
+    if (key==='fontSize') {
+      const ptToMm = 0.3528;
+      div.style.fontSize = (el.fontSize * ptToMm * BUILDER_PX_PER_MM) + 'px';
+    }
+  }
+  // Rebuild barcode svg if size changed
+  if ((key==='wmm'||key==='hmm') && (el.type==='barcode')) {
+    rebuildElContent(el, div);
+  }
+}
+
+// Update string props — does NOT call selectEl (avoids re-render loop)
+function updateElPropStr(id, key, val) {
+  const el = builderElements.find(x=>x.id===id);
+  if (!el) return;
+  el[key] = val;
+  const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${id}"]`);
+  if (!div) return;
+  if (key==='color') {
+    if (el.type==='text'||el.type==='price') div.style.color = val;
+    else if (el.type==='line') div.style.background = val;
+    else if (el.type==='rect') div.style.borderColor = val;
+  } else if (key==='fontWeight') {
+    div.style.fontWeight = val;
+  } else if (key==='fill') {
+    div.style.background = val==='none'?'transparent':val;
+  } else if (key==='content') {
+    div.textContent = val;
+    div.style.whiteSpace = 'pre-wrap';
+    div.style.wordBreak  = 'break-word';
+    // Re-append resize handle
+    const rh = document.createElement('div');
+    rh.className = 'resize-handle';
+    rh.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); startResize(e, el.id); });
+    div.appendChild(rh);
+  } else if (key==='value' || key==='format') {
+    rebuildElContent(el, div);
+  }
+}
+
+function rebuildElContent(el, div) {
+  Array.from(div.childNodes).forEach(c => { if (!c.classList?.contains('resize-handle')) c.remove(); });
+  const wpx = mmToPx(el.wmm);
+  const hpx = mmToPx(el.hmm);
+  div.style.display        = 'flex';
+  div.style.alignItems     = el.alignItems     || 'center';
+  div.style.justifyContent = el.justifyContent || 'center';
+  div.style.overflow       = 'hidden';
+  if (el.type === 'barcode') {
+    const svgH = Math.max(4, hpx * 0.78);
+    const svgW = Math.max(10, Math.min(wpx * 0.7, svgH * 2.2));
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('width', svgW+''); svg.setAttribute('height', svgH+'');
+    svg.style.display = 'block'; svg.style.flexShrink = '0';
+    div.insertBefore(svg, div.firstChild);
+    try { JsBarcode(svg, '1234567890', { format:el.format||'CODE128', displayValue:false, margin:0, width:Math.max(1,svgW/80), height:svgH-2 }); } catch(e){}
+  }
+}
+
+function deleteElement(id) {
+  builderElements = builderElements.filter(x=>x.id!==id);
+  selectedEl = null;
+  updateCanvas();
+  const pp = document.getElementById('prop-panel');
+  if (pp) pp.innerHTML = '<div style="color:var(--text3);font-size:12.5px;padding:12px 0;">요소를 선택하면<br>속성을 편집할 수 있습니다</div>';
+}
+
+function insertVar(v) {
+  const el = builderElements.find(x=>x.id===selectedEl);
+  if (!el || (el.type!=='text'&&el.type!=='price'&&el.type!=='barcode'&&el.type!=='qr')) {
+    showToast('텍스트/바코드 요소를 먼저 선택하세요','error'); return;
+  }
+  if (el.type==='text'||el.type==='price') {
+    el.content = (el.content||'') + v;
+    const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${el.id}"]`);
+    if (div) {
+      div.textContent = el.content;
+      div.style.whiteSpace = 'pre-wrap';
+      div.style.wordBreak  = 'break-word';
+      const rh = document.createElement('div');
+      rh.className = 'resize-handle';
+      rh.addEventListener('mousedown', e => { e.stopPropagation(); e.preventDefault(); startResize(e, el.id); });
+      div.appendChild(rh);
+    }
+    // input → textarea로 변경됐으므로 textarea도 지원
+    const ta = document.getElementById('prop-panel')?.querySelector('textarea');
+    if (ta) ta.value = el.content;
+  } else {
+    el.value = v;
+    const div = document.getElementById('builder-canvas')?.querySelector(`[data-id="${el.id}"]`);
+    if (div) rebuildElContent(el, div);
+    const inp = document.getElementById('prop-panel')?.querySelector('input[onchange*="value"]');
+    if (inp) inp.value = el.value;
+  }
+}
+
+function saveCustomTemplate() {
+  const name = document.getElementById('custom-name').value.trim();
+  if (!name) { showToast('템플릿 이름을 입력하세요','error'); return; }
+  if (!builderElements.length) { showToast('최소 하나의 요소를 추가하세요','error'); return; }
+  const { wmm, hmm } = getBuilderMm();
+  const t = {
+    id: editingTemplateId || ('c' + Date.now()),
+    name,
+    desc: '커스텀 템플릿',
+    w: mmToPx(wmm),
+    h: mmToPx(hmm),
+    wmm, hmm,
+    bg: document.getElementById('b-bg').value,
+    elements: builderElements.map(el => ({
+      ...el,
+      x: mmToPx(el.xmm), y: mmToPx(el.ymm),
+      w: mmToPx(el.wmm), h: mmToPx(el.hmm),
+    })),
+    custom: true,
+  };
+
+  if (editingTemplateId) {
+    // 기존 템플릿 덮어쓰기
+    const idx = customTemplates.findIndex(x => x.id === editingTemplateId);
+    if (idx !== -1) customTemplates[idx] = t;
+    else customTemplates.push(t);
+    showToast('✓ 템플릿이 수정됐습니다', 'success');
+  } else {
+    customTemplates.push(t);
+    showToast('✓ 템플릿이 저장됐습니다', 'success');
+  }
+
+  selectedTemplate = t.id;
+  editingTemplateId = null;
+  renderTemplates();
+  populatePrintTemplateSelect();
+  closeModal('builderModal');
+}
+
+// ─── PRINT ─────────────────────────────────────────────────────────────────
+function goToPrint() {
+  if (!Object.keys(selectedProducts).length) { showToast('상품을 먼저 선택하세요', 'error'); return; }
+  showTab('print');
+  populatePrintTemplateSelect();
+  renderPrintProductList();
+  renderPrintPreview();
+}
+
+function renderPrintProductList() {
+  const el = document.getElementById('print-product-list');
+  const ids = Object.keys(selectedProducts);
+  if (!ids.length) { el.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:12px;">선택된 상품이 없습니다.<br>상품 탭에서 인쇄할 상품을 선택하세요.</div>'; return; }
+  el.innerHTML = ids.map(id => {
+    const p = products.find(x=>x.id==id);
+    if (!p) return '';
+    return `<div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);gap:10px;">
+      <div style="flex:1;overflow:hidden;">
+        <div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.name}</div>
+        <div class="code" style="font-size:11.5px;margin-top:2px;">${p.barcode}</div>
+      </div>
+      <div class="qty-control">
+        <button class="qty-btn" onclick="changePrintQty(${p.id},-1)">−</button>
+        <span class="qty-num" id="pqty-${p.id}">${selectedProducts[p.id]||1}</span>
+        <button class="qty-btn" onclick="changePrintQty(${p.id},1)">+</button>
+      </div>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red);" onclick="removePrintItem(${p.id})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function changePrintQty(id, delta) {
+  selectedProducts[id] = Math.max(1, (selectedProducts[id]||1) + delta);
+  document.getElementById('pqty-'+id).textContent = selectedProducts[id];
+  renderPrintPreview();
+}
+
+function removePrintItem(id) {
+  delete selectedProducts[id];
+  updateSelectionBar(); updateSidebar();
+  renderPrintProductList(); renderPrintPreview();
+}
+
+// ─── FORMTEC PRESETS ────────────────────────────────────────────────────────
+// labelW, labelH: 라벨 1칸 크기(mm)
+// cols, rows: 열×행
+// marginL, marginT: 용지 좌측/상단 여백(mm)
+// gapH, gapV: 라벨 간 가로/세로 간격(mm)
+const FORMTEC_PRESETS = {
+  // 바코드/물류용
+  '3105': { labelW:63.5, labelH:38.1, cols:3, rows:7,  marginL:4.7,  marginT:10.7, gapH:2.5, gapV:0   },
+  '3107': { labelW:99.1, labelH:33.9, cols:2, rows:8,  marginL:5.9,  marginT:10.7, gapH:2.8, gapV:0   },
+  '3108': { labelW:99.1, labelH:42.3, cols:2, rows:7,  marginL:5.9,  marginT:10.7, gapH:2.8, gapV:0   },
+  '3109': { labelW:99.1, labelH:67.7, cols:2, rows:4,  marginL:5.9,  marginT:13.5, gapH:2.8, gapV:0   },
+  '3218': { labelW:63.5, labelH:45.0, cols:3, rows:6,  marginL:4.7,  marginT:13.5, gapH:2.5, gapV:0   },
+  '3622': { labelW:48.5, labelH:25.4, cols:4, rows:13, marginL:6.8,  marginT:4.8,  gapH:2.5, gapV:0   },
+  '3629': { labelW:38.1, labelH:21.2, cols:5, rows:13, marginL:5.5,  marginT:12.7, gapH:2.5, gapV:0   },
+  '3636': { labelW:48.5, labelH:16.9, cols:4, rows:17, marginL:6.8,  marginT:4.8,  gapH:2.5, gapV:0   },
+  // 주소용
+  '3620': { labelW:119.3,labelH:42.8, cols:1, rows:6,  marginL:45.35,marginT:13.5, gapH:0,   gapV:0   },
+  '3106': { labelW:99.1, labelH:57.0, cols:2, rows:5,  marginL:5.9,  marginT:13.5, gapH:2.8, gapV:0   },
+  '3212': { labelW:88.9, labelH:46.6, cols:2, rows:6,  marginL:16.15,marginT:13.5, gapH:5.8, gapV:0   },
+  '3102': { labelW:63.5, labelH:46.6, cols:3, rows:6,  marginL:4.7,  marginT:13.5, gapH:2.5, gapV:0   },
+  // 물류 대형
+  '3203': { labelW:200.0,labelH:93.0, cols:1, rows:3,  marginL:5.0,  marginT:5.0,  gapH:0,   gapV:2   },
+  '3120': { labelW:200.0,labelH:140.0,cols:1, rows:2,  marginL:5.0,  marginT:5.0,  gapH:0,   gapV:0   },
+  '3130': { labelW:210.0,labelH:297.0,cols:1, rows:1,  marginL:0,    marginT:0,    gapH:0,   gapV:0   },
+};
+
+function applyFormtecPreset() {
+  const key = document.getElementById('formtecPreset').value;
+  if (key === 'custom') { renderPrintPreview(); return; }
+  const p = FORMTEC_PRESETS[key];
+  if (!p) return;
+  document.getElementById('labelW').value   = p.labelW;
+  document.getElementById('labelH').value   = p.labelH;
+  document.getElementById('labelCols').value = p.cols;
+  document.getElementById('labelRows').value = p.rows;
+  document.getElementById('marginL').value  = p.marginL;
+  document.getElementById('marginT').value  = p.marginT;
+  document.getElementById('gapH').value     = p.gapH;
+  document.getElementById('gapV').value     = p.gapV;
+  renderPrintPreview();
+}
+
+function setCustomPreset() {
+  document.getElementById('formtecPreset').value = 'custom';
+}
+
+function onPrinterModeChange() {
+  const mode = document.querySelector('input[name=printerMode]:checked').value;
+  document.getElementById('sheet-settings').style.display = mode === 'sheet' ? '' : 'none';
+  document.getElementById('roll-settings').style.display  = mode === 'roll'  ? '' : 'none';
+  updateRollSizeHint();
+  renderPrintPreview();
+}
+
+function updateRollSizeHint() {
+  const hint = document.getElementById('roll-size-hint');
+  if (!hint) return;
+  const w = document.getElementById('rollW')?.value || 80;
+  const h = document.getElementById('rollH')?.value || 50;
+  const orient = document.getElementById('rollOrientation')?.value || 'auto';
+  const orientLabel = { auto:'입력값 그대로', landscape:'가로 출력', portrait:'세로 출력' }[orient];
+  hint.textContent = `→ 프린터 드라이버 용지 크기: ${w}mm × ${h}mm  /  방향: ${orientLabel}`;
+}
+
+function getPrinterMode() {
+  return document.querySelector('input[name=printerMode]:checked')?.value || 'sheet';
+}
+
+function getPrintParams() {
+  const mode = getPrinterMode();
+  const tplId = document.getElementById('printTemplate').value;
+  const fmt   = document.getElementById('barcodeFormat').value;
+  if (mode === 'roll') {
+    const rW = parseFloat(document.getElementById('rollW').value) || 80;
+    const rH = parseFloat(document.getElementById('rollH').value) || 50;
+    const orient = document.getElementById('rollOrientation')?.value || 'auto';
+    // landscape: 가로가 세로보다 큰 방향 강제
+    // portrait:  세로가 가로보다 큰 방향 강제
+    let labelWmm = rW, labelHmm = rH;
+    if (orient === 'landscape' && rH > rW) { labelWmm = rH; labelHmm = rW; }
+    if (orient === 'portrait'  && rW > rH) { labelWmm = rH; labelHmm = rW; }
+    return {
+      mode, tplId, fmt,
+      labelWmm, labelHmm,
+      orient,
+      cols: 1, rows: 1,
+      marginL: 0, marginT: 0,
+      gapH: 0,
+      gapV:     parseFloat(document.getElementById('rollGap').value) || 2,
+      pad:      parseFloat(document.getElementById('rollPad').value)  || 2,
+      labelPad: parseFloat(document.getElementById('labelPad').value) ?? 1.5,
+    };
+  }
+  return {
+    mode, tplId, fmt,
+    labelWmm: parseFloat(document.getElementById('labelW').value)    || 63.5,
+    labelHmm: parseFloat(document.getElementById('labelH').value)    || 38.1,
+    cols:     parseInt(document.getElementById('labelCols').value)   || 3,
+    rows:     parseInt(document.getElementById('labelRows').value)   || 7,
+    marginL:  parseFloat(document.getElementById('marginL').value)   || 0,
+    marginT:  parseFloat(document.getElementById('marginT').value)   || 0,
+    gapH:     parseFloat(document.getElementById('gapH').value)      || 0,
+    gapV:     parseFloat(document.getElementById('gapV').value)      || 0,
+    labelPad: parseFloat(document.getElementById('labelPad').value)  ?? 1.5,
+    pad: 2,
+  };
+}
+
+// 1mm = 3.7795px (96dpi)
+const MM_TO_PX = 3.7795;
+
+function renderPrintPreview() {
+  const container = document.getElementById('print-preview');
+  container.innerHTML = '';
+
+  const p = getPrintParams();
+  const allLabels = collectLabelQueue();
+  const total = allLabels.length;
+
+  const labelsPerPage = p.mode === 'roll' ? 1 : p.cols * p.rows;
+  const pages = total > 0 ? Math.ceil(total / labelsPerPage) : 0;
+  document.getElementById('labels-per-page').textContent = labelsPerPage;
+  document.getElementById('total-labels-count').textContent = total;
+  document.getElementById('total-pages-count').textContent = pages;
+
+  if (!total) {
+    container.innerHTML = '<div class="empty-state" style="width:100%;"><p>인쇄할 상품을 선택하세요</p></div>';
+    return;
+  }
+
+  // Preview: scale to fit ~300px wide
+  const PREV_W = 300;
+  const pageWmm = p.mode === 'roll'
+    ? p.labelWmm
+    : p.marginL * 2 + p.cols * p.labelWmm + Math.max(0, p.cols - 1) * p.gapH;
+  const scale = Math.min(1, PREV_W / (pageWmm * MM_TO_PX));
+
+  let idx = 0;
+  while (idx < total) {
+    const pageBox = document.createElement('div');
+    pageBox.style.cssText = `position:relative;background:white;border:1px solid #ddd;border-radius:4px;overflow:hidden;flex-shrink:0;`;
+
+    // Page label
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:10px;color:#999;padding:3px 6px;background:#f8f8f8;border-bottom:1px solid #eee;';
+    lbl.textContent = `페이지 ${Math.floor(idx / labelsPerPage) + 1}`;
+    pageBox.appendChild(lbl);
+
+    if (p.mode === 'roll') {
+      // Roll: single column, multiple labels stacked
+      const col = document.createElement('div');
+      col.style.cssText = `display:flex;flex-direction:column;`;
+      const count = Math.min(total - idx, 4); // show up to 4 in preview
+      for (let i = 0; i < count; i++) {
+        const cell = buildPreviewCell(allLabels[idx], p, scale);
+        if (i < count - 1) cell.style.borderBottom = `${p.gapV * MM_TO_PX * scale}px solid #f0f0f0`;
+        col.appendChild(cell);
+        idx++;
+      }
+      pageBox.appendChild(col);
+    } else {
+      // Sheet: grid with margins and gaps
+      const pageHmm = p.marginT * 2 + p.rows * p.labelHmm + Math.max(0, p.rows - 1) * p.gapV;
+      const pageWpx = pageWmm * MM_TO_PX * scale;
+      const pageHpx = pageHmm * MM_TO_PX * scale;
+      const inner = document.createElement('div');
+      inner.style.cssText = `position:relative;width:${pageWpx}px;height:${pageHpx}px;`;
+
+      for (let r = 0; r < p.rows; r++) {
+        for (let c = 0; c < p.cols; c++) {
+          const xmm = p.marginL + c * (p.labelWmm + p.gapH);
+          const ymm = p.marginT + r * (p.labelHmm + p.gapV);
+          const cell = buildPreviewCell(idx < total ? allLabels[idx] : null, p, scale);
+          cell.style.position = 'absolute';
+          cell.style.left = (xmm * MM_TO_PX * scale) + 'px';
+          cell.style.top  = (ymm * MM_TO_PX * scale) + 'px';
+          inner.appendChild(cell);
+          if (idx < total) idx++;
+        }
+      }
+      pageBox.appendChild(inner);
+    }
+    container.appendChild(pageBox);
+  }
+}
+
+function buildPreviewCell(product, p, scale) {
+  const wpx = p.labelWmm * MM_TO_PX * scale;
+  const hpx = p.labelHmm * MM_TO_PX * scale;
+  const cell = document.createElement('div');
+  cell.style.cssText = `width:${wpx}px;height:${hpx}px;border:0.5px solid #e8e8e8;box-sizing:border-box;overflow:hidden;flex-shrink:0;`;
+  if (product) {
+    const inner = buildLabelInner(product, p.tplId, p.fmt, wpx, hpx, p.labelPad);
+    cell.appendChild(inner);
+  } else {
+    cell.style.background = '#fafafa';
+  }
+  return cell;
+}
+
+// Returns flat array of product objects (repeated by qty)
+function collectLabelQueue() {
+  const queue = [];
+  Object.keys(selectedProducts).forEach(id => {
+    const prod = products.find(x => x.id == id);
+    if (!prod) return;
+    const qty = selectedProducts[id] || 1;
+    for (let i = 0; i < qty; i++) queue.push(prod);
+  });
+  return queue;
+}
+
+async function printLabels() {
+  const p = getPrintParams();
+  const allLabels = collectLabelQueue();
+  if (!allLabels.length) { showToast('인쇄할 상품을 선택하세요', 'error'); return; }
+
+  if (p.mode === 'roll') {
+    // 라벨 프린터: @page size에서 세로(롤 공급 방향)가 항상 두 번째 값
+    // 라벨 가로가 세로보다 크면(landscape) 브라우저가 페이지를 회전시키므로
+    // CSS에서는 짧은 쪽을 첫 번째, 긴 쪽을 두 번째로 지정하고 내용을 맞게 배치
+    const pgW = p.labelWmm;
+    const pgH = p.labelHmm;
+
+    let pagesHtml = '';
+    allLabels.forEach((prod, i) => {
+      const labelHtml = buildLabelHTML(prod, p.tplId, p.fmt, pgW, pgH, p.labelPad);
+      pagesHtml += `<div class="label-page">${labelHtml}</div>`;
+    });
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      @page {
+        size: ${pgW}mm ${pgH}mm;
+        margin: 0mm;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { margin: 0; padding: 0; background: white; }
+      .label-page {
+        width: ${pgW}mm;
+        height: ${pgH}mm;
+        overflow: hidden;
+        background: white;
+        break-after: page;
+        page-break-after: always;
+      }
+      .label-page:last-child {
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"><\/script>
+    </head><body>${pagesHtml}</body></html>`;
+
+    await openPrintIframe(fullHtml);
+
+  } else {
+    // ── 일반 A4 시트 라벨지 모드 ─────────────────────────────────────
+    let pagesHtml = '';
+    const labelsPerPage = p.cols * p.rows;
+    let idx = 0;
+    while (idx < allLabels.length) {
+      const isLastPage = (idx + labelsPerPage >= allLabels.length);
+      let cellsHtml = '';
+      for (let r = 0; r < p.rows; r++) {
+        for (let c = 0; c < p.cols; c++) {
+          if (idx >= allLabels.length) break;
+          const xmm = p.marginL + c * (p.labelWmm + p.gapH);
+          const ymm = p.marginT + r * (p.labelHmm + p.gapV);
+          const labelHtml = buildLabelHTML(allLabels[idx], p.tplId, p.fmt, p.labelWmm, p.labelHmm, p.labelPad);
+          cellsHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${p.labelWmm}mm;height:${p.labelHmm}mm;overflow:hidden;box-sizing:border-box;">${labelHtml}</div>`;
+          idx++;
+        }
+      }
+      pagesHtml += `<div class="sheet-page${isLastPage ? ' last' : ''}">${cellsHtml}</div>`;
+    }
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      @page { size: A4 portrait; margin: 0mm; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { margin: 0; padding: 0; background: white; }
+      .sheet-page {
+        width: 210mm;
+        height: 297mm;
+        position: relative;
+        overflow: hidden;
+        background: white;
+        break-after: page;
+        page-break-after: always;
+      }
+      .sheet-page.last {
+        break-after: avoid;
+        page-break-after: avoid;
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"><\/script>
+    </head><body>${pagesHtml}</body></html>`;
+
+    await openPrintIframe(fullHtml);
+  }
+}
+
+// JsBarcode 스크립트 소스를 캐싱 (최초 1회 fetch)
+let _jsBarcodeSource = null;
+
+async function getJsBarcodeSource() {
+  if (_jsBarcodeSource !== null) return _jsBarcodeSource;
+  try {
+    const url = 'https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js';
+    const res = await fetch(url);
+    if (res.ok) _jsBarcodeSource = await res.text();
+    else _jsBarcodeSource = '';
+  } catch(e) {
+    _jsBarcodeSource = '';
+  }
+  return _jsBarcodeSource;
+}
+
+async function openPrintIframe(fullHtml) {
+  // JsBarcode 소스 인라인 삽입 (CDN 의존 제거)
+  const jsSrc = await getJsBarcodeSource();
+  const htmlFinal = jsSrc
+    ? fullHtml.replace(/<script src="[^"]*jsbarcode[^"]*"><\/script>/gi,
+        `<script>${jsSrc}<\/script>`)
+    : fullHtml.replace(/<script src="[^"]*jsbarcode[^"]*"><\/script>/gi, '');
+
+  // window.open 새 창으로 인쇄 — @page size 가장 안정적으로 동작
+  const printWin = window.open('', '_blank', 'width=800,height=600');
+  if (!printWin) {
+    alert('팝업이 차단됐습니다. 브라우저 주소창 오른쪽의 팝업 차단 아이콘을 클릭해 허용해 주세요.');
+    return;
+  }
+
+  printWin.document.open();
+  printWin.document.write(htmlFinal);
+  printWin.document.close();
+
+  // document.close() 후 바코드 렌더링 + 인쇄
+  // readyState 폴링으로 완전 로드 확인
+  const waitAndPrint = () => {
+    if (printWin.closed) return;
+
+    const JB = printWin.JsBarcode;
+    if (JB) {
+      printWin.document.querySelectorAll('[data-barcode]').forEach(svg => {
+        const val      = svg.getAttribute('data-barcode') || '0000000000';
+        const fmt      = svg.getAttribute('data-format')  || 'CODE128';
+        const showNum  = svg.getAttribute('data-displayvalue') === 'true';
+        const wmm      = parseFloat(svg.getAttribute('data-wmm'));
+        const hmm      = parseFloat(svg.getAttribute('data-hmm'));
+        const wPx      = wmm ? wmm * MM_TO_PX : parseFloat(svg.getAttribute('data-w')) || 60;
+        const hPx      = hmm ? hmm * MM_TO_PX : parseFloat(svg.getAttribute('data-h')) || 30;
+        const bcHpx    = showNum ? Math.max(4, hPx * 0.72) : Math.max(4, hPx - 2);
+        try {
+          JB(svg, val, {
+            format:       fmt,
+            displayValue: showNum,
+            fontSize:     showNum ? Math.max(8, hPx * 0.18) : 0,
+            textMargin:   showNum ? 2 : 0,
+            margin:       0,
+            width:        Math.max(1, wPx / 70),
+            height:       bcHpx
+          });
+          if (wmm) {
+            svg.setAttribute('width',  wmm + 'mm');
+            svg.setAttribute('height', (hmm || hPx / MM_TO_PX) + 'mm');
+            svg.style.width  = wmm + 'mm';
+            svg.style.height = (hmm || hPx / MM_TO_PX) + 'mm';
+          }
+        } catch(e) {}
+      });
+    }
+
+    printWin.focus();
+    printWin.print();
+    // 인쇄 다이얼로그 닫으면 창도 닫기
+    printWin.onafterprint = () => printWin.close();
+  };
+
+  // DOMContentLoaded 또는 readyState 로 타이밍 조정
+  if (printWin.document.readyState === 'complete') {
+    setTimeout(waitAndPrint, 200);
+  } else {
+    printWin.document.addEventListener('DOMContentLoaded', () => {
+      setTimeout(waitAndPrint, 200);
+    });
+    // 폴백: 500ms 후 강제 실행
+    setTimeout(() => {
+      if (!printWin.closed) waitAndPrint();
+    }, 600);
+  }
+}
+
+// ── buildLabelHTML: 인쇄용 HTML 문자열 반환 (px 대신 mm 기반) ──────
+// ── buildLabelHTML: 인쇄용 HTML — 전부 mm 단위로 작성 ──────────────
+function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm) {
+  const pad = (padMm != null ? padMm : 1.5);
+  const tpl = [...templates, ...customTemplates].find(t => t.id === tplId) || templates[0];
+
+  // 라벨 외곽 컨테이너: 정확히 셀 크기, overflow hidden, 패딩 적용
+  const outer = (inner, bg) =>
+    `<div style="width:${wMm}mm;height:${hMm}mm;overflow:hidden;box-sizing:border-box;background:${bg||'white'};display:flex;flex-direction:column;align-items:center;justify-content:center;padding:${pad}mm;">${inner}</div>`;
+
+  // ── 커스텀 템플릿
+  if (tpl.custom) {
+    // tpl.wmm/hmm(mm 단위)을 실제 라벨 크기로 스케일
+    const srcWmm = tpl.wmm || (tpl.w / MM_TO_PX);
+    const srcHmm = tpl.hmm || (tpl.h / MM_TO_PX);
+    const sc = Math.min(wMm / srcWmm, hMm / srcHmm);
+    let elHtml = '';
+    tpl.elements.forEach(el => {
+      // el.x/y/w/h는 px → mm 변환 후 sc 적용
+      const xmm = (el.x / MM_TO_PX) * sc;
+      const ymm = (el.y / MM_TO_PX) * sc;
+      const wmm = (el.w / MM_TO_PX) * sc;
+      const hmm = (el.h / MM_TO_PX) * sc;
+      if (el.type === 'text' || el.type === 'price') {
+        const txt = resolveVars(el.content, prod).replace(/</g,'&lt;');
+        const fsMm = ((el.fontSize||10) / MM_TO_PX) * sc;
+        elHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${wmm}mm;height:${hmm}mm;font-size:${fsMm}mm;color:${el.color||'#333'};font-weight:${el.fontWeight||'normal'};overflow:hidden;white-space:pre-wrap;word-break:break-word;line-height:1.3;">${txt}</div>`;
+      } else if (el.type === 'barcode') {
+        const val = cleanBarcode(resolveVars(el.value, prod));
+        const jc = el.justifyContent || 'center';
+        const ai = el.alignItems     || 'center';
+        // 빌더와 동일 비율: 높이 78%, 너비 min(70%, H*2.2)
+        const svgHmm = hmm * 0.78;
+        const svgWmm = Math.min(wmm * 0.7, svgHmm * 2.2);
+        elHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${wmm}mm;height:${hmm}mm;overflow:hidden;display:flex;justify-content:${jc};align-items:${ai};background:white;">
+          <svg data-barcode="${val}" data-format="${el.format||'CODE128'}" data-wmm="${svgWmm}" data-hmm="${svgHmm}" data-displayvalue="true" style="width:${svgWmm}mm;height:${svgHmm}mm;display:block;flex-shrink:0;"></svg></div>`;
+      } else if (el.type === 'line') {
+        elHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${wmm}mm;height:0.3mm;background:${el.color||'#ccc'};"></div>`;
+      } else if (el.type === 'rect') {
+        elHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${wmm}mm;height:${hmm}mm;border:0.3mm solid ${el.color||'#ccc'};background:${el.fill==='none'?'transparent':el.fill||'transparent'};box-sizing:border-box;"></div>`;
+      }
+    });
+    return `<div style="position:relative;width:${wMm}mm;height:${hMm}mm;background:${tpl.bg||'white'};overflow:hidden;flex-shrink:0;padding:${pad}mm;box-sizing:border-box;">${elHtml}</div>`;
+  }
+
+  // ── 기본 템플릿 (mm 기반)
+  const bcHmm = Math.max(4, hMm * 0.52);
+  const bcWmm = wMm - 3;
+  const fsMm  = Math.max(2, hMm * 0.11);
+  const nameMm = hMm - bcHmm - 3;
+
+  const bcSvg = (h) =>
+    `<svg data-barcode="${cleanBarcode(prod.barcode)}" data-format="${fmt}" data-wmm="${bcWmm}" data-hmm="${h}" data-displayvalue="true" style="width:${bcWmm}mm;height:${h}mm;display:block;flex-shrink:0;"></svg>`;
+
+  const nameDiv = (fs, extra) =>
+    `<div style="font-size:${fs}mm;text-align:center;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${extra||''}">${prod.name.replace(/</g,'&lt;')}</div>`;
+
+  if (tpl.type === 'barcode-name') {
+    const content = fmt === 'QR'
+      ? `<div style="width:${Math.min(bcHmm,bcWmm)}mm;height:${Math.min(bcHmm,bcWmm)}mm;background:#eee;display:flex;align-items:center;justify-content:center;font-size:2mm;color:#999;">QR</div>`
+      : bcSvg(bcHmm);
+    return outer(`${content}${nameDiv(fsMm, 'margin-top:0.5mm;')}`, 'white');
+  }
+
+  if (tpl.type === 'barcode-detail') {
+    const bh2 = bcHmm * 0.78;
+    const content = fmt === 'QR'
+      ? `<div style="width:${Math.min(bh2,bcWmm*0.7)}mm;height:${Math.min(bh2,bcWmm*0.7)}mm;background:#eee;font-size:2mm;color:#999;display:flex;align-items:center;justify-content:center;">QR</div>`
+      : bcSvg(bh2);
+    return outer(`${content}
+      ${nameDiv(fsMm, 'font-weight:600;')}
+      <div style="display:flex;justify-content:center;gap:2mm;font-size:${fsMm*0.9}mm;">
+        <span style="color:#888;">${(prod.sku||'').replace(/</g,'&lt;')}</span>
+        <span style="font-weight:700;">&#8361;${prod.price.toLocaleString()}</span>
+      </div>`, 'white');
+  }
+
+  if (tpl.type === 'qr-name') {
+    const sz = Math.min(hMm * 0.62, wMm * 0.72);
+    return outer(`<div style="width:${sz}mm;height:${sz}mm;background:#eee;display:flex;align-items:center;justify-content:center;font-size:2mm;color:#999;flex-shrink:0;">QR</div>
+      ${nameDiv(fsMm, 'margin-top:0.5mm;')}
+      <div style="font-size:${fsMm*0.85}mm;color:#888;font-family:monospace;">${prod.barcode}</div>`, 'white');
+  }
+
+  return outer(nameDiv(fsMm), 'white');
+}
+
+function savePDF() {
+  showToast('인쇄 다이얼로그에서 "PDF로 저장"을 선택하세요');
+  setTimeout(printLabels, 300);
+}
+function buildLabelInner(prod, tplId, fmt, widthPx, heightPx, padMm) {
+  const padPx = (padMm != null ? padMm : 1.5) * MM_TO_PX;
+  const wrap = document.createElement('div');
+  wrap.style.cssText = `width:${widthPx}px;height:${heightPx}px;background:white;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:${padPx}px;box-sizing:border-box;overflow:hidden;`;
+
+  const tpl = [...templates, ...customTemplates].find(t => t.id === tplId) || templates[0];
+
+  if (tpl.custom) {
+    const scale = Math.min(widthPx / tpl.w, heightPx / tpl.h);
+    wrap.style.background = tpl.bg || 'white';
+    wrap.style.padding = '0';
+    wrap.style.position = 'relative';
+    const inner = document.createElement('div');
+    inner.style.cssText = `position:relative;width:${tpl.w}px;height:${tpl.h}px;transform:scale(${scale});transform-origin:top left;flex-shrink:0;`;
+    tpl.elements.forEach(el => {
+      const e = document.createElement('div');
+      e.style.cssText = `position:absolute;left:${el.x}px;top:${el.y}px;width:${el.w}px;height:${el.h}px;overflow:hidden;`;
+      if (el.type === 'text' || el.type === 'price') {
+        e.textContent = resolveVars(el.content, prod);
+        e.style.fontSize = (el.fontSize||12)+'px';
+        e.style.color = el.color||'#333';
+        e.style.fontWeight = el.fontWeight||'normal';
+        e.style.whiteSpace = 'nowrap';
+      } else if (el.type === 'barcode') {
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svg.setAttribute('width', el.w+''); svg.setAttribute('height', el.h+'');
+        e.appendChild(svg);
+        try { JsBarcode(svg, cleanBarcode(resolveVars(el.value,prod)), { format:el.format||'CODE128', displayValue:false, margin:1, width:1.5, height:el.h-4 }); } catch(err){}
+      } else if (el.type === 'line') {
+        e.style.background = el.color||'#ccc'; e.style.height = '1px';
+      } else if (el.type === 'rect') {
+        e.style.border = `1px solid ${el.color||'#ccc'}`; e.style.background = el.fill==='none'?'transparent':el.fill||'transparent';
+      }
+      inner.appendChild(e);
+    });
+    wrap.appendChild(inner);
+    return wrap;
+  }
+
+  // Built-in templates — size content relative to cell px size
+  const bcH = Math.max(10, heightPx * 0.52);
+  const bcW = widthPx - 8;
+
+  if (tpl.type === 'barcode-name') {
+    if (fmt === 'QR') {
+      const sz = Math.min(bcH, bcW);
+      const qDiv = document.createElement('div'); qDiv.style.cssText = `width:${sz}px;height:${sz}px;flex-shrink:0;`;
+      wrap.appendChild(qDiv);
+      try { new QRCode(qDiv, { text: prod.barcode, width: Math.round(sz), height: Math.round(sz), colorDark:'#000', colorLight:'#fff' }); } catch(e){}
+    } else {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('width', bcW+''); svg.setAttribute('height', Math.round(bcH)+'');
+      wrap.appendChild(svg);
+      try { JsBarcode(svg, cleanBarcode(prod.barcode), { format:fmt, displayValue:true, fontSize:Math.max(6,heightPx*0.11), textMargin:1, margin:1, width:Math.max(1,bcW/80), height:Math.round(bcH)-14 }); } catch(e){}
+    }
+    const nm = document.createElement('div');
+    nm.style.cssText = `font-size:${Math.max(7,heightPx*0.12)}px;text-align:center;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;margin-top:2px;`;
+    nm.textContent = prod.name;
+    wrap.appendChild(nm);
+
+  } else if (tpl.type === 'barcode-detail') {
+    if (fmt === 'QR') {
+      const sz = Math.min(bcH*0.9, bcW*0.7);
+      const qDiv = document.createElement('div'); qDiv.style.cssText = `width:${sz}px;height:${sz}px;flex-shrink:0;`;
+      wrap.appendChild(qDiv);
+      try { new QRCode(qDiv, { text:prod.barcode, width:Math.round(sz), height:Math.round(sz) }); } catch(e){}
+    } else {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      svg.setAttribute('width', bcW+''); svg.setAttribute('height', Math.round(bcH*0.85)+'');
+      wrap.appendChild(svg);
+      try { JsBarcode(svg, cleanBarcode(prod.barcode), { format:fmt, displayValue:true, fontSize:Math.max(6,heightPx*0.09), margin:1, width:Math.max(1,bcW/90), height:Math.round(bcH*0.85)-8 }); } catch(e){}
+    }
+    const fs = Math.max(7, heightPx*0.11);
+    const nm = document.createElement('div'); nm.style.cssText=`font-size:${fs}px;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#333;font-weight:600;text-align:center;`; nm.textContent=prod.name; wrap.appendChild(nm);
+    const row = document.createElement('div'); row.style.cssText='display:flex;justify-content:center;gap:6px;width:100%;';
+    if (prod.sku) { const s=document.createElement('span'); s.style.cssText=`font-size:${fs*0.9}px;color:#888;font-family:monospace;`; s.textContent=prod.sku; row.appendChild(s); }
+    const pr=document.createElement('span'); pr.style.cssText=`font-size:${fs}px;font-weight:700;color:#1a1d23;`; pr.textContent='₩'+prod.price.toLocaleString(); row.appendChild(pr);
+    wrap.appendChild(row);
+
+  } else if (tpl.type === 'qr-name') {
+    const sz = Math.min(heightPx*0.62, widthPx*0.72);
+    const qDiv = document.createElement('div'); qDiv.style.cssText=`width:${sz}px;height:${sz}px;flex-shrink:0;`;
+    wrap.appendChild(qDiv);
+    try { new QRCode(qDiv, { text: prod.barcode, width:Math.round(sz), height:Math.round(sz), colorDark:'#000', colorLight:'#fff' }); } catch(e){}
+    const fs = Math.max(7, heightPx*0.11);
+    const nm=document.createElement('div'); nm.style.cssText=`font-size:${fs}px;text-align:center;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:2px;color:#333;`; nm.textContent=prod.name; wrap.appendChild(nm);
+    const cd=document.createElement('div'); cd.style.cssText=`font-size:${Math.max(6,fs*0.85)}px;color:#888;font-family:monospace;text-align:center;`; cd.textContent=prod.barcode; wrap.appendChild(cd);
+  }
+  return wrap;
+}
+
+function resolveVars(str, p) {
+  if (!str) return '';
+  return str
+    .replace(/{{상품명}}/g, p.name)
+    .replace(/{{바코드}}/g, p.barcode)
+    .replace(/{{SKU}}/g, p.sku||'')
+    .replace(/{{가격}}/g, '₩'+(p.price||0).toLocaleString())
+    .replace(/{{브랜드}}/g, p.brand||'')
+    .replace(/{{카테고리}}/g, p.category||'');
+}
+
+function cleanBarcode(str) {
+  return str.replace(/[^\x00-\x7F]/g, '').trim() || '0000000000';
+}
+
+
+// ─── NAVIGATION ─────────────────────────────────────────────────────────────
+function showTab(tab) {
+  ['products','labels','print'].forEach(t => {
+    document.getElementById('panel-'+t).classList.toggle('active', t===tab);
+    document.getElementById('nav-'+t).classList.toggle('active', t===tab);
+  });
+  if (tab==='labels') { setTimeout(renderTemplatesBarcodes, 100); }
+  if (tab==='print') { populatePrintTemplateSelect(); renderPrintProductList(); renderPrintPreview(); }
+}
+
+function renderTemplatesBarcodes() {
+  templates.forEach(t => {
+    if (t.type !== 'qr-name') {
+      const el = document.getElementById('tprev-'+t.id);
+      if (el && el.tagName==='svg') {
+        try { JsBarcode(el, '1234567890', { format:'CODE128', displayValue:false, margin:2, width:1.2, height:30 }); } catch(e){}
+      }
+    } else {
+      const el = document.getElementById('tprev-'+t.id);
+      if (el && !el.querySelector('canvas') && !el.querySelector('img')) {
+        try { new QRCode(el, { text:'1234567890', width:56, height:56 }); } catch(e){}
+      }
+    }
+  });
+}
+
+// ─── MODAL / TOAST ──────────────────────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); if (id==='excelUploadModal') { resetUpload(); renderColGuide(); } }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if(e.target===o) closeModal(o.id); }));
+
+function showToast(msg, type='') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (type ? ' '+type : '') + ' show';
+  setTimeout(() => t.className = 'toast', 2500);
+}
+
+// ─── EXCEL UPLOAD ────────────────────────────────────────────────────────────
+
+const FIELD_DEFS = [
+  { key: 'name',     label: '상품명',   required: true,  aliases: ['상품명','품명','제품명','name','item','product','상품'] },
+  { key: 'barcode',  label: '바코드',   required: false, aliases: ['바코드','barcode','bcd','code','바코드번호'] },
+  { key: 'sku',      label: 'SKU',      required: false, aliases: ['sku','skucode','품번','관리번호','코드'] },
+  { key: 'category', label: '카테고리', required: false, aliases: ['카테고리','category','분류','대분류','품목'] },
+  { key: 'price',    label: '가격',     required: false, aliases: ['가격','price','단가','판매가','소비자가','금액'] },
+  { key: 'stock',    label: '재고',     required: false, aliases: ['재고','stock','수량','재고수량','qty','quantity'] },
+  { key: 'brand',    label: '브랜드',   required: false, aliases: ['브랜드','brand','제조사','메이커','manufacturer'] },
+  { key: 'unit',     label: '단위',     required: false, aliases: ['단위','unit','uom','규격'] },
+];
+
+let excelData = [];       // parsed rows (array of objects keyed by original header)
+let excelHeaders = [];    // original column headers from file
+let columnMap = {};       // { fieldKey: excelHeader }
+
+// Render column guide chips on modal open
+function renderColGuide() {
+  const el = document.getElementById('col-guide');
+  if (!el) return;
+  el.innerHTML = FIELD_DEFS.map(f => `
+    <div style="background:white; border:1px solid var(--border); border-radius:5px; padding:6px 10px; font-size:12px; font-weight:500; color:var(--text2);">
+      ${f.required ? '<span style="color:var(--red);">*</span> ' : ''}${f.label}
+    </div>`).join('');
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.add('drag-over');
+}
+function handleDragLeave(e) {
+  document.getElementById('upload-zone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('upload-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) processFile(file);
+}
+function handleFileSelect(e) {
+  const file = e.target.files[0];
+  if (file) processFile(file);
+}
+
+function processFile(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['xlsx','xls','csv'].includes(ext)) {
+    showToast('.xlsx, .xls, .csv 파일만 지원합니다', 'error'); return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (!rows.length) { showToast('파일에 데이터가 없습니다', 'error'); return; }
+      excelData = rows;
+      excelHeaders = Object.keys(rows[0]);
+      autoDetectMapping();
+      goToStep2(file.name, rows.length);
+    } catch(err) {
+      showToast('파일을 읽을 수 없습니다: ' + err.message, 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function autoDetectMapping() {
+  columnMap = {};
+  FIELD_DEFS.forEach(field => {
+    const found = excelHeaders.find(h => {
+      const hn = h.toLowerCase().replace(/\s/g,'');
+      return field.aliases.some(a => hn === a.toLowerCase().replace(/\s/g,'') || hn.includes(a.toLowerCase()));
+    });
+    columnMap[field.key] = found || '';
+  });
+}
+
+function goToStep2(filename, rowCount) {
+  document.getElementById('upload-step1').style.display = 'none';
+  document.getElementById('upload-step2').style.display = 'block';
+  document.getElementById('file-name-display').textContent = '📄 ' + filename;
+  document.getElementById('row-count-display').textContent = `총 ${rowCount}개 행 감지됨`;
+
+  // Step indicator
+  setStepDone(1); setStepActive(2);
+
+  // Preview table
+  renderPreviewTable();
+
+  // Column mapping table
+  renderColMapTable();
+}
+
+function renderPreviewTable() {
+  const preview = excelData.slice(0, 5);
+  const container = document.getElementById('preview-table-container');
+  const cols = excelHeaders;
+  container.innerHTML = `<table class="preview-table">
+    <thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+    <tbody>${preview.map(row => `<tr>${cols.map(c => `<td title="${row[c]}">${String(row[c]).substring(0,20)}${String(row[c]).length>20?'…':''}</td>`).join('')}</tr>`).join('')}
+    </tbody></table>`;
+}
+
+function renderColMapTable() {
+  const sampleRow = excelData[0] || {};
+  const body = document.getElementById('col-map-body');
+  body.innerHTML = FIELD_DEFS.map(field => {
+    const opts = `<option value="">— 선택 안 함 —</option>` +
+      excelHeaders.map(h => `<option value="${h}" ${columnMap[field.key]===h?'selected':''}>${h}</option>`).join('');
+    const preview = columnMap[field.key] ? String(sampleRow[columnMap[field.key]] || '').substring(0,18) : '';
+    return `<tr>
+      <td>
+        <span style="font-weight:600; font-size:13px;">${field.label}</span>
+        ${field.required ? '<span style="color:var(--red); font-size:11px;"> 필수</span>' : '<span style="color:var(--text3); font-size:11px;"> 선택</span>'}
+      </td>
+      <td>
+        <select onchange="updateMapping('${field.key}', this.value)" id="map-${field.key}">${opts}</select>
+      </td>
+      <td style="font-size:12px; color:var(--text3); font-family:'DM Mono',monospace;" id="map-preview-${field.key}">${preview}</td>
+    </tr>`;
+  }).join('');
+}
+
+function updateMapping(fieldKey, colName) {
+  columnMap[fieldKey] = colName;
+  const sampleRow = excelData[0] || {};
+  const el = document.getElementById('map-preview-' + fieldKey);
+  if (el) el.textContent = colName ? String(sampleRow[colName] || '').substring(0, 18) : '';
+}
+
+function importData() {
+  if (!columnMap['name']) {
+    showToast('상품명 컬럼을 반드시 선택하세요', 'error'); return;
+  }
+  const mode = document.querySelector('input[name=importMode]:checked').value;
+  const imported = [];
+  const skipped = [];
+
+  excelData.forEach((row, i) => {
+    const name = String(row[columnMap['name']] || '').trim();
+    if (!name) { skipped.push(i+2); return; }
+    const p = {
+      id: Date.now() + i,
+      name,
+      barcode: String(row[columnMap['barcode']] || '').trim() || genBarcode(),
+      sku:      String(row[columnMap['sku']] || '').trim(),
+      category: String(row[columnMap['category']] || '').trim() || '기타',
+      price:    parseFloat(String(row[columnMap['price']] || '0').replace(/[^0-9.]/g,'')) || 0,
+      stock:    parseInt(String(row[columnMap['stock']] || '0').replace(/[^0-9]/g,'')) || 0,
+      brand:    String(row[columnMap['brand']] || '').trim(),
+      unit:     String(row[columnMap['unit']] || '').trim() || '개',
+    };
+    imported.push(p);
+  });
+
+  if (!imported.length) {
+    showToast('가져올 데이터가 없습니다. 상품명 컬럼을 확인하세요.', 'error'); return;
+  }
+
+  if (mode === 'replace') products = imported;
+  else products = [...products, ...imported];
+
+  populateCategoryFilter();
+  renderProducts();
+  goToStep3(imported.length, skipped.length, imported.slice(0,8));
+}
+
+function goToStep3(count, skipped, sample) {
+  document.getElementById('upload-step2').style.display = 'none';
+  document.getElementById('upload-step3').style.display = 'block';
+  setStepDone(2); setStepDone(3);
+
+  document.getElementById('import-result-text').textContent =
+    `${count}개 상품을 성공적으로 가져왔습니다!`;
+
+  const warnEl = document.getElementById('import-warn');
+  if (skipped > 0) {
+    warnEl.style.display = 'block';
+    warnEl.textContent = `⚠ ${skipped}개 행은 상품명이 없어 건너뛰었습니다.`;
+  } else {
+    warnEl.style.display = 'none';
+  }
+
+  const cols = ['name','barcode','sku','category','price','stock'];
+  const labels = { name:'상품명', barcode:'바코드', sku:'SKU', category:'카테고리', price:'가격', stock:'재고' };
+  document.getElementById('imported-preview').innerHTML = `<table class="preview-table">
+    <thead><tr>${cols.map(c=>`<th>${labels[c]}</th>`).join('')}</tr></thead>
+    <tbody>${sample.map(p=>`<tr>
+      <td title="${p.name}">${p.name.substring(0,16)}${p.name.length>16?'…':''}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${p.barcode}</td>
+      <td>${p.sku||'-'}</td><td>${p.category}</td>
+      <td>₩${p.price.toLocaleString()}</td><td>${p.stock}</td>
+    </tr>`).join('')}
+    ${count>8?`<tr><td colspan="6" style="text-align:center;color:var(--text3);font-size:12px;">... 외 ${count-8}개</td></tr>`:''}
+    </tbody></table>`;
+}
+
+function resetUpload() {
+  excelData = []; excelHeaders = []; columnMap = {};
+  document.getElementById('upload-step1').style.display = 'block';
+  document.getElementById('upload-step2').style.display = 'none';
+  document.getElementById('upload-step3').style.display = 'none';
+  document.getElementById('excel-file-input').value = '';
+  setStepActive(1);
+  const s2 = document.getElementById('step2-indicator');
+  const s3 = document.getElementById('step3-indicator');
+  s2.className = 'step'; s3.className = 'step';
+  document.getElementById('step-line-1').className = 'step-line';
+  document.getElementById('step-line-2').className = 'step-line';
+}
+
+function setStepDone(n) {
+  const el = document.getElementById('step'+n+'-indicator');
+  if (el) el.className = 'step done';
+  const line = document.getElementById('step-line-'+n);
+  if (line) line.className = 'step-line done';
+}
+function setStepActive(n) {
+  const el = document.getElementById('step'+n+'-indicator');
+  if (el) el.className = 'step active';
+}
+
+// Download template xlsx
+function downloadTemplate() {
+  const wb = XLSX.utils.book_new();
+  const headers = ['상품명', '바코드', 'SKU', '카테고리', '가격', '재고', '브랜드', '단위'];
+  const sampleRows = [
+    ['아메리카노 원두 250g', '8801234567890', 'COFFEE-001', '식품', 15000, 142, '스타벅스', '개'],
+    ['무선 블루투스 마우스', '4901234509876', 'MOUSE-003', '전자제품', 35000, 23, '로지텍', '개'],
+    ['A4 복사용지 500매', '8801111222333', 'PAPER-004', '사무용품', 6500, 200, '한솔', '권'],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
+  ws['!cols'] = [24,18,14,12,10,8,14,8].map(w => ({wch:w}));
+  XLSX.utils.book_append_sheet(wb, ws, '상품목록');
+  XLSX.writeFile(wb, '상품목록_양식.xlsx');
+  showToast('📥 양식 파일을 다운로드했습니다', 'success');
+}
+
+// ─── BOOT ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

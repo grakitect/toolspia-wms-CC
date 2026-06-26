@@ -67,6 +67,7 @@ const PRODUCT_OPTION_KEYS = [
   "categories"
 ];
 const PUBLIC_DIR = path.join(__dirname, "public");
+const LOGO_DIR = path.join(__dirname, "로고");
 const DATA_DIR = path.join(__dirname, "data");
 const DB_PATH = path.join(DATA_DIR, "db.json");
 const DB_BACKUP_DIR = path.join(DATA_DIR, "db-backups");
@@ -209,6 +210,7 @@ function normalizeDb(db) {
     if (!p.ecountCode) p.ecountCode = String(p.code || "");
     if (!p.ecountName) p.ecountName = String(p.name || "");
     p.middleBarcode = String(p.middleBarcode || "");
+    p.unusableStock = Number(p.unusableStock || 0);
     p.status = firstToken(p.status, "판매중");
     p.supplyType = firstToken(p.supplyType, "");
     p.orderDept = firstToken(p.orderDept, "");
@@ -282,6 +284,7 @@ function normalizeDb(db) {
   if (!db.ecvanCredentials || typeof db.ecvanCredentials !== "object") db.ecvanCredentials = { id: "", pw: "" };
   if (!Array.isArray(db.locations)) db.locations = [];
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
+  if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
 }
 
 function sendJson(res, code, payload) {
@@ -1238,6 +1241,13 @@ const OUTBOUND_PARTNER_ADAPTERS = {
       productCode: ["상품코드", "품목코드", "SKU"],
       productName: ["상품명", "품목명"],
       orderQty: ["주문수량", "지시수량", "Qty"],
+      orderUnit: ["입수"],
+      lot: ["BOX수량"],
+      barcode: ["롯데상품코드"],
+      orderAmount: ["주문금액"],
+      unitPrice: ["단가"],
+      storeName: ["점포명"],
+      centerName: ["센터명"],
       warehouse: ["창고", "출고창고"],
       remark: ["비고", "메모"]
     }
@@ -3258,6 +3268,35 @@ async function handleApi(req, res, urlObj) {
     }
   }
 
+  if (req.method === "POST" && pathname === "/api/stock/unusable") {
+    try {
+      const body = await parseBody(req);
+      const code = String(body.productCode || "").trim();
+      const qty = Number(body.qty || 0);
+      const direction = String(body.direction || "").trim(); // "lock" | "unlock"
+      const reason = String(body.reason || "").trim();
+      if (!code) throw new Error("상품코드를 입력하세요.");
+      if (!Number.isFinite(qty) || qty <= 0) throw new Error("수량은 1 이상이어야 합니다.");
+      if (direction !== "lock" && direction !== "unlock") throw new Error("전환 방향이 올바르지 않습니다.");
+      const product = db.products.find((p) => p.code === code || p.ecountCode === code);
+      if (!product) throw new Error("상품을 찾을 수 없습니다: " + code);
+      const totalStock = calculateStock(db).filter((s) => s.code === product.code).reduce((sum, s) => sum + Number(s.stock || 0), 0);
+      const currentUnusable = Number(product.unusableStock || 0);
+      if (direction === "lock") {
+        const available = totalStock - currentUnusable;
+        if (qty > available) throw new Error(`가용재고(${available})보다 많은 수량은 불용 전환할 수 없습니다.`);
+        product.unusableStock = currentUnusable + qty;
+      } else {
+        if (qty > currentUnusable) throw new Error(`불용재고(${currentUnusable})보다 많은 수량은 복구할 수 없습니다.`);
+        product.unusableStock = currentUnusable - qty;
+      }
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, unusableStock: product.unusableStock });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
   if (req.method === "GET" && pathname === "/api/stock") {
     const warehouse = String(urlObj.searchParams.get("warehouse") || "").trim();
     return sendJson(res, 200, {
@@ -3695,18 +3734,28 @@ async function handleApi(req, res, urlObj) {
     if (!partnerType) return sendJson(res, 400, { error: "partnerType(daiso/emart/lotte)가 필요합니다." });
     const centerTab = String(urlObj.searchParams.get("centerTab") || "all").trim();
     const baseRows = (db.outboundOrderUpload.lines || []).filter((x) => x.partnerType === partnerType);
-    const counts =
-      partnerType === "emart"
-        ? {
-            all: baseRows.length,
-            여주: baseRows.filter((x) => resolveCenterBucket(x) === "여주").length,
-            대구: baseRows.filter((x) => resolveCenterBucket(x) === "대구").length,
-            시화: baseRows.filter((x) => resolveCenterBucket(x) === "시화").length
-          }
-        : { all: baseRows.length };
+    let counts;
+    if (partnerType === "emart") {
+      counts = {
+        all: baseRows.length,
+        여주: baseRows.filter((x) => resolveCenterBucket(x) === "여주").length,
+        대구: baseRows.filter((x) => resolveCenterBucket(x) === "대구").length,
+        시화: baseRows.filter((x) => resolveCenterBucket(x) === "시화").length
+      };
+    } else if (partnerType === "lotte") {
+      counts = { all: baseRows.length };
+      for (const r of baseRows) {
+        const c = String(r.centerName || "").trim();
+        if (c) counts[c] = (counts[c] || 0) + 1;
+      }
+    } else {
+      counts = { all: baseRows.length };
+    }
     let rows = baseRows;
     if (partnerType === "emart" && centerTab !== "all") {
       rows = rows.filter((x) => resolveCenterBucket(x) === centerTab);
+    } else if (partnerType === "lotte" && centerTab !== "all") {
+      rows = rows.filter((x) => String(x.centerName || "").trim() === centerTab);
     }
     return sendJson(res, 200, { items: rows, counts });
   }
@@ -3718,18 +3767,28 @@ async function handleApi(req, res, urlObj) {
     const baseRows = (db.outboundOrderUpload.lines || []).filter(
       (x) => x.partnerType === partnerType && String(x.unshipStatus || "").trim() === "미출"
     );
-    const counts =
-      partnerType === "emart"
-        ? {
-            all: baseRows.length,
-            여주: baseRows.filter((x) => resolveCenterBucket(x) === "여주").length,
-            대구: baseRows.filter((x) => resolveCenterBucket(x) === "대구").length,
-            시화: baseRows.filter((x) => resolveCenterBucket(x) === "시화").length
-          }
-        : { all: baseRows.length };
+    let counts;
+    if (partnerType === "emart") {
+      counts = {
+        all: baseRows.length,
+        여주: baseRows.filter((x) => resolveCenterBucket(x) === "여주").length,
+        대구: baseRows.filter((x) => resolveCenterBucket(x) === "대구").length,
+        시화: baseRows.filter((x) => resolveCenterBucket(x) === "시화").length
+      };
+    } else if (partnerType === "lotte") {
+      counts = { all: baseRows.length };
+      for (const r of baseRows) {
+        const c = String(r.centerName || "").trim();
+        if (c) counts[c] = (counts[c] || 0) + 1;
+      }
+    } else {
+      counts = { all: baseRows.length };
+    }
     let rows = baseRows;
     if (partnerType === "emart" && centerTab !== "all") {
       rows = rows.filter((x) => resolveCenterBucket(x) === centerTab);
+    } else if (partnerType === "lotte" && centerTab !== "all") {
+      rows = rows.filter((x) => String(x.centerName || "").trim() === centerTab);
     }
     const items = rows.map((x) => ({
       slipNo: x.slipNo || "",
@@ -5848,6 +5907,76 @@ async function handleApi(req, res, urlObj) {
     return sendJson(res, 200, { items: enriched });
   }
 
+  // ── 구매 발주 관리 ──────────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/purchase-orders") {
+    return sendJson(res, 200, { items: db.purchaseOrders });
+  }
+
+  if (req.method === "POST" && pathname === "/api/purchase-orders") {
+    try {
+      const body = await parseBody(req);
+      const vendor = String(body.vendor || "").trim();
+      const dueDate = String(body.dueDate || "").trim();
+      const memo = String(body.memo || "").trim();
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!vendor) throw new Error("구매처는 필수입니다.");
+      if (!items.length) throw new Error("발주 항목이 없습니다.");
+      const validItems = items.map((it) => ({
+        productCode: String(it.productCode || "").trim(),
+        productName: String(it.productName || "").trim(),
+        qty: Number(it.qty) || 0,
+        unitPrice: Number(it.unitPrice) || 0,
+        note: String(it.note || "").trim()
+      })).filter((it) => it.productCode && it.qty > 0);
+      if (!validItems.length) throw new Error("유효한 발주 항목이 없습니다.");
+      const order = {
+        id: `PO-${String(db.seq++).padStart(5, "0")}`,
+        createdAt: new Date().toISOString(),
+        vendor,
+        dueDate,
+        status: "발주",
+        memo,
+        items: validItems
+      };
+      db.purchaseOrders.push(order);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: order });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/purchase-orders") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      const order = db.purchaseOrders.find((o) => o.id === id);
+      if (!order) throw new Error("발주서를 찾을 수 없습니다.");
+      if (body.status !== undefined) order.status = String(body.status).trim();
+      if (body.memo !== undefined) order.memo = String(body.memo).trim();
+      if (body.dueDate !== undefined) order.dueDate = String(body.dueDate).trim();
+      order.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: order });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/purchase-orders") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      const idx = db.purchaseOrders.findIndex((o) => o.id === id);
+      if (idx === -1) throw new Error("발주서를 찾을 수 없습니다.");
+      db.purchaseOrders.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
   return sendJson(res, 404, { error: "Not found" });
 }
 
@@ -5869,6 +5998,18 @@ const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host}`);
   if (urlObj.pathname.startsWith("/api/")) {
     return runSerializedApi(() => handleApi(req, res, urlObj));
+  }
+  if (urlObj.pathname.startsWith("/logos/")) {
+    const fileName = path.basename(decodeURIComponent(urlObj.pathname));
+    const filePath = path.join(LOGO_DIR, fileName);
+    if (!filePath.startsWith(LOGO_DIR)) { res.writeHead(403); return res.end("Forbidden"); }
+    return fs.readFile(filePath, (err, data) => {
+      if (err) { res.writeHead(404); return res.end("Not Found"); }
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : "application/octet-stream";
+      res.writeHead(200, { "Content-Type": mime, "Cache-Control": "public, max-age=86400" });
+      res.end(data);
+    });
   }
   return serveStatic(req, res, urlObj.pathname);
 });

@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8" />
+	<meta http-equiv="Content-Script-Type" content="text/javascript" />
+	<meta http-equiv="Content-Style-Type" content="text/css" />
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<script type="text/javascript" src="/scm/ref/js/include.jsp"></script>
+<script type="text/javascript" src="/scm/ref/js/web/ediDoc/ediReceiveDocVendor.js"></script>
+<style type="text/css">
+<!--
+/* default CSS */
+body { font-family:돋움, seoul, verdana, arial; font-size: 13px; line-height: 18px; color: #333333; }
+td { font-family:돋움, seoul, verdana, arial; font-size: 13px; color: #333333; padding-top:3px; mso-number-format:'\@'; }
+select, textarea, input { font-family:돋움, seoul, verdana, arial; font-size: 12px; height:18px; color: #333333; background-color:#FFFFFF; border:1 solid #999999}
+
+a:link {color: #0081BF; text-decoration: none}
+a:active {color: #0081BF; text-decoration: none}
+a:visited {color: #0081BF; text-decoration: none}
+a:hover {color: #BF0000; text-decoration: underline}
+
+.orange12px {color:#cc6633;font-size:13px;font-family:돋움;}
+.deepblue {color:#0262ba;font-size:13px;font-family:돋움;}
+.lightblue_b {color:#21a7cc;font-size:13px;font-family:돋움;font-weight: bold;}
+
+/* Title CSS */
+.title { font-size: 18px; font-weight: bold; color: #333333; text-align:center; }
+.com { color: #0072D3; text-align:right; }
+.box_t01 { color: #FFFFFF; background-color:#0081BF; text-align:center; }
+.box_t02 { color: #333333; background-color:#DAE8F5; text-align:center; }
+.box_t02r { color: #333333; background-color:#DAE8F5; text-align:right; padding-right: 5px; }
+.line_g { background-color:#CCCCCC;}
+.line_b { background-color:#0081BF;}
+
+/*텍스트정의*/
+.lightblue_b {color:#21a7cc;font-size:13px;font-family:돋움;font-weight: bold;}
+
+/*테이블라인*/
+.line20px {line-height:20px;background-image: url(../images/main/bg_dotline_user.jpg); background-repeat:repeat-x; background-position:bottom;}
+
+.line-top2px{line-height:2px;background-color:#0c509c;background-repeat:repeat-x; background-position:bottom;}
+.line_blue30px {color:#ffffff;font-size:13px;font-weight: bold;font-family:돋움;line-height:25px; background-color:#2774c9 ;background-repeat:repeat-x; background-position:bottom;}
+.line_yunblue30px {color:#ffffff ;font-size:13px;font-family:돋움;line-height:25px; background-color:#42b4d2 ;background-repeat:repeat-x; background-position:bottom;}
+.line_yunblue25px {color:#ffffff ;font-size:13px;font-family:돋움;line-height:25px; background-color:#42b4d2 ;background-repeat:repeat-x; background-position:bottom;}
+.line_lightblue25px {color:#006699 ;font-size:13px;font-family:돋움;line-height:25px; background-color:#A8DDEA ;background-repeat:repeat-x; background-position:bottom;}
+
+.line_white25px{font-size:13px;font-family:돋움;line-height:25px; background-color:#ffffff ;background-repeat:repeat-x; background-position:bottom;}
+.line_gray25px{font-size:13px;font-family:돋움;line-height:25px; background-color:#c0c0c0 ;background-repeat:repeat-x; background-position:bottom;}
+
+.line_white30px{font-size:13px;font-family:돋움;line-height:30px; background-color:#ffffff ;background-repeat:repeat-x; background-position:bottom;}
+.line_gray30px{font-size:13px;font-family:돋움;line-height:30px; background-color:#efefef ;background-repeat:repeat-x; background-position:bottom;}
+//-->
+</style>
+</head>
+<body style="min-width: 760px">
+<div class="basic_table_area">
+	<table border="0" cellspacing="0" cellpadding="0" class="basic_box">
+		<tr>
+		<td width="100%" height="30" align="center" class="title" colspan="10">주문서 리스트</td>
+			</tr>
+	</table>
+	<table>
+		<tr>
+			<td height="25">협력업체명</td>
+			<td colspan="3">(주)툴스피아</td>
+			<td height="25">작성일자</td>
+			<td colspan="5">2026-06-26</td>
+			</tr>
+		<tr>
+		<td height="25" colspan="10">원가지준 : 단위 (원)</td>
+		</tr>
+	</table>
+	<table width="880" border="0" cellpadding="0" cellspacing="0">
+		<tr>
+			<td height="10"></td>
+		</tr>
+	</table>
+</div>
+<table border="1">
+	<tr height="25">
+		<td class="line_blue30px">문서명</td>
+		<td class="line_blue30px">문서번호</td>
+		<td class="line_blue30px">주문구분</td>
+		<td class="line_blue30px">송신자</td>
+		<td class="line_blue30px">주문일</td>
+		<td class="line_blue30px">점포(센터)</td>
+		<td class="line_blue30px">아이템갯수</td>
+		<td class="line_blue30px">납품일</td>
+		<td colspan="2" class="line_blue30px">센터입하일</td>
+			</tr>
+	<tr height="25">
+		<td>ORDERS</td>
+		<td>7101017990</td>
+		<td>통상</td>
+		<td>롯데마트</td>
+		<td>2026-06-26</td>
+		<td>김해상온센타</td>
+		<td>11</td>
+		<td>2026-06-27</td>
+		<td colspan="2">
+					2026-06-27</td>
+			</tr>
+	<tr height="25">
+		<td class="line_yunblue30px">상품코드</td>
+		<td class="line_yunblue30px">판매코드</td>
+		<td class="line_yunblue30px">상품명</td>
+		<td class="line_yunblue30px">점포명</td>
+		<td class="line_yunblue30px">규격</td>
+		<td class="line_yunblue30px">입수</td>
+		<td class="line_yunblue30px">주문수</td>
+		<td class="line_yunblue30px">단가</td>
+		<td class="line_yunblue30px">주문금액</td>
+		<td class="line_yunblue30px">입고허용일</td>
+		</tr>
+	<tr height="25">
+		<td>1003020194</td>
+		<td>8800272201301</td>
+		<td>툴스피아메탈고속맥세이프보조배터리</td>
+		<td>부산CFC(9001)</td>
+		<td></td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>12,670</td>
+		<td>126,700</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1003020190</td>
+		<td>8800272205002</td>
+		<td>툴스피아자석맥세이프핸드폰거치대</td>
+		<td>부산CFC(9001)</td>
+		<td></td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>6,490</td>
+		<td>64,900</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001049161</td>
+		<td>8809057403862</td>
+		<td>툴스피아미니글루건</td>
+		<td>진장점(2614)</td>
+		<td></td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>2,470</td>
+		<td>14,820</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001051950</td>
+		<td>8809057630046</td>
+		<td>라이너스해외여행용어댑터(USB)</td>
+		<td>울산점(2601)</td>
+		<td></td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>5,400</td>
+		<td>32,400</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001095905</td>
+		<td>8809148128704</td>
+		<td>라이너스개별절전멀티탭(핑크4구2.5M)</td>
+		<td>진주점(2648)</td>
+		<td>2.5M</td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>11,850</td>
+		<td>118,500</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001111803</td>
+		<td>8809148128797</td>
+		<td>라이너스고용량멀티탭그레이(3구1.5M)</td>
+		<td>나주점(2719)</td>
+		<td></td>
+		<td>8</td>
+		<td>1 (BOX)</td>
+		<td>11,890</td>
+		<td>95,120</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001060272</td>
+		<td>8809550590236</td>
+		<td>에이원접착제브러쉬형7g</td>
+		<td>화명점(2605)</td>
+		<td>7G</td>
+		<td>20</td>
+		<td>1 (BOX)</td>
+		<td>990</td>
+		<td>19,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001079402</td>
+		<td>8809599840118</td>
+		<td>몬스툴미니망치</td>
+		<td>구미점(2613)</td>
+		<td></td>
+		<td>8</td>
+		<td>1 (BOX)</td>
+		<td>2,500</td>
+		<td>20,000</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001079397</td>
+		<td>8809599840149</td>
+		<td>몬스툴드라이버세트</td>
+		<td>웅상점(2610)</td>
+		<td></td>
+		<td>12</td>
+		<td>1 (BOX)</td>
+		<td>1,180</td>
+		<td>14,160</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044982</td>
+		<td>8809599841115</td>
+		<td>몬스툴스크류못4종</td>
+		<td>여수점(2705)</td>
+		<td></td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>1,130</td>
+		<td>11,300</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044967</td>
+		<td>8809599841160</td>
+		<td>몬스툴다용도가위</td>
+		<td>여수점(2705)</td>
+		<td></td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>2,490</td>
+		<td>14,940</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td colspan="6" class="line_lightblue25px"><b>합계</b></td>
+		<td class="line_lightblue25px">11</td>
+		<td class="line_lightblue25px">&nbsp;</td>
+		<td class="line_lightblue25px">532,640</td>
+		<td class="line_lightblue25px">&nbsp;</td>
+		</tr>
+	</table>
+<table border="0">
+	<tr><td>&nbsp;</td></tr>
+	<tr><td>&nbsp;</td></tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td class="line_blue30px">문서명</td>
+		<td class="line_blue30px">문서번호</td>
+		<td class="line_blue30px">주문구분</td>
+		<td class="line_blue30px">송신자</td>
+		<td class="line_blue30px">주문일</td>
+		<td class="line_blue30px">점포(센터)</td>
+		<td class="line_blue30px">아이템갯수</td>
+		<td class="line_blue30px">납품일</td>
+		<td colspan="2" class="line_blue30px">센터입하일</td>
+			</tr>
+	<tr height="25">
+		<td>ORDERS</td>
+		<td>7101018352</td>
+		<td>통상</td>
+		<td>롯데마트</td>
+		<td>2026-06-26</td>
+		<td>오산상온센타</td>
+		<td>13</td>
+		<td>2026-06-27</td>
+		<td colspan="2">
+					2026-06-27</td>
+			</tr>
+	<tr height="25">
+		<td class="line_yunblue30px">상품코드</td>
+		<td class="line_yunblue30px">판매코드</td>
+		<td class="line_yunblue30px">상품명</td>
+		<td class="line_yunblue30px">점포명</td>
+		<td class="line_yunblue30px">규격</td>
+		<td class="line_yunblue30px">입수</td>
+		<td class="line_yunblue30px">주문수</td>
+		<td class="line_yunblue30px">단가</td>
+		<td class="line_yunblue30px">주문금액</td>
+		<td class="line_yunblue30px">입고허용일</td>
+		</tr>
+	<tr height="25">
+		<td>1001051950</td>
+		<td>8809057630046</td>
+		<td>라이너스해외여행용어댑터(USB)</td>
+		<td>영종도점(2424)</td>
+		<td></td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>5,400</td>
+		<td>32,400</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001049160</td>
+		<td>8809057634778</td>
+		<td>핫멜트스틱(소)10p</td>
+		<td>송도점(2465)</td>
+		<td>7.3MM</td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>810</td>
+		<td>8,100</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001060273</td>
+		<td>8809550590113</td>
+		<td>에이원젤타입접착제3g</td>
+		<td>전주점(2708)</td>
+		<td>3G</td>
+		<td>20</td>
+		<td>1 (BOX)</td>
+		<td>640</td>
+		<td>12,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001060272</td>
+		<td>8809550590236</td>
+		<td>에이원접착제브러쉬형7g</td>
+		<td>익산점(2702)</td>
+		<td>7G</td>
+		<td>20</td>
+		<td>1 (BOX)</td>
+		<td>990</td>
+		<td>19,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001079396</td>
+		<td>8809599840132</td>
+		<td>몬스툴스크래퍼</td>
+		<td>춘천점(2802)</td>
+		<td></td>
+		<td>12</td>
+		<td>1 (BOX)</td>
+		<td>1,180</td>
+		<td>14,160</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044986</td>
+		<td>8809599841030</td>
+		<td>몬스툴동도금경첩</td>
+		<td>군산점(2707)</td>
+		<td></td>
+		<td>20</td>
+		<td>1 (BOX)</td>
+		<td>990</td>
+		<td>19,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044982</td>
+		<td>8809599841115</td>
+		<td>몬스툴스크류못4종</td>
+		<td>시화점(2456)</td>
+		<td></td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>1,130</td>
+		<td>11,300</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044982</td>
+		<td>8809599841115</td>
+		<td>몬스툴스크류못4종</td>
+		<td>평택점(2436)</td>
+		<td></td>
+		<td>10</td>
+		<td>1 (BOX)</td>
+		<td>1,130</td>
+		<td>11,300</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044967</td>
+		<td>8809599841160</td>
+		<td>몬스툴다용도가위</td>
+		<td>월드타워점(2334)</td>
+		<td></td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>2,490</td>
+		<td>14,940</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001044965</td>
+		<td>8809599841184</td>
+		<td>몬스툴전기인두세트</td>
+		<td>시흥배곧점(2476)</td>
+		<td></td>
+		<td>12</td>
+		<td>1 (BOX)</td>
+		<td>4,950</td>
+		<td>59,400</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001096690</td>
+		<td>8809599841443</td>
+		<td>몬스툴오토락줄자3M</td>
+		<td>영종도점(2424)</td>
+		<td>3M</td>
+		<td>12</td>
+		<td>1 (BOX)</td>
+		<td>1,580</td>
+		<td>18,960</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001085501</td>
+		<td>8809774023954</td>
+		<td>스피디20000mAh20W고속보조배터리</td>
+		<td>원주점(2801)</td>
+		<td>20W</td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>16,300</td>
+		<td>97,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td>1001085501</td>
+		<td>8809774023954</td>
+		<td>스피디20000mAh20W고속보조배터리</td>
+		<td>월드타워점(2334)</td>
+		<td>20W</td>
+		<td>6</td>
+		<td>1 (BOX)</td>
+		<td>16,300</td>
+		<td>97,800</td>
+		<td>99991231</td>
+		</tr>
+</table>
+<table border="1">
+	<tr height="25">
+		<td colspan="6" class="line_lightblue25px"><b>합계</b></td>
+		<td class="line_lightblue25px">13</td>
+		<td class="line_lightblue25px">&nbsp;</td>
+		<td class="line_lightblue25px">418,560</td>
+		<td class="line_lightblue25px">&nbsp;</td>
+		</tr>
+	</table>
+<table border="0">
+	<tr><td>&nbsp;</td></tr>
+	<tr><td>&nbsp;</td></tr>
+</table>
+</body>
+</html>

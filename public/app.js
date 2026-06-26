@@ -18,10 +18,15 @@ const views = [
   "location-master",
   "location-map",
   "location-map-3d",
-  "location-stock"
+  "location-stock",
+  "purchase-products",
+  "purchase-orders",
+  "barcode-print"
 ];
 const LAST_VIEW_KEY = "wms:lastView";
 const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
+const PPL_HIDDEN_COLS_KEY = "wms:pplHiddenCols";
+const STOCK_HIDDEN_COLS_KEY = "wms:stockHiddenCols";
 const TABLE_FILTER_MEMORY = {};
 let productListPageIndex = 0;
 const state = {
@@ -40,7 +45,8 @@ const state = {
     categories: []
   },
   partners: { inbound: [], outbound: [], purchase: [] },
-  managers: []
+  managers: [],
+  purchaseOrders: []
 };
 
 function qs(sel) {
@@ -267,6 +273,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
   if (!Number.isInteger(sortState.col) || sortState.col < 0 || sortState.col >= colCount) sortState.col = -1;
   if (!["asc", "desc", ""].includes(sortState.dir)) sortState.dir = "";
   let openedMenu = null;
+  let rowsAreSorted = false;
 
   function cellValue(row, col) {
     return readCellFilterValue(row.cells[col]);
@@ -306,8 +313,10 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         compareValue(cellValue(r1, sortState.col), cellValue(r2, sortState.col), sortState.dir)
       );
       sorted.forEach((r) => tbody.appendChild(r));
-    } else {
+      rowsAreSorted = true;
+    } else if (rowsAreSorted) {
       originalRows.forEach((r) => tbody.appendChild(r));
+      rowsAreSorted = false;
     }
     TABLE_FILTER_MEMORY[tableSelector] = {
       filters: filterState.map((st) => ({ selected: Array.from(st.selected) })),
@@ -530,6 +539,8 @@ function switchView(name) {
     const group = activeBtn.closest(".sidebar-group");
     if (group && !group.classList.contains("open")) group.classList.add("open");
   }
+  // 바코드 인쇄 뷰는 패딩 제거 (풀스크린 iframe)
+  qs(".main").classList.toggle("main-fullscreen", name === "barcode-print");
   try {
     localStorage.setItem(LAST_VIEW_KEY, name);
   } catch (_) {}
@@ -584,6 +595,88 @@ function parseSheetMatrix(file) {
   });
 }
 
+// 롯데마트 ORDERS 네이티브 형식(시트 분산) 파서
+async function parseLotteNativeMatrix(file) {
+  const data = await file.arrayBuffer();
+  const wb = XLSX.read(data, { type: "array" });
+
+  // 네이티브 형식 감지: 시트 5개 초과 & Sheet1이 "주문서" 포함
+  const firstWs = wb.Sheets[wb.SheetNames[0]];
+  const firstData = XLSX.utils.sheet_to_json(firstWs, { header: 1, defval: "" });
+  const isNative =
+    wb.SheetNames.length > 5 &&
+    firstData[0] &&
+    String(firstData[0][0]).includes("주문서");
+
+  if (!isNative) {
+    // 일반 flat 형식 fallback
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+  }
+
+  const toDateStr = (v) => {
+    if (!v && v !== 0) return "";
+    if (typeof v === "number") {
+      const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+      return d.toISOString().slice(0, 10);
+    }
+    return String(v).trim();
+  };
+
+  const headers = ["발주No", "발주일자", "납기일자", "상품코드", "롯데상품코드", "상품명", "점포명", "입수", "BOX수량", "주문수량", "단가", "주문금액", "센터명"];
+  const rows = [headers];
+  let currentOrder = null;
+
+  const addProductRow = (order, pr) => {
+    if (!pr[0] && !pr[1]) return;
+    if (String(pr[0]).includes("합계")) return;
+    const boxMatch = String(pr[6] || "").match(/\d+/);
+    const boxQty = boxMatch ? parseInt(boxMatch[0]) : 0;
+    const unitQty = parseInt(String(pr[5] || "0").replace(/,/g, "")) || 0;
+    const totalQty = String(unitQty * boxQty); // 입수 × BOX수
+    rows.push([
+      order.orderNo,
+      order.orderDate,
+      order.dueDate,
+      String(pr[1] || "").replace(/,/g, "").trim(), // 판매코드(EAN) → 상품코드
+      String(pr[0] || "").replace(/,/g, "").trim(), // 롯데 내부 상품코드
+      String(pr[2] || "").trim(),                    // 상품명
+      String(pr[3] || "").trim(),                    // 점포명
+      String(unitQty),                               // 입수
+      String(boxQty),                                // BOX수량
+      totalQty,                                      // 주문수량 = 입수 × BOX수
+      String(pr[7] || "").replace(/,/g, "").trim(),  // 단가
+      String(pr[8] || "").replace(/,/g, "").trim(),  // 주문금액
+      order.centerName,                              // 센터명
+    ]);
+  };
+
+  for (const sheetName of wb.SheetNames) {
+    const ws = wb.Sheets[sheetName];
+    const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    const nonEmpty = matrix.filter((r) => r.some((c) => c !== "" && c !== " "));
+    if (!nonEmpty.length) continue;
+
+    if (nonEmpty.length >= 2 && String(nonEmpty[0][0]).trim() === "문서명") {
+      // 주문 블록 시작 시트: 주문 메타 추출 + 첫 상품 행
+      const info = nonEmpty[1];
+      // [ORDERS, 문서번호, 주문구분, 송신자, 주문일(serial), 센터명, 아이템수, 납품일(serial), ...]
+      currentOrder = {
+        orderNo: String(info[1] || "").replace(/\.0+$/, "").trim(),
+        orderDate: toDateStr(info[4]),
+        dueDate: toDateStr(info[7]),
+        centerName: String(info[5] || "").trim().replace(/센타/g, "센터"),
+      };
+      for (let i = 3; i < nonEmpty.length; i++) addProductRow(currentOrder, nonEmpty[i]);
+    } else if (currentOrder) {
+      // 상품 1행짜리 시트
+      addProductRow(currentOrder, nonEmpty[0]);
+    }
+  }
+
+  return rows;
+}
+
 /** 첫 시트를 2차원 배열로 (발주서현황 업로드용) */
 function parseSheetAsMatrix(file) {
   return new Promise((resolve, reject) => {
@@ -603,28 +696,105 @@ function parseSheetAsMatrix(file) {
   });
 }
 
-function applyProductHiddenColumnStyles() {
-  let hidden = [];
-  try {
-    hidden = JSON.parse(localStorage.getItem(PRODUCT_HIDDEN_COLS_KEY) || "[]");
-  } catch (_) {}
-  const id = "wms-product-col-hide-style";
-  let el = document.getElementById(id);
-  if (!el) {
-    el = document.createElement("style");
-    el.id = id;
-    document.head.appendChild(el);
-  }
-  if (!Array.isArray(hidden) || !hidden.length) {
-    el.textContent = "";
-    return;
-  }
-  el.textContent = hidden
-    .map(
-      (n) =>
-        `#products-table thead th:nth-child(${n}), #products-table tbody td:nth-child(${n}) { display: none !important; }`
-    )
-    .join("\n");
+
+// ── 공통 컬럼 설정 (순서 변경 + 표시/숨김) ─────────────────────────────────
+// 저장 포맷: [{origIdx:number, label:string, visible:boolean}, ...]
+// origIdx: 렌더 직후 0-based 컬럼 위치. data-col-orig-idx 속성으로 식별.
+
+function applyTableColumnConfig(tableSelector, storageKey, firstColFixed = false) {
+  const table = document.querySelector(tableSelector);
+  if (!table) return;
+  let config;
+  try { config = JSON.parse(localStorage.getItem(storageKey) || "null"); } catch (_) { config = null; }
+  if (!Array.isArray(config) || !config.length) return;
+
+  const rows = Array.from(table.querySelectorAll("tr"));
+  rows.forEach((row) => {
+    const cells = Array.from(row.children);
+    if (!cells.length) return;
+
+    // origIdx → cell 매핑
+    const cellMap = {};
+    cells.forEach((cell) => {
+      const idx = cell.dataset.colOrigIdx;
+      if (idx !== undefined) cellMap[parseInt(idx)] = cell;
+    });
+
+    // config 대로 frag에 담기
+    const frag = document.createDocumentFragment();
+    config.forEach(({ origIdx, visible }) => {
+      const cell = cellMap[origIdx];
+      if (!cell) return;
+      cell.style.display = visible ? "" : "none";
+      frag.appendChild(cell);
+    });
+
+    if (firstColFixed && cellMap[0] && !config.some((c) => c.origIdx === 0)) {
+      // 고정 첫 컬럼은 앞에 두고 나머지 뒤에
+      row.insertBefore(cellMap[0], row.firstChild);
+    }
+    row.appendChild(frag);
+  });
+}
+
+function setupDragToReorder(container) {
+  let dragSrc = null;
+  container.querySelectorAll(".col-settings-item").forEach((item) => {
+    item.setAttribute("draggable", "true");
+  });
+  container.addEventListener("dragstart", (e) => {
+    const item = e.target.closest(".col-settings-item");
+    if (!item) return;
+    dragSrc = item;
+    setTimeout(() => { if (dragSrc) dragSrc.style.opacity = "0.45"; }, 0);
+    e.dataTransfer.effectAllowed = "move";
+  });
+  container.addEventListener("dragend", () => {
+    if (dragSrc) dragSrc.style.opacity = "";
+    dragSrc = null;
+    container.querySelectorAll(".col-settings-item").forEach((i) => i.classList.remove("col-drag-over"));
+  });
+  container.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    const target = e.target.closest(".col-settings-item");
+    if (!target || target === dragSrc || !dragSrc) return;
+    container.querySelectorAll(".col-settings-item").forEach((i) => i.classList.remove("col-drag-over"));
+    target.classList.add("col-drag-over");
+    const mid = target.getBoundingClientRect().top + target.getBoundingClientRect().height / 2;
+    if (e.clientY < mid) container.insertBefore(dragSrc, target);
+    else target.after(dragSrc);
+  });
+  container.addEventListener("drop", (e) => { e.preventDefault(); });
+}
+
+function openColumnSettingsUI(bodyEl, tableSelector, firstColFixed = false) {
+  if (!bodyEl) return;
+  const ths = Array.from(document.querySelectorAll(`${tableSelector} thead th`));
+  const items = ths
+    .filter((th) => !firstColFixed || th.dataset.colOrigIdx !== "0")
+    .map((th) => ({
+      origIdx: parseInt(th.dataset.colOrigIdx ?? "0"),
+      label: th.dataset.colLabel || th.textContent.trim() || `열`,
+      visible: th.style.display !== "none",
+    }));
+
+  bodyEl.innerHTML = items.map((item) =>
+    `<div class="col-settings-item" data-orig-idx="${item.origIdx}" data-label="${esc(item.label)}" style="display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px solid #E2E8F0;border-radius:6px;margin-bottom:4px;background:#fff;cursor:default;">
+      <span style="cursor:grab;color:#94A3B8;font-size:18px;user-select:none;flex-shrink:0;">⋮⋮</span>
+      <input type="checkbox" ${item.visible ? "checked" : ""} style="cursor:pointer;width:14px;height:14px;flex-shrink:0;" />
+      <span style="flex:1;font-size:13px;color:#334155;">${esc(item.label)}</span>
+    </div>`
+  ).join("");
+  setupDragToReorder(bodyEl);
+}
+
+function saveColumnSettingsUI(bodyEl, storageKey) {
+  const config = Array.from(bodyEl.querySelectorAll(".col-settings-item")).map((item) => ({
+    origIdx: parseInt(item.dataset.origIdx || "0"),
+    label: item.dataset.label || "",
+    visible: item.querySelector('input[type="checkbox"]')?.checked ?? true,
+  }));
+  try { localStorage.setItem(storageKey, JSON.stringify(config)); } catch (_) {}
 }
 
 async function uploadProductBulkFromFile(file) {
@@ -1179,27 +1349,27 @@ function renderProducts() {
       const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
       const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
       return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${rowClass ? ` class="${rowClass}"` : ""}>
-      <td><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
-      <td>${esc(p.ecountCode || p.code)}</td>
-      <td>${esc(p.barcode)}</td>
-      <td>${esc(p.middleBarcode || "")}</td>
-      <td>${esc(p.logisticsBarcode)}</td>
-      <td>${esc(p.ecountName || p.name)}</td>
-      <td${statusStyle}>${esc(p.status || "")}</td>
-      <td data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
-      <td>${esc(p.deliveryVendorCode || "")}</td>
-      <td>${esc(p.deliveryItemName || "")}</td>
-      <td>${esc(p.spec || "")}</td>
-      <td>${esc(p.purchaseVendor || "")}</td>
-      <td>${esc(p.supplyType || "")}</td>
-      <td>${esc(p.orderDept || "")}</td>
-      <td data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
-      <td>${esc(p.purchaseItemCode || "")}</td>
-      <td>${esc(p.purchaseItemName || "")}</td>
-      <td>${esc(p.warehouseGroup || "")}</td>
-      <td data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
-      <td>${esc(p.itemType || "")}</td>
-      <td data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+      <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
+      <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
+      <td data-col-orig-idx="2">${esc(p.barcode)}</td>
+      <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
+      <td data-col-orig-idx="4">${esc(p.logisticsBarcode)}</td>
+      <td data-col-orig-idx="5">${esc(p.ecountName || p.name)}</td>
+      <td data-col-orig-idx="6"${statusStyle}>${esc(p.status || "")}</td>
+      <td data-col-orig-idx="7" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
+      <td data-col-orig-idx="8">${esc(p.deliveryVendorCode || "")}</td>
+      <td data-col-orig-idx="9">${esc(p.deliveryItemName || "")}</td>
+      <td data-col-orig-idx="10">${esc(p.spec || "")}</td>
+      <td data-col-orig-idx="11">${esc(p.purchaseVendor || "")}</td>
+      <td data-col-orig-idx="12">${esc(p.supplyType || "")}</td>
+      <td data-col-orig-idx="13">${esc(p.orderDept || "")}</td>
+      <td data-col-orig-idx="14" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+      <td data-col-orig-idx="15">${esc(p.purchaseItemCode || "")}</td>
+      <td data-col-orig-idx="16">${esc(p.purchaseItemName || "")}</td>
+      <td data-col-orig-idx="17">${esc(p.warehouseGroup || "")}</td>
+      <td data-col-orig-idx="18" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
+      <td data-col-orig-idx="19">${esc(p.itemType || "")}</td>
+      <td data-col-orig-idx="20" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
     </tr>`;
     })
     .join("");
@@ -1248,7 +1418,29 @@ function renderProducts() {
         <div class="products-bh-table-outer">
           <div class="table-scroll-x products-bh-y-scroll">
             <table id="products-table">
-              <thead><tr><th><input id="product-check-all" type="checkbox" /></th><th>품목코드(이카운트)</th><th>바코드(SKU)</th><th>바코드(중포)</th><th>바코드(CT)</th><th>품목명(이카운트)</th><th>상태</th><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th>규격</th><th>구매처</th><th>수급형태</th><th>발주부서</th><th>발주담당자</th><th>구매처 품목코드</th><th>구매처 품목명</th><th>창고그룹(이카운트)</th><th>사용창고</th><th>구분</th><th>카테고리</th></tr></thead>
+              <thead><tr>
+                <th data-col-orig-idx="0" data-col-label=""><input id="product-check-all" type="checkbox" /></th>
+                <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
+                <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
+                <th data-col-orig-idx="3" data-col-label="바코드(중포)">바코드(중포)</th>
+                <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
+                <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
+                <th data-col-orig-idx="6" data-col-label="상태">상태</th>
+                <th data-col-orig-idx="7" data-col-label="판매처">판매처</th>
+                <th data-col-orig-idx="8" data-col-label="판매처관리코드">판매처관리코드</th>
+                <th data-col-orig-idx="9" data-col-label="판매처 품목명">판매처 품목명</th>
+                <th data-col-orig-idx="10" data-col-label="규격">규격</th>
+                <th data-col-orig-idx="11" data-col-label="구매처">구매처</th>
+                <th data-col-orig-idx="12" data-col-label="수급형태">수급형태</th>
+                <th data-col-orig-idx="13" data-col-label="발주부서">발주부서</th>
+                <th data-col-orig-idx="14" data-col-label="발주담당자">발주담당자</th>
+                <th data-col-orig-idx="15" data-col-label="구매처 품목코드">구매처 품목코드</th>
+                <th data-col-orig-idx="16" data-col-label="구매처 품목명">구매처 품목명</th>
+                <th data-col-orig-idx="17" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
+                <th data-col-orig-idx="18" data-col-label="사용창고">사용창고</th>
+                <th data-col-orig-idx="19" data-col-label="구분">구분</th>
+                <th data-col-orig-idx="20" data-col-label="카테고리">카테고리</th>
+              </tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -1628,46 +1820,14 @@ function renderProducts() {
 
   const colOverlay = qs("#product-columns-overlay");
   qs("#product-column-settings")?.addEventListener("click", () => {
-    const body = qs("#product-columns-body");
-    if (!body || !colOverlay) return;
-    const heads = Array.from(document.querySelectorAll("#products-table thead th"));
-    let hidden = [];
-    try {
-      hidden = JSON.parse(localStorage.getItem(PRODUCT_HIDDEN_COLS_KEY) || "[]");
-    } catch (_) {
-      hidden = [];
-    }
-    body.innerHTML = heads
-      .map((th, i) => {
-        const nth = i + 1;
-        if (nth === 1) return "";
-        const lab = th.textContent.trim() || `\uc5f4 ${nth}`;
-        const checked = !hidden.includes(nth);
-        return `<label><input type="checkbox" data-nth="${nth}" ${checked ? "checked" : ""} /> ${esc(lab)}</label>`;
-      })
-      .join("");
-    colOverlay.classList.remove("hidden");
+    openColumnSettingsUI(qs("#product-columns-body"), "#products-table", true);
+    colOverlay?.classList.remove("hidden");
   });
   qs("#product-columns-close")?.addEventListener("click", () => colOverlay?.classList.add("hidden"));
-  if (colOverlay) {
-    colOverlay.addEventListener("click", (e) => {
-      if (e.target === colOverlay) colOverlay.classList.add("hidden");
-    });
-  }
+  colOverlay?.addEventListener("click", (e) => { if (e.target === colOverlay) colOverlay.classList.add("hidden"); });
   qs("#product-columns-save")?.addEventListener("click", () => {
-    const body = qs("#product-columns-body");
-    const hidden = [];
-    body?.querySelectorAll('input[type="checkbox"]').forEach((inp) => {
-      const nth = parseInt(inp.dataset.nth || "0", 10);
-      if (!nth || nth === 1) return;
-      if (!inp.checked) hidden.push(nth);
-    });
-    try {
-      localStorage.setItem(PRODUCT_HIDDEN_COLS_KEY, JSON.stringify(hidden));
-    } catch (_) {
-      /* ignore */
-    }
-    applyProductHiddenColumnStyles();
+    saveColumnSettingsUI(qs("#product-columns-body"), PRODUCT_HIDDEN_COLS_KEY);
+    applyTableColumnConfig("#products-table", PRODUCT_HIDDEN_COLS_KEY, true);
     colOverlay?.classList.add("hidden");
   });
 
@@ -1756,12 +1916,18 @@ function renderProducts() {
     Array.from(document.querySelectorAll(".product-row-check:checked")).map((el) => String(el.dataset.code || ""));
   const checkAllEl = qs("#product-check-all");
   if (checkAllEl) {
+    checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
     checkAllEl.onchange = () => {
       document.querySelectorAll(".product-row-check").forEach((el) => {
         el.checked = checkAllEl.checked;
+        el.closest("tr")?.classList.toggle("product-row-checked", checkAllEl.checked);
       });
     };
   }
+  document.querySelectorAll(".product-row-check").forEach((el) => {
+    el.addEventListener("mousedown", (e) => e.preventDefault());
+    el.onchange = () => el.closest("tr")?.classList.toggle("product-row-checked", el.checked);
+  });
 
   const editSelectedBtn = qs("#product-edit-selected");
   if (editSelectedBtn) {
@@ -1924,177 +2090,258 @@ function renderProducts() {
       alert(err.message || "전체 다운로드 실패");
     }
   };
-  applyProductHiddenColumnStyles();
+  applyTableColumnConfig("#products-table", PRODUCT_HIDDEN_COLS_KEY, true);
   applyExcelLikeFilter("#products-table", applyProductListFilters);
 }
 
 function renderStock() {
+  stockPageIndex = 0;
   const all = state.stock;
-  const totalLow = all.filter((s) => Number(s.stock) <= Number(s.safetyStock || 0)).length;
-  const totalOk = all.filter((s) => Number(s.stock) > Number(s.safetyStock || 0) && Number(s.stock) <= Number(s.optimalStock || Infinity)).length;
+  const totalLow  = all.filter((s) => Number(s.stock) <= Number(s.safetyStock || 0)).length;
+  const totalOk   = all.filter((s) => Number(s.stock) > Number(s.safetyStock || 0) && (Number(s.optimalStock || 0) === 0 || Number(s.stock) <= Number(s.optimalStock || 0))).length;
   const totalOver = all.filter((s) => Number(s.optimalStock || 0) > 0 && Number(s.stock) > Number(s.optimalStock || 0)).length;
-
   const warehouseOptions = [`<option value="ALL">창고 전체</option>`, ...(state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`)].join("");
 
+  const rows = all.map((s) => {
+    const totalStock  = Number(s.stock || 0);
+    const unusable    = Number(s.unusableStock || 0);
+    const stock       = totalStock - unusable;
+    const safety  = Number(s.safetyStock || 0);
+    const optimal = Number(s.optimalStock || 0);
+    const isLow   = stock <= safety;
+    const isOver  = optimal > 0 && stock > optimal;
+    const rowClass = isLow ? "stock-row-low" : isOver ? "stock-row-over" : "";
+    const statusBadge = isLow
+      ? `<span class="stock-badge stock-badge-low">부족</span>`
+      : isOver
+      ? `<span class="stock-badge stock-badge-over">초과</span>`
+      : `<span class="stock-badge stock-badge-ok">정상</span>`;
+    const stockLvl = isLow ? "LOW" : isOver ? "OVER" : "OK";
+    let barHtml = "-";
+    if (optimal > 0) {
+      const pct = Math.min((stock / optimal) * 100, 100).toFixed(0);
+      const barColor = isLow ? "var(--red)" : isOver ? "var(--accent-2)" : "var(--green)";
+      barHtml = `<div class="stock-bar-wrap"><div class="stock-bar-track"><div class="stock-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="stock-bar-pct">${pct}%</span></div>`;
+    }
+    const searchText = `${s.code} ${s.name} ${s.ecountCode || ""} ${s.barcode || ""} ${s.warehouse || ""}`.toLowerCase();
+    return `<tr class="${rowClass}" data-code="${esc(s.code)}" data-wh="${esc(s.warehouse || "")}" data-lvl="${stockLvl}" data-search="${esc(searchText)}">
+      <td data-col-orig-idx="0">${statusBadge}</td>
+      <td data-col-orig-idx="1">${esc(s.warehouse || "-")}</td>
+      <td data-col-orig-idx="2">${esc(s.ecountCode || s.code)}</td>
+      <td data-col-orig-idx="3">${esc(s.name)}</td>
+      <td data-col-orig-idx="4">${esc(s.category || "-")}</td>
+      <td data-col-orig-idx="5">${esc(s.salesVendor || "-")}</td>
+      <td data-col-orig-idx="6">${esc(s.purchaseVendor || "-")}</td>
+      <td data-col-orig-idx="7">${esc(s.supplyType || "-")}</td>
+      <td data-col-orig-idx="8">${esc(s.unit || "-")}</td>
+      <td data-col-orig-idx="9" class="num">${safety}</td>
+      <td data-col-orig-idx="10" class="num">${optimal || "-"}</td>
+      <td data-col-orig-idx="11" class="num stock-qty ${isLow ? "stock-qty-low" : ""}">${stock}</td>
+      <td data-col-orig-idx="12" class="num">${unusable > 0 ? `<span style="color:#E07000;font-weight:600;">${unusable}</span>` : "-"}</td>
+      <td data-col-orig-idx="13">${barHtml}</td>
+    </tr>`;
+  }).join("");
+
   qs("#view-stock").innerHTML = `
-    <div class="stock-page">
-      <div class="stock-header">
-        <div class="stock-header-title">
-          <h2>재고현황</h2>
-          <span class="stock-total-badge">${all.length}개 상품</span>
+    <div class="products-bh">
+      <div class="card products-bh-card">
+        <div class="products-bh-toolbar">
+          <h2 class="products-bh-title">재고현황</h2>
+          <div class="products-bh-actions">
+            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="stock-column-settings">컬럼 설정</button>
+            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="stock-export-btn">엑셀 내보내기</button>
+          </div>
         </div>
-        <div class="stock-summary-cards">
-          <div class="stock-summary-card stock-sc-all" data-filter="ALL">
-            <div class="stock-sc-label">전체</div>
-            <div class="stock-sc-value">${all.length}</div>
+
+        <div class="stock-summary-cards" style="margin-bottom:12px;">
+          <div class="stock-summary-card stock-sc-all" data-filter="ALL"><div class="stock-sc-label">전체</div><div class="stock-sc-value">${all.length}</div></div>
+          <div class="stock-summary-card stock-sc-ok"  data-filter="OK" ><div class="stock-sc-label">정상</div><div class="stock-sc-value">${totalOk}</div></div>
+          <div class="stock-summary-card stock-sc-low" data-filter="LOW"><div class="stock-sc-label">재고부족</div><div class="stock-sc-value">${totalLow}</div></div>
+          <div class="stock-summary-card stock-sc-over" data-filter="OVER"><div class="stock-sc-label">적정초과</div><div class="stock-sc-value">${totalOver}</div></div>
+        </div>
+
+        <div class="products-bh-search-row">
+          <div class="products-bh-search-wrap">
+            <span class="bh-search-icon" aria-hidden="true">🔍</span>
+            <input type="text" id="stock-q" class="products-bh-search" placeholder="상품코드, 상품명, 바코드 검색" autocomplete="off" />
+            <button type="button" class="bh-search-go" id="stock-search-btn">조회</button>
           </div>
-          <div class="stock-summary-card stock-sc-ok" data-filter="OK">
-            <div class="stock-sc-label">정상</div>
-            <div class="stock-sc-value">${totalOk}</div>
+          <select id="stock-warehouse" class="bh-select">${warehouseOptions}</select>
+          <select id="stock-status" class="bh-select">
+            <option value="ALL">상태 전체</option>
+            <option value="LOW">재고부족</option>
+            <option value="OK">정상</option>
+            <option value="OVER">적정재고 초과</option>
+          </select>
+        </div>
+        <p id="stock-result" class="muted products-bh-result">전체 ${all.length}건</p>
+
+        <div class="products-bh-table-outer">
+          <div class="table-scroll-x products-bh-y-scroll">
+            <table id="stock-table">
+              <thead><tr>
+                <th data-col-orig-idx="0" data-col-label="상태">상태</th>
+                <th data-col-orig-idx="1" data-col-label="창고">창고</th>
+                <th data-col-orig-idx="2" data-col-label="상품코드(이카운트)">상품코드(이카운트)</th>
+                <th data-col-orig-idx="3" data-col-label="상품명">상품명</th>
+                <th data-col-orig-idx="4" data-col-label="카테고리">카테고리</th>
+                <th data-col-orig-idx="5" data-col-label="판매처">판매처</th>
+                <th data-col-orig-idx="6" data-col-label="구매처">구매처</th>
+                <th data-col-orig-idx="7" data-col-label="수급형태">수급형태</th>
+                <th data-col-orig-idx="8" data-col-label="단위">단위</th>
+                <th data-col-orig-idx="9" data-col-label="안전재고">안전재고</th>
+                <th data-col-orig-idx="10" data-col-label="적정재고">적정재고</th>
+                <th data-col-orig-idx="11" data-col-label="가용재고">가용재고</th>
+                <th data-col-orig-idx="12" data-col-label="불용재고">불용재고</th>
+                <th data-col-orig-idx="13" data-col-label="재고수준">재고수준</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
           </div>
-          <div class="stock-summary-card stock-sc-low" data-filter="LOW">
-            <div class="stock-sc-label">재고부족</div>
-            <div class="stock-sc-value">${totalLow}</div>
-          </div>
-          <div class="stock-summary-card stock-sc-over" data-filter="OVER">
-            <div class="stock-sc-label">적정초과</div>
-            <div class="stock-sc-value">${totalOver}</div>
-          </div>
+        </div>
+
+        <div class="products-bh-pagination">
+          <label>보기
+            <select id="stock-page-size">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="99999" selected>전체</option>
+            </select>
+          </label>
+          <span id="stock-page-info">0 - 0 / 0</span>
+          <button type="button" id="stock-page-prev" class="bh-btn bh-btn-sm" title="이전">‹</button>
+          <button type="button" id="stock-page-next" class="bh-btn bh-btn-sm" title="다음">›</button>
         </div>
       </div>
+    </div>
 
-      <div class="stock-toolbar">
-        <div class="stock-search-wrap">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input id="stock-q" placeholder="상품코드, 상품명, 바코드 검색" />
+    <div id="stock-columns-overlay" class="modal-overlay hidden">
+      <div class="modal" style="width:min(420px,calc(100vw - 24px));">
+        <div class="modal-header">
+          <h3>컬럼 설정</h3>
+          <button type="button" id="stock-columns-close" class="cancel-btn del-small">닫기</button>
         </div>
-        <select id="stock-warehouse">${warehouseOptions}</select>
-        <select id="stock-status">
-          <option value="ALL">상태 전체</option>
-          <option value="LOW">재고부족</option>
-          <option value="OK">정상</option>
-          <option value="OVER">적정재고 초과</option>
-        </select>
-        <span id="stock-count-label" class="stock-count-label">표시: 0건</span>
-      </div>
-
-      <div class="stock-table-wrap">
-        <table id="stock-table" class="stock-table draggable-table">
-          <thead>
-            <tr>
-              <th draggable="true">상태</th>
-              <th draggable="true">창고</th>
-              <th draggable="true">상품코드</th>
-              <th draggable="true">상품명</th>
-              <th draggable="true">카테고리</th>
-              <th draggable="true">판매처</th>
-              <th draggable="true">구매처</th>
-              <th draggable="true">단위</th>
-              <th draggable="true">안전재고</th>
-              <th draggable="true">적정재고</th>
-              <th draggable="true">현재고</th>
-              <th draggable="true">재고수준</th>
-            </tr>
-          </thead>
-          <tbody id="stock-tbody"></tbody>
-        </table>
+        <p class="muted" style="margin:0 0 8px;font-size:12px;">체크 해제 시 해당 열을 숨깁니다.</p>
+        <div id="stock-columns-body" class="column-settings-list"></div>
+        <button type="button" class="primary" id="stock-columns-save" style="width:auto;">적용</button>
       </div>
     </div>
   `;
 
-  const draw = () => {
-    const q = (qs("#stock-q")?.value || "").trim().toLowerCase();
-    const status = (qs("#stock-status")?.value || "ALL").trim();
-    const warehouse = (qs("#stock-warehouse")?.value || "ALL").trim();
+  // ── 검색 + 필터 + 페이지네이션 ────────────────────────────────────────────
+  const searchInput  = qs("#stock-q");
+  const searchBtn    = qs("#stock-search-btn");
+  const resultEl     = qs("#stock-result");
+  const pageSizeEl   = qs("#stock-page-size");
+  const pageInfoEl   = qs("#stock-page-info");
+  const warehouseEl  = qs("#stock-warehouse");
+  const statusEl     = qs("#stock-status");
 
-    const filtered = state.stock.filter((s) => {
-      if (warehouse !== "ALL" && String(s.warehouse || "") !== warehouse) return false;
-      if (q) {
-        const hay = `${s.code} ${s.name} ${s.ecountCode || ""} ${s.barcode || ""} ${s.warehouse || ""}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (status === "LOW") return Number(s.stock) <= Number(s.safetyStock || 0);
-      if (status === "OK") return Number(s.stock) > Number(s.safetyStock || 0) && (Number(s.optimalStock || 0) === 0 || Number(s.stock) <= Number(s.optimalStock || 0));
-      if (status === "OVER") return Number(s.optimalStock || 0) > 0 && Number(s.stock) > Number(s.optimalStock || 0);
-      return true;
+  const applyFilters = () => {
+    const q   = (searchInput?.value || "").trim().toLowerCase();
+    const wh  = warehouseEl?.value || "ALL";
+    const lvl = statusEl?.value || "ALL";
+    const allRows = Array.from(document.querySelectorAll("#stock-table tbody tr"));
+    const matched = allRows.filter((tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") return false;
+      if (wh !== "ALL" && tr.dataset.wh !== wh) return false;
+      if (lvl !== "ALL" && tr.dataset.lvl !== lvl) return false;
+      return !q || String(tr.dataset.search || "").includes(q);
     });
-
-    const countLabel = qs("#stock-count-label");
-    if (countLabel) countLabel.textContent = `표시: ${filtered.length}건`;
-
-    const tbody = qs("#stock-tbody");
-    if (!tbody) return;
-
-    tbody.innerHTML = filtered.map((s) => {
-      const stock = Number(s.stock || 0);
-      const safety = Number(s.safetyStock || 0);
-      const optimal = Number(s.optimalStock || 0);
-      const isLow = stock <= safety;
-      const isOver = optimal > 0 && stock > optimal;
-
-      let statusBadge, rowClass;
-      if (isLow) {
-        statusBadge = `<span class="stock-badge stock-badge-low">부족</span>`;
-        rowClass = "stock-row-low";
-      } else if (isOver) {
-        statusBadge = `<span class="stock-badge stock-badge-over">초과</span>`;
-        rowClass = "stock-row-over";
-      } else {
-        statusBadge = `<span class="stock-badge stock-badge-ok">정상</span>`;
-        rowClass = "";
-      }
-
-      let barHtml = "-";
-      if (optimal > 0) {
-        const pct = Math.min((stock / optimal) * 100, 100).toFixed(0);
-        const barColor = isLow ? "var(--red)" : isOver ? "var(--accent-2)" : "var(--green)";
-        barHtml = `
-          <div class="stock-bar-wrap">
-            <div class="stock-bar-track">
-              <div class="stock-bar-fill" style="width:${pct}%;background:${barColor};"></div>
-            </div>
-            <span class="stock-bar-pct">${pct}%</span>
-          </div>`;
-      }
-
-      return `<tr class="${rowClass}" data-code="${esc(s.code)}">
-        <td>${statusBadge}</td>
-        <td>${esc(s.warehouse || "-")}</td>
-        <td class="stock-code">${esc(s.code)}</td>
-        <td class="stock-name">${esc(s.name)}</td>
-        <td>${esc(s.category || "-")}</td>
-        <td>${esc(s.salesVendor || "-")}</td>
-        <td>${esc(s.purchaseVendor || "-")}</td>
-        <td>${esc(s.unit || "-")}</td>
-        <td class="num">${safety}</td>
-        <td class="num">${optimal || "-"}</td>
-        <td class="num stock-qty ${isLow ? "stock-qty-low" : ""}">${stock}</td>
-        <td>${barHtml}</td>
-      </tr>`;
-    }).join("");
-
-    applyExcelLikeFilter("#stock-table");
-    enableColumnDrag("#stock-table");
-
-    // summary card click filter
-    qs(".stock-page").querySelectorAll(".stock-summary-card").forEach((card) => {
-      card.onclick = () => {
-        const f = card.dataset.filter;
-        const stEl2 = qs("#stock-status");
-        if (stEl2) { stEl2.value = f; draw(); }
-      };
+    const size  = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "99999", 10) || 99999));
+    const total = matched.length;
+    const pages = Math.max(1, Math.ceil(total / size));
+    if (stockPageIndex >= pages) stockPageIndex = pages - 1;
+    if (stockPageIndex < 0) stockPageIndex = 0;
+    const start = stockPageIndex * size;
+    let mi = 0;
+    allRows.forEach((tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") { tr.style.display = "none"; return; }
+      if (wh !== "ALL" && tr.dataset.wh !== wh) { tr.style.display = "none"; return; }
+      if (lvl !== "ALL" && tr.dataset.lvl !== lvl) { tr.style.display = "none"; return; }
+      if (q && !String(tr.dataset.search || "").includes(q)) { tr.style.display = "none"; return; }
+      tr.style.display = (mi >= start && mi < start + size) ? "" : "none";
+      mi++;
     });
+    if (pageInfoEl) pageInfoEl.textContent = total === 0 ? "0 - 0 / 0" : `${start + 1} - ${Math.min(total, start + size)} / ${total}`;
+    if (resultEl) {
+      if (q || wh !== "ALL" || lvl !== "ALL") resultEl.textContent = `필터 결과: ${total}건 (전체 ${allRows.length}건)`;
+      else resultEl.textContent = `전체 ${allRows.length}건`;
+    }
   };
 
-  draw();
+  preventEnterSubmit(qs("#stock-q").closest("div"));
+  searchBtn.onclick  = () => { stockPageIndex = 0; applyFilters(); };
+  searchInput.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); stockPageIndex = 0; applyFilters(); } };
+  searchInput.oninput = () => { stockPageIndex = 0; applyFilters(); };
+  warehouseEl.onchange = () => { stockPageIndex = 0; applyFilters(); };
+  statusEl.onchange    = () => { stockPageIndex = 0; applyFilters(); };
+  pageSizeEl.addEventListener("change", () => { stockPageIndex = 0; applyFilters(); });
 
-  const qEl = qs("#stock-q");
-  const wEl = qs("#stock-warehouse");
-  const stEl = qs("#stock-status");
-  if (qEl) qEl.oninput = () => draw();
-  if (qEl) qEl.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); draw(); } };
-  if (wEl) wEl.onchange = () => draw();
-  if (stEl) stEl.onchange = () => draw();
+  qs("#stock-page-prev").addEventListener("click", () => { stockPageIndex = Math.max(0, stockPageIndex - 1); applyFilters(); });
+  qs("#stock-page-next").addEventListener("click", () => {
+    const q2 = (searchInput?.value || "").trim().toLowerCase();
+    const allRows2 = Array.from(document.querySelectorAll("#stock-table tbody tr"));
+    const total2 = allRows2.filter((tr) => tr.dataset.wmsExcelVisible !== "0" && (!q2 || String(tr.dataset.search || "").includes(q2))).length;
+    const size2  = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "99999", 10) || 99999));
+    stockPageIndex = Math.min(Math.max(1, Math.ceil(total2 / size2)) - 1, stockPageIndex + 1);
+    applyFilters();
+  });
+
+  // 요약 카드 클릭
+  document.querySelectorAll(".stock-summary-card").forEach((card) => {
+    card.style.cursor = "pointer";
+    card.onclick = () => { if (statusEl) { statusEl.value = card.dataset.filter; stockPageIndex = 0; applyFilters(); } };
+  });
+
+  // ── 컬럼 설정 ──────────────────────────────────────────────────────────────
+  const stockColOverlay = qs("#stock-columns-overlay");
+  qs("#stock-column-settings")?.addEventListener("click", () => {
+    openColumnSettingsUI(qs("#stock-columns-body"), "#stock-table", false);
+    stockColOverlay?.classList.remove("hidden");
+  });
+  qs("#stock-columns-close")?.addEventListener("click", () => stockColOverlay?.classList.add("hidden"));
+  stockColOverlay?.addEventListener("click", (e) => { if (e.target === stockColOverlay) stockColOverlay.classList.add("hidden"); });
+  qs("#stock-columns-save")?.addEventListener("click", () => {
+    saveColumnSettingsUI(qs("#stock-columns-body"), STOCK_HIDDEN_COLS_KEY);
+    applyTableColumnConfig("#stock-table", STOCK_HIDDEN_COLS_KEY, false);
+    stockColOverlay?.classList.add("hidden");
+  });
+
+  // ── 엑셀 내보내기 ──────────────────────────────────────────────────────────
+  qs("#stock-export-btn").onclick = () => {
+    try {
+      const visible = Array.from(document.querySelectorAll("#stock-table tbody tr")).filter((tr) => tr.style.display !== "none");
+      const exportRows = visible.map((tr) => {
+        const tds = tr.querySelectorAll("td");
+        const getText = (i) => tds[i]?.textContent.trim() || "";
+        return {
+          "상태": getText(0),
+          "창고": getText(1),
+          "상품코드(이카운트)": getText(2),
+          "상품명": getText(3),
+          "카테고리": getText(4),
+          "판매처": getText(5),
+          "구매처": getText(6),
+          "단위": getText(7),
+          "안전재고": getText(8),
+          "적정재고": getText(9),
+          "현재고": getText(10),
+          "재고수준(%)": getText(11),
+        };
+      });
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "재고현황");
+      XLSX.writeFile(wb, `재고현황-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      alert(err.message || "내보내기 실패");
+    }
+  };
+
+  applyExcelLikeFilter("#stock-table", applyFilters);
+  applyTableColumnConfig("#stock-table", STOCK_HIDDEN_COLS_KEY, false);
 }
 
 function enableColumnDrag(tableSelector) {
@@ -3419,7 +3666,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     <!-- 컴팩트 헤더 -->
     <div class="ob-topbar card">
       <div class="ob-topbar-left">
-        <span class="ob-partner-badge">${esc(partner)}</span>
+        ${key === "emart" ? `<img src="/logos/이마트.png" class="ob-partner-logo" alt="이마트">` : key === "daiso" ? `<img src="/logos/다이소_로고_(2).png" class="ob-partner-logo" alt="다이소">` : key === "lotte" ? `<img src="/logos/롯데마트.png" class="ob-partner-logo" alt="롯데마트">` : `<span class="ob-partner-badge">${esc(partner)}</span>`}
         <span class="ob-topbar-title">판매처별 업로드</span>
         <div class="ob-pipeline-inline">
           <span>업로드</span><span class="ob-pi-arrow">›</span>
@@ -4348,7 +4595,7 @@ async function renderOutboundPartnerUpload(partner, key) {
               <h4 style="margin:12px 0 6px; font-size:14px;">품목 라인</h4>
               <div class="outbound-list-scroll" style="max-height:min(420px,50vh);">
                 <table class="outbound-nested-table"><thead><tr>
-                  <th>#</th><th>센터 통합 전표</th><th>원본 전표</th><th>상품코드</th><th>품명</th><th>확정수량</th><th>창고</th><th>LOT</th><th>주문수량</th><th>확인수량</th><th>미출</th>
+                  <th>#</th><th>센터 통합 전표</th><th>원본 전표</th><th>상품코드</th><th>품명</th><th>확정수량</th><th>창고</th><th>${key === "lotte" ? "BOX" : "LOT"}</th><th>주문수량</th><th>확인수량</th><th>미출</th>
                 </tr></thead><tbody>${
                   lineRows || `<tr><td colspan="11" class="muted">없음</td></tr>`
                 }</tbody></table>
@@ -4468,11 +4715,15 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       // 센터 탭
       if (unshipTabsEl) {
-        const tabs = key === "emart" ? ["all", "여주", "대구", "시화"] : ["all"];
+        const tabs = key === "emart"
+          ? ["all", "여주", "대구", "시화"]
+          : key === "lotte"
+          ? ["all", ...Object.keys(counts).filter((k) => k !== "all").sort()]
+          : ["all"];
         unshipTabsEl.className = "seg-tabs";
         unshipTabsEl.innerHTML = tabs
           .map((t) => {
-            const label = t === "all" ? "전체" : `${t}센터`;
+            const label = t === "all" ? "전체" : (t.endsWith("센터") ? t : `${t}센터`);
             const n = Number(counts[t] ?? 0);
             return `<button type="button" class="${t === unshipCenterTab ? "seg-tab active" : "seg-tab"} outbound-unship-tab-${key}" data-tab="${esc(t)}">${label}(${n})</button>`;
           })
@@ -4651,7 +4902,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           <table id="outbound-unship-table-list-${key}">
             <thead><tr>
               <th>순번</th><th>납기일</th><th>센터명</th><th>센터코드</th><th>전표번호</th><th>점포명</th>
-              <th>상품코드</th><th>상품명</th><th>주문수량</th><th>확정수량</th><th>점입점일자</th><th>발주일자</th><th>LOT</th><th>창고</th>
+              <th>상품코드</th><th>상품명</th><th>주문수량</th><th>확정수량</th><th>점입점일자</th><th>발주일자</th><th>${key === "lotte" ? "BOX" : "LOT"}</th><th>창고</th>
             </tr></thead>
             <tbody>${rows || `<tr><td colspan="14" class="muted">미출 라인이 없습니다.</td></tr>`}</tbody>
           </table>
@@ -4785,7 +5036,11 @@ async function renderOutboundPartnerUpload(partner, key) {
         )
       );
       if (lineTabsEl) {
-        const tabs = key === "emart" ? ["all", "여주", "대구", "시화"] : ["all"];
+        const tabs = key === "emart"
+          ? ["all", "여주", "대구", "시화"]
+          : key === "lotte"
+          ? ["all", ...Object.keys(counts).filter((k) => k !== "all").sort()]
+          : ["all"];
         lineTabsEl.className = "seg-tabs";
         lineTabsEl.innerHTML = tabs
           .map((t) => {
@@ -4870,6 +5125,9 @@ async function renderOutboundPartnerUpload(partner, key) {
             });
             const lineCheckAll = qs(`#outbound-line-check-all-${key}`);
             if (lineCheckAll) lineCheckAll.checked = false;
+            lineSearchQ = "";
+            const lineSearchEl = qs(`#outbound-line-search-${key}`);
+            if (lineSearchEl) lineSearchEl.value = "";
             await loadLines();
           } catch (e) {
             alert(e.message || "일괄 적용 저장 실패");
@@ -4908,12 +5166,13 @@ async function renderOutboundPartnerUpload(partner, key) {
           const initialFixedRaw =
             x.fixedQty != null && String(x.fixedQty).trim() !== "" ? Number(String(x.fixedQty).replace(/,/g, "")) : orderQty;
           const initialFixed = initialStatus === "미출" ? 0 : Number.isFinite(initialFixedRaw) ? Math.max(0, Math.round(initialFixedRaw)) : orderQty;
+          const isLotte = key === "lotte";
           return `<tr class="${initialStatus === "미출" ? "outbound-unship-row" : ""}" data-line-key="${esc(rowKey)}">
             <td><input type="checkbox" class="outbound-line-check outbound-line-check-${key}" data-line-key="${esc(
               rowKey
             )}" ${selectedLineKeys.has(rowKey) ? "checked" : ""} /></td>
-            <td>${centerSeq}</td><td>${esc(x.storeInDate || x.dueDate || "")}</td><td>${esc(x.poDate || x.orderDate || "")}</td>
-            <td>${esc(x.storeName || "")}</td><td>${esc(x.sourceProductCode || x.productCode || "")}</td><td>${esc(x.productName || "")}</td>
+            <td>${centerSeq}</td>${isLotte ? "" : `<td>${esc(x.storeInDate || x.dueDate || "")}</td>`}<td>${esc(x.poDate || x.orderDate || "")}</td>
+            <td>${esc(x.storeName || "")}</td>${isLotte ? `<td>${esc(x.sourceProductCode || x.productCode || "")}</td><td>${esc(x.barcode || "")}</td>` : `<td>${esc(x.sourceProductCode || x.productCode || "")}</td>`}<td>${esc(x.productName || "")}</td>
             <td>${esc(x.orderUnit || "")}</td><td>${esc(x.lot || "")}</td><td>${esc(String(x.orderQty || ""))}</td>
             <td>
               <select class="outbound-status-select-${key}" data-row="${idx}" data-order-qty="${orderQty}" data-upload-batch-id="${esc(
@@ -4926,13 +5185,20 @@ async function renderOutboundPartnerUpload(partner, key) {
             <td><input type="number" min="0" step="1" class="outbound-fixed-qty-${key}" data-row="${idx}" value="${esc(
               String(initialFixed)
             )}" style="width:90px;" readonly /></td><td>${esc(x.orderAmount || "")}</td>
-            <td>${esc(x.centerInDate || "")}</td><td>${esc(x.centerCode || "")}</td><td>${esc(x.centerName || "")}</td>
+            <td>${esc(x.centerInDate || (isLotte ? x.dueDate : ""))}</td>${isLotte ? "" : `<td>${esc(x.centerCode || "")}</td>`}<td>${esc(x.centerName || "")}</td>
           </tr>`;
         })
         .join("");
+      const isLotteView = key === "lotte";
+      const lineColCount = isLotteView ? 15 : 16;
+      const lineStoreInHeader = isLotteView ? "" : `<th>점입점일자</th>`;
+      const lineCodeHeader = isLotteView ? `<th>판매코드(바코드)</th><th>롯데상품코드</th>` : `<th>상품코드</th>`;
+      const lineNameHeader = isLotteView ? `<th>상품명(판매처)</th>` : `<th>상품명</th>`;
+      const lineUnitHeaders = isLotteView ? `<th>입수</th><th>BOX</th>` : `<th>발주단위</th><th>LOT</th>`;
+      const lineCenterHeaders = isLotteView ? `<th>센터입하일자</th><th>센터이름</th>` : `<th>센터입하일자</th><th>센터코드</th><th>센터이름</th>`;
       lineTableEl.innerHTML = `<div class="outbound-list-scroll"><table id="outbound-line-table-list-${key}">
-        <thead><tr><th><input type="checkbox" class="outbound-line-check-all" id="outbound-line-check-all-${key}" /></th><th>순번</th><th>점입점일자</th><th>발주일자</th><th>점포명</th><th>상품코드</th><th>상품명</th><th>발주단위</th><th>LOT</th><th>수량</th><th>출고상태</th><th>확정수량</th><th>발주금액</th><th>센터입하일자</th><th>센터코드</th><th>센터이름</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="16" class="muted">업로드된 라인이 없습니다.</td></tr>`}</tbody>
+        <thead><tr><th><input type="checkbox" class="outbound-line-check-all" id="outbound-line-check-all-${key}" /></th><th>순번</th>${lineStoreInHeader}<th>발주일자</th><th>점포명</th>${lineCodeHeader}${lineNameHeader}${lineUnitHeaders}<th>수량</th><th>출고상태</th><th>확정수량</th><th>발주금액</th>${lineCenterHeaders}</tr></thead>
+        <tbody>${rows || `<tr><td colspan="${lineColCount}" class="muted">업로드된 라인이 없습니다.</td></tr>`}</tbody>
       </table></div>`;
       delete TABLE_FILTER_MEMORY[`#outbound-line-table-list-${key}`];
       applyExcelLikeFilter(`#outbound-line-table-list-${key}`);
@@ -5132,7 +5398,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     if (!file) return;
     try {
       if (statusEl) statusEl.textContent = "파일 파싱 중...";
-      const matrix = await parseSheetMatrix(file);
+      const matrix = key === "lotte" ? await parseLotteNativeMatrix(file) : await parseSheetMatrix(file);
       const orderDate = inferDateFromFilename(file.name) || "";
       const res = await api("/api/outbound-order-upload", {
         method: "POST",
@@ -5336,7 +5602,12 @@ function renderAdjust() {
     <div class="card">
       <h2>재고 조정 / 이동</h2>
       <form id="ADJUST-form">
-        <div><label>상품 검색(코드)</label><input name="productCode" required /></div>
+        <div><label>상품 검색</label>
+          <div style="display:flex;gap:8px;">
+            <input id="ADJUST-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <button type="button" id="ADJUST-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
+          </div>
+        </div>
         <div><label>창고</label><input name="warehouse" list="ADJUST-warehouse-list" required /></div>
         <datalist id="ADJUST-warehouse-list">${warehouseOptions}</datalist>
         <div><label>조정수량(+/-)</label><input name="qty" type="number" required /></div>
@@ -5345,11 +5616,19 @@ function renderAdjust() {
         <div><label>메모</label><input name="memo" placeholder="파손/오차 등" /></div>
         <div><button id="ADJUST-submit" class="primary" type="button">조정 등록</button></div>
       </form>
+      <div id="ADJUST-suggest-wrap" style="display:none;margin-top:12px;">
+        <ul id="ADJUST-suggest" style="margin:0;padding:0;list-style:none;border:1px solid #D1D5DB;border-radius:6px;overflow:hidden;"></ul>
+      </div>
     </div>
     <div class="card">
       <h3>로케이션 간 이동 <span style="font-size:12px;color:#64748b;font-weight:400;">(동일 창고 내)</span></h3>
       <form id="LOC-TRANSFER-form">
-        <div><label>상품 검색(코드)</label><input name="productCode" required /></div>
+        <div><label>상품 검색</label>
+          <div style="display:flex;gap:8px;">
+            <input id="LOC-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <button type="button" id="LOC-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
+          </div>
+        </div>
         <div><label>창고</label><input name="warehouse" list="LOC-warehouse-list" required /></div>
         <datalist id="LOC-warehouse-list">${warehouseOptions}</datalist>
         <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="LOC-from-loc-list" required placeholder="예: A-01-01" /></div>
@@ -5362,11 +5641,19 @@ function renderAdjust() {
         <div><label>메모</label><input name="memo" placeholder="로케이션 이동" /></div>
         <div><button id="LOC-TRANSFER-submit" class="primary" type="button">로케이션 이동 등록</button></div>
       </form>
+      <div id="LOC-suggest-wrap" style="display:none;margin-top:12px;">
+        <ul id="LOC-suggest" style="margin:0;padding:0;list-style:none;border:1px solid #D1D5DB;border-radius:6px;overflow:hidden;"></ul>
+      </div>
     </div>
     <div class="card">
       <h3>창고 간 이동 <span style="font-size:12px;color:#64748b;font-weight:400;">(다른 창고로)</span></h3>
       <form id="TRANSFER-form">
-        <div><label>상품 검색(코드)</label><input name="productCode" required /></div>
+        <div><label>상품 검색</label>
+          <div style="display:flex;gap:8px;">
+            <input id="TRANSFER-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <button type="button" id="TRANSFER-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
+          </div>
+        </div>
         <div><label>출발창고</label><input name="warehouse" list="TRANSFER-from-list" required /></div>
         <datalist id="TRANSFER-from-list">${warehouseOptions}</datalist>
         <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="TRANSFER-from-loc-list" required placeholder="예: A-01-01" /></div>
@@ -5381,8 +5668,111 @@ function renderAdjust() {
         <div><label>메모</label><input name="memo" placeholder="창고 이동" /></div>
         <div><button id="TRANSFER-submit" class="primary" type="button">창고 이동 등록</button></div>
       </form>
+      <div id="TRANSFER-suggest-wrap" style="display:none;margin-top:12px;">
+        <ul id="TRANSFER-suggest" style="margin:0;padding:0;list-style:none;border:1px solid #D1D5DB;border-radius:6px;overflow:hidden;"></ul>
+      </div>
+    </div>
+
+    <div class="card" id="UNUSABLE-card">
+      <h3>상태 변환 <span style="font-size:12px;color:#64748b;font-weight:400;">가용재고 ↔ 불용재고</span></h3>
+      <form id="UNUSABLE-form">
+        <div>
+          <label>상품 검색</label>
+          <div style="display:flex;gap:8px;">
+            <input id="UNUSABLE-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" />
+            <button type="button" id="UNUSABLE-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
+          </div>
+        </div>
+        <div>
+          <label>전환 방향</label>
+          <select name="direction" id="UNUSABLE-direction" class="bh-select">
+            <option value="lock">가용 → 불용</option>
+            <option value="unlock">불용 → 가용</option>
+          </select>
+        </div>
+        <div><label>수량</label><input name="qty" id="UNUSABLE-qty" type="number" min="1" placeholder="전환할 수량" required /></div>
+        <div>
+          <label>사유</label>
+          <select name="reason" id="UNUSABLE-reason" class="bh-select">
+            <option value="">-- 사유 선택 --</option>
+            <option value="파손">파손</option>
+            <option value="유효기간 만료">유효기간 만료</option>
+            <option value="품질 불량">품질 불량</option>
+            <option value="분실">분실</option>
+            <option value="오입고">오입고</option>
+            <option value="복구 (불용해제)">복구 (불용해제)</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div><label>담당자</label><input name="user" list="UNUSABLE-manager-list" /></div>
+        <datalist id="UNUSABLE-manager-list">${managerOptions}</datalist>
+        <div><button id="UNUSABLE-submit" class="primary" type="button">상태 변환 등록</button></div>
+      </form>
+      <div id="UNUSABLE-suggest-wrap" style="display:none;margin-top:12px;">
+        <ul id="UNUSABLE-suggest" style="margin:0;padding:0;list-style:none;border:1px solid #D1D5DB;border-radius:6px;overflow:hidden;"></ul>
+      </div>
+      <div id="UNUSABLE-stock-info" style="display:none;margin-top:12px;background:#F8F9FB;border:1px solid #E5E8EE;border-radius:8px;padding:12px 16px;">
+        <div style="display:flex;gap:24px;font-size:14px;margin-bottom:10px;align-items:center;">
+          <span style="font-weight:600;color:#222;" id="UNUSABLE-name"></span>
+          <span>가용재고: <strong id="UNUSABLE-avail" style="color:#1B3F6E;">-</strong></span>
+          <span>불용재고: <strong id="UNUSABLE-unusable" style="color:#E07000;">-</strong></span>
+        </div>
+        <table id="UNUSABLE-loc-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="background:#E8EEF7;color:#1B3F6E;">
+              <th style="padding:6px 10px;text-align:left;border-radius:4px 0 0 4px;">창고</th>
+              <th style="padding:6px 10px;text-align:left;">로케이션</th>
+              <th style="padding:6px 10px;text-align:right;border-radius:0 4px 4px 0;">수량</th>
+            </tr>
+          </thead>
+          <tbody id="UNUSABLE-loc-body"></tbody>
+        </table>
+      </div>
     </div>
   `;
+  // ── 공통 상품 검색 ──────────────────────────────────────────────────────────
+  const setupProductSearch = (inputId, btnId, suggestWrapperId, suggestId) => {
+    const input = qs(`#${inputId}`);
+    const btn = qs(`#${btnId}`);
+    const wrap = qs(`#${suggestWrapperId}`);
+    const ul = qs(`#${suggestId}`);
+    if (!input || !wrap || !ul) return;
+
+    const close = () => { wrap.style.display = "none"; };
+
+    const render = (q) => {
+      if (!q) { close(); return; }
+      const lower = q.toLowerCase();
+      const matched = state.products.filter((p) =>
+        (p.code || "").toLowerCase().includes(lower) ||
+        (p.ecountCode || "").toLowerCase().includes(lower) ||
+        (p.name || "").toLowerCase().includes(lower) ||
+        (p.ecountName || "").toLowerCase().includes(lower)
+      ).slice(0, 12);
+      if (!matched.length) { close(); return; }
+      ul.innerHTML = matched.map((p) =>
+        `<li data-code="${esc(p.code)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #F3F4F6;display:flex;gap:12px;align-items:center;">
+          <span style="font-weight:600;color:#1B3F6E;min-width:90px;">${esc(p.code)}</span>
+          <span style="color:#374151;">${esc(p.ecountName || p.name)}</span>
+        </li>`
+      ).join("");
+      wrap.style.display = "block";
+      ul.querySelectorAll("li").forEach((li) => {
+        li.addEventListener("click", () => { input.value = li.dataset.code; close(); });
+        li.addEventListener("mouseover", () => { li.style.background = "#F0F4FF"; });
+        li.addEventListener("mouseout", () => { li.style.background = ""; });
+      });
+    };
+
+    input.addEventListener("input", () => render(input.value.trim()));
+    btn?.addEventListener("click", () => render(input.value.trim()));
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); render(input.value.trim()); } });
+  };
+
+  setupProductSearch("ADJUST-productCode", "ADJUST-search-btn", "ADJUST-suggest-wrap", "ADJUST-suggest");
+  setupProductSearch("LOC-productCode", "LOC-search-btn", "LOC-suggest-wrap", "LOC-suggest");
+  setupProductSearch("TRANSFER-productCode", "TRANSFER-search-btn", "TRANSFER-suggest-wrap", "TRANSFER-suggest");
+
   const form = qs("#ADJUST-form");
   preventEnterSubmit(form);
   qs("#ADJUST-submit").onclick = async () => {
@@ -5415,6 +5805,120 @@ function renderAdjust() {
       await api("/api/movements", { method: "POST", body: JSON.stringify({ ...data, type: "TRANSFER" }) });
       await afterMovementDone();
       alert("창고 이동 등록 완료");
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // ── 상태 변환 ───────────────────────────────────────────────────────────────
+  const unusableForm = qs("#UNUSABLE-form");
+  preventEnterSubmit(unusableForm);
+
+  const showUnusableInfo = async () => {
+    const code = qs("#UNUSABLE-productCode")?.value.trim();
+    const infoEl = qs("#UNUSABLE-stock-info");
+    if (!code || !infoEl) return;
+    const product = state.products.find((p) => p.code === code || p.ecountCode === code);
+    if (!product) { alert("상품을 찾을 수 없습니다: " + code); return; }
+    const totalStock = (state.stock || []).filter((s) => s.code === product.code).reduce((sum, s) => sum + Number(s.stock || 0), 0);
+    const unusable = Number(product.unusableStock || 0);
+    const avail = totalStock - unusable;
+    const availEl = qs("#UNUSABLE-avail");
+    const unusableEl = qs("#UNUSABLE-unusable");
+    const nameEl = qs("#UNUSABLE-name");
+    if (availEl) availEl.textContent = avail;
+    if (unusableEl) unusableEl.textContent = unusable;
+    if (nameEl) nameEl.textContent = product.ecountName || product.name || "";
+
+    // 로케이션별 재고 조회
+    const locBody = qs("#UNUSABLE-loc-body");
+    if (locBody) {
+      try {
+        const res = await api("/api/location-stock");
+        const locItems = (res.items || []).filter((it) => it.productCode === product.code && Number(it.qty || 0) > 0);
+        if (locItems.length === 0) {
+          locBody.innerHTML = `<tr><td colspan="3" style="padding:8px 10px;color:#94A3B8;font-size:13px;">로케이션 재고 없음 (창고 재고만 존재)</td></tr>`;
+        } else {
+          locBody.innerHTML = locItems.map((it) =>
+            `<tr style="border-top:1px solid #E5E8EE;">
+              <td style="padding:6px 10px;">${esc(it.warehouse || "-")}</td>
+              <td style="padding:6px 10px;">${esc(it.locationCode || "-")}</td>
+              <td style="padding:6px 10px;text-align:right;font-weight:600;">${Number(it.qty || 0)}</td>
+            </tr>`
+          ).join("");
+        }
+      } catch (_) {
+        locBody.innerHTML = `<tr><td colspan="3" style="padding:8px 10px;color:#E07000;">로케이션 조회 실패</td></tr>`;
+      }
+    }
+    infoEl.style.display = "block";
+  };
+
+  // 검색 결과 리스트
+  const suggestWrap = qs("#UNUSABLE-suggest-wrap");
+  const suggestEl = qs("#UNUSABLE-suggest");
+  const codeInput = qs("#UNUSABLE-productCode");
+
+  const closeSuggest = () => { if (suggestWrap) suggestWrap.style.display = "none"; };
+
+  const renderSuggest = (q) => {
+    if (!q || !suggestEl) { closeSuggest(); return; }
+    const lower = q.toLowerCase();
+    const matched = state.products.filter((p) =>
+      (p.code || "").toLowerCase().includes(lower) ||
+      (p.ecountCode || "").toLowerCase().includes(lower) ||
+      (p.name || "").toLowerCase().includes(lower) ||
+      (p.ecountName || "").toLowerCase().includes(lower)
+    ).slice(0, 12);
+    if (!matched.length) { closeSuggest(); return; }
+    suggestEl.innerHTML = matched.map((p) =>
+      `<li data-code="${esc(p.code)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #F3F4F6;display:flex;gap:12px;align-items:center;">
+        <span style="font-weight:600;color:#1B3F6E;min-width:90px;">${esc(p.code)}</span>
+        <span style="color:#374151;">${esc(p.ecountName || p.name)}</span>
+      </li>`
+    ).join("");
+    suggestWrap.style.display = "block";
+    suggestEl.querySelectorAll("li").forEach((li) => {
+      li.addEventListener("click", () => {
+        codeInput.value = li.dataset.code;
+        closeSuggest();
+        showUnusableInfo();
+      });
+      li.addEventListener("mouseover", () => li.style.background = "#F0F4FF");
+      li.addEventListener("mouseout", () => li.style.background = "");
+    });
+  };
+
+  codeInput?.addEventListener("input", () => renderSuggest(codeInput.value.trim()));
+
+  qs("#UNUSABLE-search-btn")?.addEventListener("click", () => {
+    const q = codeInput.value.trim();
+    const exact = state.products.find((p) => p.code === q || p.ecountCode === q);
+    if (exact) { closeSuggest(); showUnusableInfo(); }
+    else renderSuggest(q);
+  });
+  codeInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const q = codeInput.value.trim();
+      const exact = state.products.find((p) => p.code === q || p.ecountCode === q);
+      if (exact) { closeSuggest(); showUnusableInfo(); }
+      else renderSuggest(q);
+    }
+  });
+
+  qs("#UNUSABLE-submit").onclick = async () => {
+    try {
+      const data = Object.fromEntries(new FormData(unusableForm));
+      if (!data.productCode) throw new Error("상품코드를 입력하세요.");
+      if (!data.qty || Number(data.qty) <= 0) throw new Error("수량을 입력하세요.");
+      await api("/api/stock/unusable", { method: "POST", body: JSON.stringify(data) });
+      const [productsRes, stockRes] = await Promise.all([api("/api/products"), api("/api/stock")]);
+      state.products = productsRes.items;
+      state.stock = stockRes.items;
+      await showUnusableInfo();
+      qs("#UNUSABLE-qty").value = "";
+      alert("상태 변환 완료");
     } catch (err) {
       alert(err.message);
     }
@@ -6824,6 +7328,671 @@ function renderAlert() {
   `;
 }
 
+function renderBarcodePrint() {
+  const el = qs("#view-barcode-print");
+  if (el.querySelector("iframe")) return;
+  el.innerHTML = `<iframe src="/barcode-print.html" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+}
+
+async function renderPurchaseOrders() {
+  const sec = qs("#view-purchase-orders");
+  const res = await fetch("/api/purchase-orders").then((r) => r.json()).catch(() => ({ items: [] }));
+  state.purchaseOrders = res.items || [];
+
+  function renderList() {
+    const statusColor = { "발주": "#3b82f6", "입고완료": "#22c55e", "취소": "#94a3b8" };
+    const orderRows = state.purchaseOrders.map((o) => {
+      const total = (o.items || []).reduce((s, i) => s + (i.qty || 0) * (i.unitPrice || 0), 0);
+      return `
+        <tr>
+          <td>${esc(o.id)}</td>
+          <td>${esc(o.createdAt ? o.createdAt.slice(0, 10) : "")}</td>
+          <td>${esc(o.vendor)}</td>
+          <td>${esc(o.dueDate || "")}</td>
+          <td><span style="color:${statusColor[o.status] || '#64748b'}; font-weight:600;">${esc(o.status)}</span></td>
+          <td style="text-align:right;">${total.toLocaleString()}원</td>
+          <td>${esc(o.memo || "")}</td>
+          <td>
+            <button class="po-edit-btn" data-id="${esc(o.id)}" style="padding:2px 10px; font-size:12px;">수정</button>
+            <button class="po-cancel-btn" data-id="${esc(o.id)}" data-status="${esc(o.status)}" style="padding:2px 10px; font-size:12px; margin-left:4px;">취소</button>
+          </td>
+        </tr>`;
+    }).join("");
+
+    sec.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <h2>구매 발주</h2>
+        <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center;">
+          <select id="po-filter-status" style="padding:6px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px;">
+            <option value="">전체 상태</option>
+            <option value="발주">발주</option>
+            <option value="입고완료">입고완료</option>
+            <option value="취소">취소</option>
+          </select>
+          <button id="po-new-btn" class="primary" style="margin-left:auto;">+ 신규 발주</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table>
+            <thead><tr>
+              <th>발주번호</th><th>발주일</th><th>구매처</th><th>납기일</th>
+              <th>상태</th><th>합계금액</th><th>메모</th><th></th>
+            </tr></thead>
+            <tbody id="po-tbody">${orderRows || '<tr><td colspan="8" class="muted" style="text-align:center; padding:24px;">발주 내역이 없습니다.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+      <div id="po-form-card" class="card" style="display:none;">
+        <h3 id="po-form-title">신규 발주</h3>
+        <input type="hidden" id="po-edit-id" />
+        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:12px;">
+          <div><label>구매처 *</label><input id="po-vendor" placeholder="구매처명" /></div>
+          <div><label>납기일</label><input id="po-due-date" type="date" /></div>
+          <div><label>메모</label><input id="po-memo" placeholder="메모" /></div>
+        </div>
+        <div style="margin-bottom:8px; font-weight:600; font-size:13px;">발주 품목</div>
+        <div style="overflow-x:auto; margin-bottom:10px;">
+          <table>
+            <thead><tr><th>품목코드</th><th>품목명</th><th>수량</th><th>단가</th><th>비고</th><th></th></tr></thead>
+            <tbody id="po-items-tbody">
+              <tr><td><input class="po-item-code" placeholder="코드" style="width:90px;" /></td>
+              <td><input class="po-item-name" placeholder="품목명" style="width:130px;" /></td>
+              <td><input class="po-item-qty" type="number" placeholder="0" style="width:70px;" /></td>
+              <td><input class="po-item-price" type="number" placeholder="0" style="width:90px;" /></td>
+              <td><input class="po-item-note" placeholder="비고" style="width:100px;" /></td>
+              <td><button type="button" class="po-remove-item-btn" style="padding:2px 8px; font-size:12px;">-</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="po-add-item-btn" style="padding:4px 14px; font-size:13px;">+ 품목 추가</button>
+          <button id="po-save-btn" class="primary" style="margin-left:auto;">저장</button>
+          <button id="po-cancel-form-btn" style="padding:6px 16px;">취소</button>
+        </div>
+      </div>
+    `;
+
+    function getItems() {
+      return Array.from(qs("#po-items-tbody").querySelectorAll("tr")).map((tr) => ({
+        productCode: tr.querySelector(".po-item-code")?.value.trim() || "",
+        productName: tr.querySelector(".po-item-name")?.value.trim() || "",
+        qty: Number(tr.querySelector(".po-item-qty")?.value) || 0,
+        unitPrice: Number(tr.querySelector(".po-item-price")?.value) || 0,
+        note: tr.querySelector(".po-item-note")?.value.trim() || "",
+      })).filter((i) => i.productCode || i.productName);
+    }
+    function addItemRow(item = {}) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input class="po-item-code" placeholder="코드" style="width:90px;" value="${esc(item.productCode || "")}" /></td>
+        <td><input class="po-item-name" placeholder="품목명" style="width:130px;" value="${esc(item.productName || "")}" /></td>
+        <td><input class="po-item-qty" type="number" placeholder="0" style="width:70px;" value="${item.qty || ""}" /></td>
+        <td><input class="po-item-price" type="number" placeholder="0" style="width:90px;" value="${item.unitPrice || ""}" /></td>
+        <td><input class="po-item-note" placeholder="비고" style="width:100px;" value="${esc(item.note || "")}" /></td>
+        <td><button type="button" class="po-remove-item-btn" style="padding:2px 8px; font-size:12px;">-</button></td>`;
+      qs("#po-items-tbody").appendChild(tr);
+    }
+    function showForm(order = null) {
+      const fc = qs("#po-form-card");
+      fc.style.display = "";
+      qs("#po-form-title").textContent = order ? `발주 수정 (${order.id})` : "신규 발주";
+      qs("#po-edit-id").value = order?.id || "";
+      qs("#po-vendor").value = order?.vendor || "";
+      qs("#po-due-date").value = order?.dueDate || "";
+      qs("#po-memo").value = order?.memo || "";
+      qs("#po-items-tbody").innerHTML = `
+        <tr><td><input class="po-item-code" placeholder="코드" style="width:90px;" /></td>
+        <td><input class="po-item-name" placeholder="품목명" style="width:130px;" /></td>
+        <td><input class="po-item-qty" type="number" placeholder="0" style="width:70px;" /></td>
+        <td><input class="po-item-price" type="number" placeholder="0" style="width:90px;" /></td>
+        <td><input class="po-item-note" placeholder="비고" style="width:100px;" /></td>
+        <td><button type="button" class="po-remove-item-btn" style="padding:2px 8px; font-size:12px;">-</button></td></tr>`;
+      if (order?.items?.length) {
+        const first = qs("#po-items-tbody tr");
+        const it = order.items[0];
+        first.querySelector(".po-item-code").value = it.productCode || "";
+        first.querySelector(".po-item-name").value = it.productName || "";
+        first.querySelector(".po-item-qty").value = it.qty || "";
+        first.querySelector(".po-item-price").value = it.unitPrice || "";
+        first.querySelector(".po-item-note").value = it.note || "";
+        for (let i = 1; i < order.items.length; i++) addItemRow(order.items[i]);
+      }
+      fc.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    qs("#po-new-btn").onclick = () => showForm();
+    qs("#po-cancel-form-btn").onclick = () => { qs("#po-form-card").style.display = "none"; };
+    qs("#po-add-item-btn").onclick = () => addItemRow();
+    qs("#po-items-tbody").addEventListener("click", (e) => {
+      if (e.target.classList.contains("po-remove-item-btn")) {
+        if (qs("#po-items-tbody").querySelectorAll("tr").length > 1) e.target.closest("tr").remove();
+      }
+    });
+    qs("#po-save-btn").onclick = async () => {
+      const editId = qs("#po-edit-id").value;
+      const vendor = qs("#po-vendor").value.trim();
+      if (!vendor) { alert("구매처를 입력하세요."); return; }
+      const body = { vendor, dueDate: qs("#po-due-date").value, memo: qs("#po-memo").value.trim(), items: getItems() };
+      if (editId) {
+        body.id = editId;
+        const r = await fetch("/api/purchase-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!r.ok) { alert("수정 실패"); return; }
+      } else {
+        const r = await fetch("/api/purchase-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        if (!r.ok) { alert("저장 실패"); return; }
+      }
+      qs("#po-form-card").style.display = "none";
+      const res2 = await fetch("/api/purchase-orders").then((r) => r.json()).catch(() => ({ items: [] }));
+      state.purchaseOrders = res2.items || [];
+      renderList();
+    };
+    sec.addEventListener("click", async (e) => {
+      const editBtn = e.target.closest(".po-edit-btn");
+      const cancelBtn = e.target.closest(".po-cancel-btn");
+      if (editBtn) {
+        const order = state.purchaseOrders.find((o) => o.id === editBtn.dataset.id);
+        if (order) showForm(order);
+      }
+      if (cancelBtn) {
+        if (cancelBtn.dataset.status === "취소") { alert("이미 취소된 발주입니다."); return; }
+        if (!confirm(`발주 ${cancelBtn.dataset.id}를 취소하시겠습니까?`)) return;
+        const r = await fetch("/api/purchase-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: cancelBtn.dataset.id, status: "취소" }) });
+        if (!r.ok) { alert("취소 실패"); return; }
+        const res2 = await fetch("/api/purchase-orders").then((r2) => r2.json()).catch(() => ({ items: [] }));
+        state.purchaseOrders = res2.items || [];
+        renderList();
+      }
+    });
+    qs("#po-filter-status").onchange = () => {
+      const val = qs("#po-filter-status").value;
+      qs("#po-tbody").querySelectorAll("tr").forEach((tr) => {
+        const statusCell = tr.querySelector("td:nth-child(5) span");
+        tr.style.display = !val || statusCell?.textContent === val ? "" : "none";
+      });
+    };
+  }
+
+  renderList();
+}
+
+let stockPageIndex = 0;
+let pplPageIndex = 0;
+let pplActiveTab = "";
+
+function renderPurchaseProductsList() {
+  pplPageIndex = 0;
+  const sec = qs("#view-purchase-products");
+  const stockMap = {};
+  state.stock.forEach((s) => { stockMap[s.code] = (stockMap[s.code] || 0) + Number(s.stock || 0); });
+  const opts = state.productOptions || {};
+  const selectOptions = (arr, current) =>
+    (arr || []).map((v) => `<option value="${esc(v)}"${String(current || "") === String(v || "") ? " selected" : ""}>${esc(v)}</option>`).join("");
+  const selectItems = (arr) => (arr || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+
+  // 탭: 수급형태 기준 동적 생성
+  const supplyTabValues = ["전체", ...Array.from(new Set(state.products.map((p) => p.supplyType || "").filter(Boolean))).sort()];
+  if (!supplyTabValues.includes(pplActiveTab)) pplActiveTab = "전체";
+  const tabCountMap = { "전체": state.products.length };
+  supplyTabValues.slice(1).forEach((v) => {
+    tabCountMap[v] = state.products.filter((p) => (p.supplyType || "") === v).length;
+  });
+  const tabsHtml = supplyTabValues.map((v) =>
+    `<button class="ppl-tab${pplActiveTab === v ? " active" : ""}" data-tab="${esc(v)}">${esc(v)} <span class="ppl-tab-count">${tabCountMap[v]}</span></button>`
+  ).join("");
+
+  const rows = state.products.map((p) => {
+    const st = `${p.ecountCode||p.code||""} ${p.code||""} ${p.ecountName||p.name||""} ${p.purchaseVendor||""} ${p.purchaseItemCode||""} ${p.purchaseItemName||""} ${p.barcode||""} ${p.spec||""}`.toLowerCase();
+    const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
+    const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
+    return `<tr data-code="${esc(p.code)}" data-search="${esc(st)}" data-status="${esc(p.status||"")}" data-supply="${esc(p.supplyType||"")}"${rowClass ? ` class="${rowClass}"` : ""}>
+      <td data-col-orig-idx="0"><input type="checkbox" class="ppl-row-check" data-code="${esc(p.code)}" /></td>
+      <td data-col-orig-idx="1">${esc(p.ecountCode||p.code)}</td>
+      <td data-col-orig-idx="2">${esc(p.barcode||"")}</td>
+      <td data-col-orig-idx="3">${esc(p.middleBarcode||"")}</td>
+      <td data-col-orig-idx="4">${esc(p.logisticsBarcode||"")}</td>
+      <td data-col-orig-idx="5">${esc(p.ecountName||p.name)}</td>
+      <td data-col-orig-idx="6"${statusStyle}>${esc(p.status||"")}</td>
+      <td data-col-orig-idx="7" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
+      <td data-col-orig-idx="8">${esc(p.deliveryVendorCode||"")}</td>
+      <td data-col-orig-idx="9">${esc(p.deliveryItemName||"")}</td>
+      <td data-col-orig-idx="10">${esc(p.spec||"")}</td>
+      <td data-col-orig-idx="11">${esc(p.purchaseVendor||"")}</td>
+      <td data-col-orig-idx="12">${esc(p.supplyType||"")}</td>
+      <td data-col-orig-idx="13">${esc(p.orderDept||"")}</td>
+      <td data-col-orig-idx="14" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+      <td data-col-orig-idx="15">${esc(p.purchaseItemCode||"")}</td>
+      <td data-col-orig-idx="16">${esc(p.purchaseItemName||"")}</td>
+      <td data-col-orig-idx="17">${esc(p.warehouseGroup||"")}</td>
+      <td data-col-orig-idx="18" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
+      <td data-col-orig-idx="19">${esc(p.itemType||"")}</td>
+      <td data-col-orig-idx="20" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+    </tr>`;
+  }).join("");
+
+  sec.innerHTML = `
+    <div class="products-bh">
+      <div class="card products-bh-card">
+        <div class="products-bh-toolbar">
+          <h2 class="products-bh-title">구매 품목 리스트</h2>
+          <div class="products-bh-actions">
+            <button type="button" id="ppl-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
+            <button type="button" id="ppl-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
+            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="ppl-column-settings">컬럼 설정</button>
+            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="ppl-export-btn">엑셀 내보내기</button>
+          </div>
+        </div>
+        <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:12px;">
+          <div class="ppl-tab-bar" id="ppl-tab-bar">${tabsHtml}</div>
+          <div class="ppl-filter-row">
+            <div class="products-bh-search-wrap" style="margin:0;">
+              <span class="bh-search-icon" aria-hidden="true">🔍</span>
+              <input type="text" id="ppl-search-q" class="products-bh-search" placeholder="이카운트 / 상품코드 / 품목명 검색" autocomplete="off" />
+              <button type="button" class="bh-search-go" id="ppl-search-btn">조회</button>
+            </div>
+            <label id="ppl-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+              <input type="checkbox" id="ppl-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+              판매중만 표시
+            </label>
+          </div>
+        </div>
+        <p id="ppl-search-result" class="muted products-bh-result">전체 ${state.products.length}건</p>
+        <div class="products-bh-table-outer">
+          <div class="table-scroll-x products-bh-y-scroll">
+            <table id="ppl-table">
+              <thead><tr>
+                <th data-col-orig-idx="0" data-col-label=""><input id="ppl-check-all" type="checkbox" /></th>
+                <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
+                <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
+                <th data-col-orig-idx="3" data-col-label="바코드(중포)">바코드(중포)</th>
+                <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
+                <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
+                <th data-col-orig-idx="6" data-col-label="상태">상태</th>
+                <th data-col-orig-idx="7" data-col-label="판매처">판매처</th>
+                <th data-col-orig-idx="8" data-col-label="판매처관리코드">판매처관리코드</th>
+                <th data-col-orig-idx="9" data-col-label="판매처 품목명">판매처 품목명</th>
+                <th data-col-orig-idx="10" data-col-label="규격">규격</th>
+                <th data-col-orig-idx="11" data-col-label="구매처">구매처</th>
+                <th data-col-orig-idx="12" data-col-label="수급형태">수급형태</th>
+                <th data-col-orig-idx="13" data-col-label="발주부서">발주부서</th>
+                <th data-col-orig-idx="14" data-col-label="발주담당자">발주담당자</th>
+                <th data-col-orig-idx="15" data-col-label="구매처 품목코드">구매처 품목코드</th>
+                <th data-col-orig-idx="16" data-col-label="구매처 품목명">구매처 품목명</th>
+                <th data-col-orig-idx="17" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
+                <th data-col-orig-idx="18" data-col-label="사용창고">사용창고</th>
+                <th data-col-orig-idx="19" data-col-label="구분">구분</th>
+                <th data-col-orig-idx="20" data-col-label="카테고리">카테고리</th>
+              </tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
+          </div>
+        </div>
+        <div class="products-bh-pagination">
+          <label>보기
+            <select id="ppl-page-size">
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+              <option value="99999" selected>전체</option>
+            </select>
+          </label>
+          <span id="ppl-page-info">0 - 0 / 0</span>
+          <button type="button" id="ppl-page-prev" class="bh-btn bh-btn-sm" title="이전">‹</button>
+          <button type="button" id="ppl-page-next" class="bh-btn bh-btn-sm" title="다음">›</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ppl-modal-overlay" class="modal-overlay hidden">
+      <div class="modal modal-product-full">
+        <div class="modal-header product-modal-header-row">
+          <h3 id="ppl-modal-title">상품등록정보 수정</h3>
+          <div class="product-modal-header-actions">
+            <button type="button" id="ppl-modal-close" class="bh-btn bh-btn-sm bh-btn-outline">닫기</button>
+          </div>
+        </div>
+        <form id="ppl-popup-form" class="modal-form">
+          <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
+          <div><label>바코드(SKU)</label><input name="barcode" /></div>
+          <div><label>바코드(중포)</label><input name="middleBarcode" /></div>
+          <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
+          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
+          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
+          <div class="multi-select-field">
+            <label>판매처</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="ppl-select-deliveryVendors"><option value="">옵션 선택</option>${selectItems(opts.deliveryVendors)}</select>
+              <button type="button" id="ppl-add-deliveryVendors">추가</button>
+            </div>
+            <input type="hidden" name="deliveryVendors" />
+          </div>
+          <div id="ppl-preview-deliveryVendors" class="tagline multi-tags"></div>
+          <div><label>판매처관리코드</label><input name="deliveryVendorCode" /></div>
+          <div><label>판매처 품목명</label><input name="deliveryItemName" /></div>
+          <div><label>규격</label><input name="spec" /></div>
+          <div><label>구매처</label><input name="purchaseVendor" /></div>
+          <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType,"")}</select></div>
+          <div><label>발주부서</label><select name="orderDept"><option value=""></option>${selectOptions(opts.orderDept,"")}</select></div>
+          <div class="multi-select-field">
+            <label>발주담당자</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="ppl-select-orderManagers"><option value="">옵션 선택</option>${selectItems(opts.orderManagers)}</select>
+              <button type="button" id="ppl-add-orderManagers">추가</button>
+            </div>
+            <input type="hidden" name="orderManagers" />
+          </div>
+          <div id="ppl-preview-orderManagers" class="tagline multi-tags"></div>
+          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
+          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
+          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup,"")}</select></div>
+          <div class="multi-select-field">
+            <label>사용창고</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="ppl-select-usedWarehouses"><option value="">옵션 선택</option>${selectItems(state.warehouses||[])}</select>
+              <button type="button" id="ppl-add-usedWarehouses">추가</button>
+            </div>
+            <input type="hidden" name="usedWarehouses" />
+          </div>
+          <div id="ppl-preview-usedWarehouses" class="tagline multi-tags"></div>
+          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType,"")}</select></div>
+          <div class="multi-select-field">
+            <label>카테고리</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="ppl-select-categories"><option value="">옵션 선택</option>${selectItems(opts.categories)}</select>
+              <button type="button" id="ppl-add-categories">추가</button>
+            </div>
+            <input type="hidden" name="categories" />
+          </div>
+          <div id="ppl-preview-categories" class="tagline multi-tags"></div>
+          <div><label>안전재고</label><input name="safetyStock" type="number" value="0" /></div>
+          <div><label>적정재고</label><input name="optimalStock" type="number" value="0" /></div>
+          <div><button class="primary" type="submit">저장 완료</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div id="ppl-columns-overlay" class="modal-overlay hidden">
+      <div class="modal" style="width:min(420px,calc(100vw - 24px));">
+        <div class="modal-header">
+          <h3>컬럼 설정</h3>
+          <button type="button" id="ppl-columns-close" class="cancel-btn del-small">닫기</button>
+        </div>
+        <p class="muted" style="margin:0 0 8px;font-size:12px;">체크 해제 시 해당 열을 숨깁니다. (체크박스는 항상 표시)</p>
+        <div id="ppl-columns-body" class="column-settings-list"></div>
+        <button type="button" class="primary" id="ppl-columns-save" style="width:auto;">적용</button>
+      </div>
+    </div>
+  `;
+
+  // ── 검색 + 페이지네이션 ────────────────────────────────────────────────────
+  const searchInput = qs("#ppl-search-q");
+  const searchBtn   = qs("#ppl-search-btn");
+  const resultEl    = qs("#ppl-search-result");
+  const pageSizeEl  = qs("#ppl-page-size");
+  const pageInfoEl  = qs("#ppl-page-info");
+
+  const applyFilters = () => {
+    const q = (searchInput?.value || "").trim().toLowerCase();
+    const onlyActive = qs("#ppl-only-active")?.checked ?? false;
+    const tab = pplActiveTab && pplActiveTab !== "전체" ? pplActiveTab : "";
+    const allRows = Array.from(document.querySelectorAll("#ppl-table tbody tr"));
+    const matched = allRows.filter((tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") return false;
+      if (onlyActive && (tr.dataset.status || "") !== "판매중") return false;
+      if (tab && (tr.dataset.supply || "") !== tab) return false;
+      return !q || String(tr.dataset.search || "").includes(q);
+    });
+    const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "99999", 10) || 99999));
+    const total = matched.length;
+    const pages = Math.max(1, Math.ceil(total / size));
+    if (pplPageIndex >= pages) pplPageIndex = pages - 1;
+    if (pplPageIndex < 0) pplPageIndex = 0;
+    const start = pplPageIndex * size;
+    let mi = 0;
+    allRows.forEach((tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") { tr.style.display = "none"; return; }
+      if (onlyActive && (tr.dataset.status || "") !== "판매중") { tr.style.display = "none"; return; }
+      if (tab && (tr.dataset.supply || "") !== tab) { tr.style.display = "none"; return; }
+      if (q && !String(tr.dataset.search || "").includes(q)) { tr.style.display = "none"; return; }
+      tr.style.display = (mi >= start && mi < start + size) ? "" : "none";
+      mi++;
+    });
+    if (pageInfoEl) pageInfoEl.textContent = total === 0 ? "0 - 0 / 0" : `${start + 1} - ${Math.min(total, start + size)} / ${total}`;
+    if (resultEl) {
+      if (q || tab) resultEl.textContent = `필터 결과: ${total}건 (전체 ${allRows.length}건)`;
+      else resultEl.textContent = `전체 ${allRows.length}건`;
+    }
+  };
+
+  preventEnterSubmit(qs("#ppl-table").closest(".products-bh-search-wrap") || qs("#ppl-search-q").closest("div"));
+  searchBtn.onclick = () => { pplPageIndex = 0; applyFilters(); };
+  searchInput.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); pplPageIndex = 0; applyFilters(); } };
+  pageSizeEl.addEventListener("change", () => { pplPageIndex = 0; applyFilters(); });
+
+  const onlyActiveChk = qs("#ppl-only-active");
+  const onlyActiveBtn = qs("#ppl-only-active-btn");
+  const updateOnlyActiveStyle = () => {
+    if (!onlyActiveBtn) return;
+    if (onlyActiveChk?.checked) {
+      onlyActiveBtn.style.borderColor = "#3182F6"; onlyActiveBtn.style.background = "#EBF3FF"; onlyActiveBtn.style.color = "#1A6FDB";
+    } else {
+      onlyActiveBtn.style.borderColor = "#CBD5E1"; onlyActiveBtn.style.background = "#fff"; onlyActiveBtn.style.color = "#475569";
+    }
+  };
+  onlyActiveChk?.addEventListener("change", () => { pplPageIndex = 0; applyFilters(); updateOnlyActiveStyle(); });
+  updateOnlyActiveStyle();
+
+  qs("#ppl-page-prev").addEventListener("click", () => { pplPageIndex = Math.max(0, pplPageIndex - 1); applyFilters(); });
+  qs("#ppl-page-next").addEventListener("click", () => {
+    const q2 = (searchInput?.value || "").trim().toLowerCase();
+    const allRows2 = Array.from(document.querySelectorAll("#ppl-table tbody tr"));
+    const total2 = allRows2.filter((tr) => tr.dataset.wmsExcelVisible !== "0" && (!q2 || String(tr.dataset.search || "").includes(q2))).length;
+    const size2 = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "99999", 10) || 99999));
+    pplPageIndex = Math.min(Math.max(1, Math.ceil(total2 / size2)) - 1, pplPageIndex + 1);
+    applyFilters();
+  });
+
+  // ── 체크박스 ───────────────────────────────────────────────────────────────
+  const checkAllEl = qs("#ppl-check-all");
+  if (checkAllEl) {
+    checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
+    checkAllEl.onchange = () => {
+      document.querySelectorAll(".ppl-row-check").forEach((el) => {
+        el.checked = checkAllEl.checked;
+        el.closest("tr")?.classList.toggle("product-row-checked", checkAllEl.checked);
+      });
+    };
+  }
+  document.querySelectorAll(".ppl-row-check").forEach((el) => {
+    el.addEventListener("mousedown", (e) => e.preventDefault());
+    el.onchange = () => el.closest("tr")?.classList.toggle("product-row-checked", el.checked);
+  });
+
+  // ── 컬럼 설정 ──────────────────────────────────────────────────────────────
+  const colOverlay = qs("#ppl-columns-overlay");
+  qs("#ppl-column-settings")?.addEventListener("click", () => {
+    openColumnSettingsUI(qs("#ppl-columns-body"), "#ppl-table", true);
+    colOverlay?.classList.remove("hidden");
+  });
+  qs("#ppl-columns-close")?.addEventListener("click", () => colOverlay?.classList.add("hidden"));
+  colOverlay?.addEventListener("click", (e) => { if (e.target === colOverlay) colOverlay.classList.add("hidden"); });
+  qs("#ppl-columns-save")?.addEventListener("click", () => {
+    saveColumnSettingsUI(qs("#ppl-columns-body"), PPL_HIDDEN_COLS_KEY);
+    applyTableColumnConfig("#ppl-table", PPL_HIDDEN_COLS_KEY, true);
+    colOverlay?.classList.add("hidden");
+  });
+
+  // ── 엑셀 내보내기 ──────────────────────────────────────────────────────────
+  qs("#ppl-export-btn").onclick = () => {
+    try {
+      const exportRows = state.products.map((p) => ({
+        "품목코드(이카운트)": p.ecountCode||p.code,
+        "바코드(SKU)": p.barcode||"",
+        "바코드(중포)": p.middleBarcode||"",
+        "바코드(CT)": p.logisticsBarcode||"",
+        "품목명(이카운트)": p.ecountName||p.name,
+        "상태": p.status||"",
+        "판매처": (p.deliveryVendors||[]).join(", "),
+        "판매처관리코드": p.deliveryVendorCode||"",
+        "판매처 품목명": p.deliveryItemName||"",
+        "규격": p.spec||"",
+        "구매처": p.purchaseVendor||"",
+        "수급형태": p.supplyType||"",
+        "발주부서": p.orderDept||"",
+        "발주담당자": (p.orderManagers||[]).join(", "),
+        "구매처 품목코드": p.purchaseItemCode||"",
+        "구매처 품목명": p.purchaseItemName||"",
+        "창고그룹(이카운트)": p.warehouseGroup||"",
+        "사용창고": (p.usedWarehouses||[]).join(", "),
+        "구분": p.itemType||"",
+        "카테고리": (p.categories||[]).join(", "),
+      }));
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "구매품목");
+      XLSX.writeFile(wb, `구매품목리스트-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      alert(err.message || "내보내기 실패");
+    }
+  };
+
+  // ── 선택 수정 모달 ─────────────────────────────────────────────────────────
+  const pplModalOverlay = qs("#ppl-modal-overlay");
+  const pplForm = qs("#ppl-popup-form");
+  let pplEditingCode = "";
+
+  const pplMultiControllers = {};
+  const setupPplMulti = (field, selId, addId, previewId) => {
+    const hidden = pplForm?.querySelector(`[name="${field}"]`);
+    const selEl  = qs(`#${selId}`);
+    const addBtn = qs(`#${addId}`);
+    const preEl  = qs(`#${previewId}`);
+    if (!hidden || !selEl || !addBtn || !preEl) return { setValues: () => {} };
+    let selected = [];
+    const draw = () => {
+      hidden.value = selected.join(", ");
+      preEl.innerHTML = selected.length
+        ? selected.map((v) => `<span class="tag tag-orange tag-removable">${esc(v)} <button type="button" class="chip-remove" data-value="${encodeURIComponent(v)}">x</button></span>`).join("")
+        : "<span class='muted'>선택한 항목 없음</span>";
+    };
+    addBtn.onclick = () => { const v = String(selEl.value || "").trim(); if (v && !selected.includes(v)) selected.push(v); selEl.value = ""; draw(); };
+    preEl.onclick = (e) => {
+      const btn = e.target.closest(".chip-remove");
+      if (!btn) return;
+      selected = selected.filter((x) => x !== decodeURIComponent(btn.dataset.value || ""));
+      draw();
+    };
+    draw();
+    return { setValues(vals) { selected = toTagList(vals); draw(); } };
+  };
+  pplMultiControllers.deliveryVendors  = setupPplMulti("deliveryVendors",  "ppl-select-deliveryVendors",  "ppl-add-deliveryVendors",  "ppl-preview-deliveryVendors");
+  pplMultiControllers.orderManagers    = setupPplMulti("orderManagers",    "ppl-select-orderManagers",    "ppl-add-orderManagers",    "ppl-preview-orderManagers");
+  pplMultiControllers.usedWarehouses   = setupPplMulti("usedWarehouses",   "ppl-select-usedWarehouses",   "ppl-add-usedWarehouses",   "ppl-preview-usedWarehouses");
+  pplMultiControllers.categories       = setupPplMulti("categories",       "ppl-select-categories",       "ppl-add-categories",       "ppl-preview-categories");
+
+  const closePplModal = () => pplModalOverlay?.classList.add("hidden");
+  qs("#ppl-modal-close")?.addEventListener("click", closePplModal);
+  pplModalOverlay?.addEventListener("click", (e) => { if (e.target === pplModalOverlay) closePplModal(); });
+  if (pplForm) preventEnterSubmit(pplForm);
+
+  const openPplEdit = (p) => {
+    if (!p || !pplForm || !pplModalOverlay) return;
+    pplEditingCode = String(p.code || "");
+    const setVal = (name, val) => { const el = pplForm.querySelector(`[name="${name}"]`); if (el) el.value = val ?? ""; };
+    setVal("ecountCode", p.ecountCode || p.code);
+    setVal("barcode", p.barcode);
+    setVal("middleBarcode", p.middleBarcode);
+    setVal("logisticsBarcode", p.logisticsBarcode);
+    setVal("ecountName", p.ecountName || p.name);
+    setVal("status", p.status);
+    pplMultiControllers.deliveryVendors?.setValues(p.deliveryVendors);
+    setVal("deliveryVendorCode", p.deliveryVendorCode);
+    setVal("deliveryItemName", p.deliveryItemName);
+    setVal("spec", p.spec);
+    setVal("purchaseVendor", p.purchaseVendor);
+    setVal("supplyType", p.supplyType);
+    setVal("orderDept", p.orderDept);
+    pplMultiControllers.orderManagers?.setValues(p.orderManagers);
+    setVal("purchaseItemCode", p.purchaseItemCode);
+    setVal("purchaseItemName", p.purchaseItemName);
+    setVal("warehouseGroup", p.warehouseGroup);
+    pplMultiControllers.usedWarehouses?.setValues(p.usedWarehouses);
+    setVal("itemType", p.itemType);
+    pplMultiControllers.categories?.setValues(p.categories);
+    setVal("safetyStock", p.safetyStock ?? 0);
+    setVal("optimalStock", p.optimalStock ?? 0);
+    pplModalOverlay.classList.remove("hidden");
+  };
+
+  if (pplForm) {
+    pplForm.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      data.ecountCode = String(data.ecountCode || "").trim();
+      data.ecountName = String(data.ecountName || "").trim();
+      data.status = toTagList(data.status)[0] || "판매중";
+      data.supplyType = toTagList(data.supplyType)[0] || "";
+      data.orderDept = toTagList(data.orderDept)[0] || "";
+      data.warehouseGroup = toTagList(data.warehouseGroup)[0] || "";
+      data.itemType = toTagList(data.itemType)[0] || "";
+      data.code = pplEditingCode || data.ecountCode;
+      data.name = data.ecountName;
+      data.deliveryVendors = toTagList(data.deliveryVendors);
+      data.orderManagers = toTagList(data.orderManagers);
+      data.categories = toTagList(data.categories);
+      data.usedWarehouses = toTagList(data.usedWarehouses);
+      await api("/api/products", { method: "POST", body: JSON.stringify(data) });
+      await refreshCommon();
+      pplEditingCode = "";
+      closePplModal();
+      renderPurchaseProductsList();
+      renderProducts();
+      renderStock();
+      renderMaster();
+      await renderDashboard();
+      alert("저장되었습니다.");
+    };
+  }
+
+  // ── 선택 수정 버튼 ─────────────────────────────────────────────────────────
+  qs("#ppl-edit-selected")?.addEventListener("click", () => {
+    const codes = Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code);
+    if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
+    const p = state.products.find((x) => String(x.code) === String(codes[0]));
+    if (p) openPplEdit(p);
+  });
+
+  // ── 선택 삭제 버튼 ─────────────────────────────────────────────────────────
+  qs("#ppl-delete-selected")?.addEventListener("click", async () => {
+    const codes = Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code);
+    if (!codes.length) return alert("삭제할 상품을 선택하세요.");
+    if (!confirm(`선택한 ${codes.length}개 상품을 삭제할까요?`)) return;
+    try {
+      await api("/api/products", { method: "DELETE", body: JSON.stringify({ codes }) });
+      await refreshCommon();
+      renderPurchaseProductsList();
+      renderProducts();
+      renderStock();
+      renderMaster();
+      await renderDashboard();
+      alert("선택 상품 삭제 완료");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // ── 탭 클릭 ───────────────────────────────────────────────────────────────
+  qs("#ppl-tab-bar")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".ppl-tab");
+    if (!btn) return;
+    pplActiveTab = btn.dataset.tab || "전체";
+    document.querySelectorAll(".ppl-tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === pplActiveTab));
+    pplPageIndex = 0;
+    applyFilters();
+  });
+
+  applyExcelLikeFilter("#ppl-table", applyFilters);
+  applyTableColumnConfig("#ppl-table", PPL_HIDDEN_COLS_KEY, true);
+}
+
 async function afterMovementDone() {
   await refreshCommon();
   renderStock();
@@ -6867,6 +8036,9 @@ async function init() {
       if (v === "location-map-3d") renderLocationMap3D();
       else { const w3d = qs("#view-location-map-3d"); if (w3d?._disposeMap3D) { w3d._disposeMap3D(); w3d._disposeMap3D = null; } }
       if (v === "location-stock") await renderLocationStock();
+      if (v === "purchase-products") renderPurchaseProductsList();
+      if (v === "purchase-orders") await renderPurchaseOrders();
+      if (v === "barcode-print") renderBarcodePrint();
     };
   });
 
@@ -6892,6 +8064,9 @@ async function init() {
   renderLocationMap();
   renderLocationMap3D();
   await renderLocationStock();
+  renderPurchaseProductsList();
+  await renderPurchaseOrders();
+  // barcode-print은 클릭 시 iframe 생성 (lazy)
   let initialView = "dashboard";
   try {
     const saved = localStorage.getItem(LAST_VIEW_KEY);

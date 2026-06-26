@@ -296,6 +296,16 @@ body {
 .view { display: block; }
 .hidden { display: none !important; }
 
+/* 바코드 인쇄 뷰: 전체 공간 채우기 */
+.main-fullscreen {
+  padding: 0 !important;
+  height: 100vh;
+  overflow: hidden;
+}
+#view-barcode-print {
+  height: 100%;
+}
+
 /* ── Typography ──────────────────────────────────────────────── */
 h2 {
   font-size: 20px;
@@ -655,6 +665,110 @@ tbody tr:last-child td { border-bottom: 0; }
   color: rgba(255,255,255,.85);
   padding: 7px 14px;
 }
+#products-table thead th:first-child {
+  left: 0;
+  z-index: 6;
+}
+#products-table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  will-change: transform;
+}
+#products-table tr.product-row-discontinued td:first-child { background: #F5F5F5; }
+#products-table tr.product-row-suspended td:first-child { background: #F8F9FB; }
+#products-table tr.product-row-checked td { background: #EBF3FF !important; }
+#products-table tr.product-row-checked td:first-child { background: #EBF3FF !important; }
+
+.col-settings-item.col-drag-over { border-color: #3182F6; background: #EBF3FF; }
+.column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
+
+.ppl-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  border-bottom: 2px solid #E2E8F0;
+  margin-bottom: 0;
+}
+.ppl-tab {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748B;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s;
+}
+.ppl-tab:hover { color: #1B3F6E; }
+.ppl-tab.active {
+  color: #1B3F6E;
+  border-bottom-color: #1B3F6E;
+  font-weight: 600;
+}
+.ppl-tab-count {
+  display: inline-block;
+  background: #E2E8F0;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 7px;
+  margin-left: 5px;
+  transition: background .15s, color .15s;
+}
+.ppl-tab.active .ppl-tab-count {
+  background: #1B3F6E;
+  color: #fff;
+}
+.ppl-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0 4px;
+  justify-content: flex-end;
+}
+#stock-table { width: auto; white-space: nowrap; }
+#stock-table td { padding: 7px 14px; }
+#stock-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #1B3F6E;
+  color: rgba(255,255,255,.85);
+  padding: 7px 14px;
+}
+#stock-table tr.stock-row-low td { background: #FFF5F5; }
+#stock-table tr.stock-row-over td { background: #FFFBEB; }
+
+#ppl-table { width: auto; white-space: nowrap; }
+#ppl-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
+#ppl-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
+#ppl-table td { padding: 7px 14px; }
+#ppl-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: #1B3F6E;
+  color: rgba(255,255,255,.85);
+  padding: 7px 14px;
+}
+#ppl-table thead th:first-child { left: 0; z-index: 6; }
+#ppl-table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  will-change: transform;
+}
+#ppl-table tr.product-row-discontinued td:first-child { background: #F5F5F5; }
+#ppl-table tr.product-row-suspended td:first-child { background: #F8F9FB; }
+#ppl-table tr.product-row-checked td { background: #EBF3FF !important; }
+#ppl-table tr.product-row-checked td:first-child { background: #EBF3FF !important; }
 
 /* ═══════════════════════════════════════════════════════════════
    MODAL
@@ -947,6 +1061,16 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .bh-search-go:hover { background: var(--accent-bg) !important; color: var(--accent); }
 .products-bh-search-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; }
+.bh-select {
+  height: 38px;
+  padding: 0 10px;
+  border: 1.5px solid #CBD5E1;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #334155;
+  background: #fff;
+  cursor: pointer;
+}
 
 /* ── Segment Tabs ────────────────────────────────────────────── */
 .seg-tabs {
@@ -1601,6 +1725,12 @@ tbody tr:last-child td { border-bottom: 0; }
   font-weight: 700;
   letter-spacing: 0.02em;
   white-space: nowrap;
+  flex-shrink: 0;
+}
+.ob-partner-logo {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
   flex-shrink: 0;
 }
 .ob-status-badge {
