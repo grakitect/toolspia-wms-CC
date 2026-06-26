@@ -538,6 +538,8 @@ function switchView(name) {
   if (activeBtn) {
     const group = activeBtn.closest(".sidebar-group");
     if (group && !group.classList.contains("open")) group.classList.add("open");
+    const subgroup = activeBtn.closest(".sidebar-subgroup");
+    if (subgroup && !subgroup.classList.contains("open")) subgroup.classList.add("open");
   }
   // 바코드 인쇄 뷰는 패딩 제거 (풀스크린 iframe)
   qs(".main").classList.toggle("main-fullscreen", name === "barcode-print");
@@ -555,6 +557,14 @@ function initSidebarAccordion() {
       // 다른 그룹 닫기
       document.querySelectorAll(".sidebar-group.open").forEach((g) => g.classList.remove("open"));
       if (!isOpen) group.classList.add("open");
+    });
+  });
+  document.querySelectorAll(".sidebar-subgroup-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sg = btn.closest(".sidebar-subgroup");
+      if (!sg) return;
+      sg.classList.toggle("open");
     });
   });
 }
@@ -3667,7 +3677,7 @@ async function renderOutboundPartnerUpload(partner, key) {
     <div class="ob-topbar card">
       <div class="ob-topbar-left">
         ${key === "emart" ? `<img src="/logos/이마트.png" class="ob-partner-logo" alt="이마트">` : key === "daiso" ? `<img src="/logos/다이소_로고_(2).png" class="ob-partner-logo" alt="다이소">` : key === "lotte" ? `<img src="/logos/롯데마트.png" class="ob-partner-logo" alt="롯데마트">` : `<span class="ob-partner-badge">${esc(partner)}</span>`}
-        <span class="ob-topbar-title">판매처별 업로드</span>
+        <span class="ob-topbar-title">판매처별 출고관리(${esc(partner)})</span>
         <div class="ob-pipeline-inline">
           <span>업로드</span><span class="ob-pi-arrow">›</span>
           <span>검증</span><span class="ob-pi-arrow">›</span>

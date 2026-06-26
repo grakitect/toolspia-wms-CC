@@ -283,6 +283,27 @@ body {
   background: var(--sb-active);
 }
 
+/* 중메뉴(서브그룹) */
+.sidebar-subgroup { display: flex; flex-direction: column; }
+.sidebar-subgroup-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .22s ease;
+}
+.sidebar-subgroup.open .sidebar-subgroup-body { grid-template-rows: 1fr; }
+.sidebar-subgroup-body > div { overflow: hidden; display: flex; flex-direction: column; }
+.sidebar-subgroup-btn { justify-content: flex-start; }
+.sidebar-subgroup-btn .sidebar-chevron { margin-left: auto; transition: transform .2s ease; }
+.sidebar-subgroup.open > .sidebar-subgroup-btn .sidebar-chevron { transform: rotate(180deg); opacity: .8 !important; }
+.sidebar .sidebar-subsub {
+  padding-left: 44px;
+  font-size: 12.5px;
+}
+.sidebar .sidebar-subsub i,
+.sidebar .sidebar-subsub svg { width: 13px; height: 13px; }
+.sidebar .sidebar-subsub:hover { color: var(--sb-text-hi); background: var(--sb-hover); }
+.sidebar .sidebar-subsub.active { color: #fff; font-weight: 600; background: var(--sb-active); }
+
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN CONTENT

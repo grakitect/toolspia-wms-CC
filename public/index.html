@@ -104,22 +104,31 @@
                 <i data-lucide="truck"></i>
                 <span>출고예정 관리</span>
               </button>
-              <button data-view="outbound-upload-daiso" class="sidebar-sub">
-                <i data-lucide="store"></i>
-                <span>다이소</span>
-              </button>
-              <button data-view="outbound-upload-emart" class="sidebar-sub">
-                <i data-lucide="store"></i>
-                <span>이마트(판매입력)</span>
-              </button>
-              <button data-view="outbound-upload-emart2" class="sidebar-sub">
-                <i data-lucide="store"></i>
-                <span>이마트</span>
-              </button>
-              <button data-view="outbound-upload-lotte" class="sidebar-sub">
-                <i data-lucide="store"></i>
-                <span>롯데마트</span>
-              </button>
+              <div class="sidebar-subgroup">
+                <button class="sidebar-sub sidebar-subgroup-btn" data-subgroup="partner-upload">
+                  <i data-lucide="shopping-bag"></i>
+                  <span>판매처별 출고관리</span>
+                  <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+                </button>
+                <div class="sidebar-subgroup-body"><div>
+                  <button data-view="outbound-upload-daiso" class="sidebar-subsub">
+                    <i data-lucide="store"></i>
+                    <span>다이소</span>
+                  </button>
+                  <button data-view="outbound-upload-emart" class="sidebar-subsub">
+                    <i data-lucide="store"></i>
+                    <span>이마트(판매입력)</span>
+                  </button>
+                  <button data-view="outbound-upload-emart2" class="sidebar-subsub">
+                    <i data-lucide="store"></i>
+                    <span>이마트</span>
+                  </button>
+                  <button data-view="outbound-upload-lotte" class="sidebar-subsub">
+                    <i data-lucide="store"></i>
+                    <span>롯데마트</span>
+                  </button>
+                </div></div>
+              </div>
             </div></div>
           </div>
 
@@ -150,6 +159,25 @@
             </div></div>
           </div>
 
+          <!-- 구매 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="purchase">
+              <i data-lucide="shopping-cart"></i>
+              <span>구매</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-view="purchase-products" class="sidebar-sub">
+                <i data-lucide="package"></i>
+                <span>구매 품목 리스트</span>
+              </button>
+              <button data-view="purchase-orders" class="sidebar-sub">
+                <i data-lucide="file-text"></i>
+                <span>구매 발주</span>
+              </button>
+            </div></div>
+          </div>
+
           <!-- 관리 그룹 -->
           <div class="sidebar-group">
             <button class="sidebar-group-btn" data-group="manage">
@@ -161,6 +189,10 @@
               <button data-view="alert" class="sidebar-sub">
                 <i data-lucide="bell"></i>
                 <span>알림</span>
+              </button>
+              <button data-view="barcode-print" class="sidebar-sub">
+                <i data-lucide="scan-barcode"></i>
+                <span>바코드 인쇄</span>
               </button>
             </div></div>
           </div>
@@ -188,6 +220,9 @@
         <section id="view-location-map" class="view hidden"></section>
         <section id="view-location-map-3d" class="view hidden"></section>
         <section id="view-location-stock" class="view hidden"></section>
+        <section id="view-purchase-products" class="view hidden"></section>
+        <section id="view-purchase-orders" class="view hidden"></section>
+        <section id="view-barcode-print" class="view hidden" style="padding:0;overflow:hidden;"></section>
       </main>
     </div>
     <script src="/app.js"></script>
