@@ -204,6 +204,21 @@ function normalizeDb(db) {
   }
   for (const p of db.products || []) {
     p.deliveryVendors = toTagList(p.deliveryVendors || p.salesVendor);
+    if (!Array.isArray(p.deliveryVendorInfo)) {
+      const legacyCode = String(p.deliveryVendorCode || "").trim();
+      const legacyItemName = String(p.deliveryItemName || "").trim();
+      const legacyTargetVendor = p.deliveryVendors.includes("롯데마트") ? "롯데마트" : p.deliveryVendors[0];
+      p.deliveryVendorInfo = p.deliveryVendors.map((vendor) => ({
+        vendor,
+        code: vendor === legacyTargetVendor ? legacyCode : "",
+        itemName: vendor === legacyTargetVendor ? legacyItemName : ""
+      }));
+      if (!p.deliveryVendorInfo.length && (legacyCode || legacyItemName)) {
+        p.deliveryVendorInfo = [{ vendor: "", code: legacyCode, itemName: legacyItemName }];
+      }
+    }
+    delete p.deliveryVendorCode;
+    delete p.deliveryItemName;
     p.orderManagers = toTagList(p.orderManagers);
     p.categories = toTagList(p.categories || p.category);
     p.usedWarehouses = toTagList(p.usedWarehouses).filter((w) => db.warehouses.includes(w));
@@ -319,6 +334,18 @@ function toTagList(value) {
     .filter(Boolean);
 }
 
+/** 판매처별 코드/상품명 목록 정규화: [{vendor, code, itemName}] */
+function toDeliveryVendorInfoList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => ({
+      vendor: String(row?.vendor || "").trim(),
+      code: String(row?.code || "").trim(),
+      itemName: String(row?.itemName || "").trim()
+    }))
+    .filter((row) => row.vendor);
+}
+
 /** 엑셀·입력창 흔한 공백( NBSP ) 정리 */
 function normalizeInputLoose(s) {
   return String(s || "")
@@ -429,8 +456,7 @@ function upsertProduct(db, product) {
     logisticsBarcode: String(product.logisticsBarcode || ""),
     status: firstToken(product.status, "판매중"),
     deliveryVendors,
-    deliveryVendorCode: String(product.deliveryVendorCode || ""),
-    deliveryItemName: String(product.deliveryItemName || ""),
+    deliveryVendorInfo: toDeliveryVendorInfoList(product.deliveryVendorInfo),
     spec: String(product.spec || ""),
     purchaseVendor: String(product.purchaseVendor || ""),
     supplyType: firstToken(product.supplyType, ""),

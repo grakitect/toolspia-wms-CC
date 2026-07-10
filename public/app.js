@@ -140,42 +140,10 @@ function toTagList(v) {
     .filter(Boolean);
 }
 
-const VENDOR_FIXED_COLORS = {
-  "다이소":   { bg: "#FFE4E8", color: "#BE1236" },
-  "이마트":   { bg: "#E8F7EE", color: "#1A7A40" },
-  "롯데마트": { bg: "#E6F4FF", color: "#0062CC" },
-  "홈플러스": { bg: "#F3E8FF", color: "#6B21A8" },
-  "코스트코": { bg: "#FFF0E6", color: "#C04A00" },
-};
-const VENDOR_COLOR_PALETTE = [
-  { bg: "#FFF0E6", color: "#C04A00" },
-  { bg: "#E6F4FF", color: "#0062CC" },
-  { bg: "#E8F7EE", color: "#1A7A40" },
-  { bg: "#F3E8FF", color: "#6B21A8" },
-  { bg: "#FFE4E8", color: "#BE1236" },
-  { bg: "#E0F7F7", color: "#0E7070" },
-  { bg: "#FFF8E1", color: "#8A6000" },
-  { bg: "#FFFDE7", color: "#7A5F00" },
-];
-function vendorChipStyle(name) {
-  if (VENDOR_FIXED_COLORS[name]) {
-    const c = VENDOR_FIXED_COLORS[name];
-    return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;`;
-  }
-  let h = 2166136261;
-  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = (h * 16777619) >>> 0; }
-  const c = VENDOR_COLOR_PALETTE[h % VENDOR_COLOR_PALETTE.length];
-  return `background:${c.bg};color:${c.color};border:1px solid ${c.color}33;`;
-}
 function renderTagChips(v, cls = "tag tag-orange") {
   const list = toTagList(v);
   if (!list.length) return "<span class='muted'>-</span>";
   return list.map((x) => `<span class="${cls}">${esc(x)}</span>`).join("");
-}
-function renderVendorChips(v) {
-  const list = toTagList(v);
-  if (!list.length) return "<span class='muted'>-</span>";
-  return list.map((x) => `<span class="tag" style="${vendorChipStyle(x)}">${esc(x)}</span>`).join("");
 }
 
 const WAREHOUSE_COLORS = {
@@ -863,9 +831,31 @@ function downloadGuide(type) {
         "바코드(카톤)": "L-8800000000012",
         "품목명(이카운트)": "샘플상품",
         "상태": "판매중",
-        "판매처": "브랜드디자인, 김윤환",
-        "판매처관리코드": "VD-001",
-        "판매처 품목명": "샘플 납품품목명",
+        "판매처": "다이소",
+        "판매처관리코드": "D-001",
+        "판매처 품목명": "다이소용 상품명",
+        "규격": "500ml",
+        "구매처": "테스트구매처",
+        "수급형태": "무역(수입)",
+        "발주부서": "유통사업부",
+        "발주담당자": "담당자A, 담당자B",
+        "구매처 품목코드": "PV-001",
+        "구매처 품목명": "구매처 샘플명",
+        "창고그룹(이카운트)": "기본창고",
+        "사용창고": "유통사업부, 다이소",
+        "구분": "[상품]",
+        "카테고리": "보통, 시즌"
+      },
+      {
+        "품목코드(이카운트)": "EC-1001",
+        "바코드(SKU)": "8800000000012",
+        "바코드(INN)": "8800000000012-M",
+        "바코드(카톤)": "L-8800000000012",
+        "품목명(이카운트)": "샘플상품",
+        "상태": "판매중",
+        "판매처": "이마트",
+        "판매처관리코드": "E-002",
+        "판매처 품목명": "이마트용 상품명",
         "규격": "500ml",
         "구매처": "테스트구매처",
         "수급형태": "무역(수입)",
@@ -901,7 +891,7 @@ function getByKeys(row, keys) {
 }
 
 function normalizeProductRows(rows) {
-  return rows
+  const parsed = rows
     .map((r) => {
       const ecountCode = getByKeys(r, ["품목코드(이카운트)", "품목코드", "ecountCode", "ECOUNT_CODE", "상품코드", "code", "Code"]);
       const ecountName = getByKeys(r, ["품목명(이카운트)", "품목명", "상품명", "name", "Name"]);
@@ -916,9 +906,9 @@ function normalizeProductRows(rows) {
         ).trim(),
         logisticsBarcode: String(getByKeys(r, ["바코드(카톤)", "물류바코드", "logisticsBarcode"]) || "").trim(),
         status: String(getByKeys(r, ["상태", "status"]) || "판매중").trim(),
-        deliveryVendors: toTagList(getByKeys(r, ["판매처", "deliveryVendors", "salesVendor"])),
-        deliveryVendorCode: String(getByKeys(r, ["판매처관리코드", "deliveryVendorCode"]) || "").trim(),
-        deliveryItemName: String(getByKeys(r, ["판매처 품목명", "deliveryItemName"]) || "").trim(),
+        rowVendors: toTagList(getByKeys(r, ["판매처", "deliveryVendors", "salesVendor"])),
+        rowVendorCode: String(getByKeys(r, ["판매처관리코드", "deliveryVendorCode"]) || "").trim(),
+        rowVendorItemName: String(getByKeys(r, ["판매처 품목명", "deliveryItemName"]) || "").trim(),
         spec: String(getByKeys(r, ["규격", "spec"]) || "").trim(),
         purchaseVendor: String(getByKeys(r, ["구매처", "purchaseVendor"]) || "").trim(),
         supplyType: String(getByKeys(r, ["수급형태", "supplyType"]) || "").trim(),
@@ -936,6 +926,94 @@ function normalizeProductRows(rows) {
       };
     })
     .filter((p) => p.ecountCode && p.ecountName);
+
+  // 같은 기준상품코드(ecountCode)를 가진 행들을 하나의 상품으로 묶고,
+  // 각 행의 판매처를 deliveryVendorInfo 배열 항목으로 합친다.
+  const order = [];
+  const groups = new Map();
+  const scalarFields = [
+    "barcode", "middleBarcode", "logisticsBarcode", "status", "spec", "purchaseVendor",
+    "supplyType", "orderDept", "purchaseItemCode", "purchaseItemName", "warehouseGroup",
+    "itemType", "unit", "safetyStock", "optimalStock"
+  ];
+  const listFields = ["orderManagers", "usedWarehouses", "categories"];
+  for (const row of parsed) {
+    const key = row.ecountCode;
+    if (!groups.has(key)) {
+      const base = { code: row.code, name: row.name, ecountCode: row.ecountCode, ecountName: row.ecountName, deliveryVendors: [], deliveryVendorInfo: [] };
+      for (const f of scalarFields) base[f] = row[f];
+      for (const f of listFields) base[f] = [...row[f]];
+      groups.set(key, base);
+      order.push(key);
+    }
+    const product = groups.get(key);
+    for (const f of scalarFields) {
+      if (!product[f] && row[f]) product[f] = row[f];
+    }
+    for (const f of listFields) {
+      if (!product[f].length && row[f].length) product[f] = [...row[f]];
+    }
+    const vendorsInRow = row.rowVendors.length ? row.rowVendors : [""];
+    for (const vendor of vendorsInRow) {
+      if (!vendor) continue;
+      if (!product.deliveryVendors.includes(vendor)) product.deliveryVendors.push(vendor);
+      if (!product.deliveryVendorInfo.some((v) => v.vendor === vendor)) {
+        product.deliveryVendorInfo.push({ vendor, code: row.rowVendorCode, itemName: row.rowVendorItemName });
+      }
+    }
+  }
+  return order.map((key) => groups.get(key));
+}
+
+/** 상품 1건을 판매처별 행으로 펼침. 판매처 정보가 없으면 판매처 빈 값으로 1행. */
+function getProductVendorRows(p) {
+  const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
+  if (!info.length) return [{ vendor: "", code: "", itemName: "" }];
+  return info;
+}
+
+function isProductMultiVendor(p) {
+  return getProductVendorRows(p).length > 1;
+}
+
+/** 판매처별 코드/상품명 입력 테이블 컨트롤러. bodyId(tbody)/addBtnId 요소를 채우고 행 CRUD 제공. */
+function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
+  const body = qs(`#${bodyId}`);
+  const addBtn = qs(`#${addBtnId}`);
+  if (!body || !addBtn) return { setValues: () => {}, getValues: () => [] };
+  const vendorOptionsHtml = `<option value=""></option>${(vendorOptions || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
+  const addRow = (row = {}) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><select class="vi-vendor">${vendorOptionsHtml}</select></td>
+      <td><input class="vi-code" value="${esc(row.code || "")}" /></td>
+      <td><input class="vi-itemname" value="${esc(row.itemName || "")}" /></td>
+      <td><button type="button" class="vi-remove" title="삭제">&times;</button></td>`;
+    tr.querySelector(".vi-vendor").value = row.vendor || "";
+    body.appendChild(tr);
+  };
+  addBtn.onclick = () => addRow();
+  body.addEventListener("click", (e) => {
+    const btn = e.target.closest(".vi-remove");
+    if (!btn) return;
+    if (body.querySelectorAll("tr").length > 1) btn.closest("tr").remove();
+  });
+  return {
+    setValues(rows) {
+      body.innerHTML = "";
+      const list = Array.isArray(rows) && rows.length ? rows : [{}];
+      list.forEach(addRow);
+    },
+    getValues() {
+      return Array.from(body.querySelectorAll("tr"))
+        .map((tr) => ({
+          vendor: tr.querySelector(".vi-vendor").value.trim(),
+          code: tr.querySelector(".vi-code").value.trim(),
+          itemName: tr.querySelector(".vi-itemname").value.trim()
+        }))
+        .filter((r) => r.vendor);
+    }
+  };
 }
 
 function findProductForMovementImport(productCode) {
@@ -1356,33 +1434,41 @@ function renderProducts() {
     { key: "categories", label: "카테고리" }
   ];
   const rows = state.products
-    .map((p) => {
+    .map((p, pIdx) => {
       const searchText = `${p.ecountCode || p.code || ""} ${p.code || ""} ${p.ecountName || p.name || ""}`.toLowerCase();
       const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
       const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
-      return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${rowClass ? ` class="${rowClass}"` : ""}>
+      const vendorRows = getProductVendorRows(p);
+      const isMulti = vendorRows.length > 1;
+      const groupClass = pIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
+      return vendorRows
+        .map(
+          (v) => `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}">
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
       <td data-col-orig-idx="4">${esc(p.logisticsBarcode)}</td>
       <td data-col-orig-idx="5">${esc(p.ecountName || p.name)}</td>
-      <td data-col-orig-idx="6"${statusStyle}>${esc(p.status || "")}</td>
-      <td data-col-orig-idx="7" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
-      <td data-col-orig-idx="8">${esc(p.deliveryVendorCode || "")}</td>
-      <td data-col-orig-idx="9">${esc(p.deliveryItemName || "")}</td>
-      <td data-col-orig-idx="10">${esc(p.spec || "")}</td>
-      <td data-col-orig-idx="11">${esc(p.purchaseVendor || "")}</td>
-      <td data-col-orig-idx="12">${esc(p.supplyType || "")}</td>
-      <td data-col-orig-idx="13">${esc(p.orderDept || "")}</td>
-      <td data-col-orig-idx="14" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
-      <td data-col-orig-idx="15">${esc(p.purchaseItemCode || "")}</td>
-      <td data-col-orig-idx="16">${esc(p.purchaseItemName || "")}</td>
-      <td data-col-orig-idx="17">${esc(p.warehouseGroup || "")}</td>
-      <td data-col-orig-idx="18" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
-      <td data-col-orig-idx="19">${esc(p.itemType || "")}</td>
-      <td data-col-orig-idx="20" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
-    </tr>`;
+      <td data-col-orig-idx="6">${esc(p.spec || "")}</td>
+      <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
+      <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${esc(v.vendor || "")}</td>
+      <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
+      <td data-col-orig-idx="10">${esc(v.code || "")}</td>
+      <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
+      <td data-col-orig-idx="12">${esc(p.purchaseVendor || "")}</td>
+      <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
+      <td data-col-orig-idx="14">${esc(p.orderDept || "")}</td>
+      <td data-col-orig-idx="15" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+      <td data-col-orig-idx="16">${esc(p.purchaseItemCode || "")}</td>
+      <td data-col-orig-idx="17">${esc(p.purchaseItemName || "")}</td>
+      <td data-col-orig-idx="18">${esc(p.warehouseGroup || "")}</td>
+      <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
+      <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
+      <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+    </tr>`
+        )
+        .join("");
     })
     .join("");
 
@@ -1437,21 +1523,22 @@ function renderProducts() {
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
                 <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
                 <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
-                <th data-col-orig-idx="6" data-col-label="상태">상태</th>
-                <th data-col-orig-idx="7" data-col-label="판매처">판매처</th>
-                <th data-col-orig-idx="8" data-col-label="판매처관리코드">판매처관리코드</th>
-                <th data-col-orig-idx="9" data-col-label="판매처 품목명">판매처 품목명</th>
-                <th data-col-orig-idx="10" data-col-label="규격">규격</th>
-                <th data-col-orig-idx="11" data-col-label="구매처">구매처</th>
-                <th data-col-orig-idx="12" data-col-label="수급형태">수급형태</th>
-                <th data-col-orig-idx="13" data-col-label="발주부서">발주부서</th>
-                <th data-col-orig-idx="14" data-col-label="발주담당자">발주담당자</th>
-                <th data-col-orig-idx="15" data-col-label="구매처 품목코드">구매처 품목코드</th>
-                <th data-col-orig-idx="16" data-col-label="구매처 품목명">구매처 품목명</th>
-                <th data-col-orig-idx="17" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
-                <th data-col-orig-idx="18" data-col-label="사용창고">사용창고</th>
-                <th data-col-orig-idx="19" data-col-label="구분">구분</th>
-                <th data-col-orig-idx="20" data-col-label="카테고리">카테고리</th>
+                <th data-col-orig-idx="6" data-col-label="규격">규격</th>
+                <th data-col-orig-idx="7" data-col-label="상태">상태</th>
+                <th data-col-orig-idx="8" data-col-label="판매처">판매처</th>
+                <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
+                <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
+                <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
+                <th data-col-orig-idx="12" data-col-label="구매처">구매처</th>
+                <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
+                <th data-col-orig-idx="14" data-col-label="발주부서">발주부서</th>
+                <th data-col-orig-idx="15" data-col-label="발주담당자">발주담당자</th>
+                <th data-col-orig-idx="16" data-col-label="구매처 품목코드">구매처 품목코드</th>
+                <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
+                <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
+                <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
+                <th data-col-orig-idx="20" data-col-label="구분">구분</th>
+                <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -1489,17 +1576,14 @@ function renderProducts() {
           <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
-          <div class="multi-select-field">
-            <label>판매처</label>
-            <div class="row product-search-row multi-select-row">
-              <select id="select-deliveryVendors"><option value="">옵션 선택</option>${selectItems(opts.deliveryVendors)}</select>
-              <button type="button" id="add-deliveryVendors">추가</button>
-            </div>
-            <input type="hidden" name="deliveryVendors" />
+          <div class="multi-select-field vendor-info-field">
+            <label>판매처 (판매처별 코드/상품명)</label>
+            <table class="vendor-info-table">
+              <thead><tr><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th></th></tr></thead>
+              <tbody id="vendor-info-rows"></tbody>
+            </table>
+            <button type="button" id="add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
           </div>
-          <div id="preview-deliveryVendors" class="tagline multi-tags"></div>
-          <div><label>판매처관리코드</label><input name="deliveryVendorCode" /></div>
-          <div><label>판매처 품목명</label><input name="deliveryItemName" /></div>
           <div><label>규격</label><input name="spec" /></div>
           <div><label>구매처</label><input name="purchaseVendor" /></div>
           <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType, "")}</select></div>
@@ -1889,7 +1973,7 @@ function renderProducts() {
       }
     };
   };
-  multiControllers.deliveryVendors = setupMultiSelect("deliveryVendors", "select-deliveryVendors", "add-deliveryVendors", "preview-deliveryVendors");
+  multiControllers.deliveryVendors = setupVendorInfoTable("vendor-info-rows", "add-vendor-info-row", opts.deliveryVendors);
   multiControllers.orderManagers = setupMultiSelect("orderManagers", "select-orderManagers", "add-orderManagers", "preview-orderManagers");
   multiControllers.categories = setupMultiSelect("categories", "select-categories", "add-categories", "preview-categories");
   multiControllers.usedWarehouses = setupMultiSelect("usedWarehouses", "select-usedWarehouses", "add-usedWarehouses", "preview-usedWarehouses");
@@ -1925,7 +2009,7 @@ function renderProducts() {
   }
 
   const getSelectedCodes = () =>
-    Array.from(document.querySelectorAll(".product-row-check:checked")).map((el) => String(el.dataset.code || ""));
+    Array.from(new Set(Array.from(document.querySelectorAll(".product-row-check:checked")).map((el) => String(el.dataset.code || ""))));
   const checkAllEl = qs("#product-check-all");
   if (checkAllEl) {
     checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
@@ -1960,9 +2044,7 @@ function renderProducts() {
       setVal("logisticsBarcode", p.logisticsBarcode);
       setVal("ecountName", p.ecountName || p.name);
       setVal("status", p.status);
-      multiControllers.deliveryVendors?.setValues(p.deliveryVendors);
-      setVal("deliveryVendorCode", p.deliveryVendorCode);
-      setVal("deliveryItemName", p.deliveryItemName);
+      multiControllers.deliveryVendors?.setValues(p.deliveryVendorInfo);
       setVal("spec", p.spec);
       setVal("purchaseVendor", p.purchaseVendor);
       setVal("supplyType", p.supplyType);
@@ -2012,7 +2094,9 @@ function renderProducts() {
     data.itemType = toTagList(data.itemType)[0] || "";
     data.code = editingCode || data.ecountCode;
     data.name = data.ecountName;
-    data.deliveryVendors = toTagList(data.deliveryVendors);
+    const vendorInfoRows = multiControllers.deliveryVendors?.getValues() || [];
+    data.deliveryVendorInfo = vendorInfoRows;
+    data.deliveryVendors = vendorInfoRows.map((r) => r.vendor);
     data.orderManagers = toTagList(data.orderManagers);
     data.categories = toTagList(data.categories);
     data.usedWarehouses = toTagList(data.usedWarehouses);
@@ -2072,28 +2156,33 @@ function renderProducts() {
         alert("다운로드할 상품정보가 없습니다.");
         return;
       }
-      const rowsForExport = items.map((p) => ({
-        "품목코드(이카운트)": p.ecountCode || p.code || "",
-        "바코드(SKU)": p.barcode || "",
-        "바코드(INN)": p.middleBarcode || "",
-        "바코드(카톤)": p.logisticsBarcode || "",
-        "품목명(이카운트)": p.ecountName || p.name || "",
-        "상태": p.status || "",
-        "판매처": toTagList(p.deliveryVendors).join(", "),
-        "판매처관리코드": p.deliveryVendorCode || "",
-        "판매처 품목명": p.deliveryItemName || "",
-        "규격": p.spec || "",
-        "구매처": p.purchaseVendor || "",
-        "수급형태": p.supplyType || "",
-        "발주부서": p.orderDept || "",
-        "발주담당자": toTagList(p.orderManagers).join(", "),
-        "구매처 품목코드": p.purchaseItemCode || "",
-        "구매처 품목명": p.purchaseItemName || "",
-        "창고그룹(이카운트)": p.warehouseGroup || "",
-        "사용창고": toTagList(p.usedWarehouses).join(", "),
-        "구분": p.itemType || "",
-        "카테고리": toTagList(p.categories).join(", ")
-      }));
+      const rowsForExport = items.flatMap((p) => {
+        const vendorRows = getProductVendorRows(p);
+        const multi = vendorRows.length > 1 ? "다중" : "단일";
+        return vendorRows.map((v) => ({
+          "품목코드(이카운트)": p.ecountCode || p.code || "",
+          "바코드(SKU)": p.barcode || "",
+          "바코드(INN)": p.middleBarcode || "",
+          "바코드(카톤)": p.logisticsBarcode || "",
+          "품목명(이카운트)": p.ecountName || p.name || "",
+          "상태": p.status || "",
+          "판매처": v.vendor || "",
+          "판매처관리코드": v.code || "",
+          "판매처 품목명": v.itemName || "",
+          "판매처구분": multi,
+          "규격": p.spec || "",
+          "구매처": p.purchaseVendor || "",
+          "수급형태": p.supplyType || "",
+          "발주부서": p.orderDept || "",
+          "발주담당자": toTagList(p.orderManagers).join(", "),
+          "구매처 품목코드": p.purchaseItemCode || "",
+          "구매처 품목명": p.purchaseItemName || "",
+          "창고그룹(이카운트)": p.warehouseGroup || "",
+          "사용창고": toTagList(p.usedWarehouses).join(", "),
+          "구분": p.itemType || "",
+          "카테고리": toTagList(p.categories).join(", ")
+        }));
+      });
       const ws = XLSX.utils.json_to_sheet(rowsForExport);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "products");
@@ -3727,9 +3816,9 @@ async function renderOutboundPartnerUpload(partner, key) {
 
       <!-- 마스터 패널 -->
       <div id="outbound-master-panel-${key}" class="ob-panel hidden">
-        ${key === "lotte" ? `
+        ${key === "lotte" || key === "emart" || key === "daiso" ? `
         <div class="ob-info-banner" style="padding:10px 14px;margin-bottom:8px;background:#EBF3FF;border:1px solid #BFD9FB;border-radius:6px;font-size:12.5px;color:#1A6FDB;">
-          기본상품정보에 등록된 롯데마트 판매처 상품 목록입니다. 수정·등록은 <strong><a href="#" onclick="event.preventDefault();switchView('products');" style="color:#1A6FDB;">기본상품정보</a></strong> 페이지에서만 가능합니다.
+          기본상품정보에 등록된 ${esc(partner)} 판매처 상품 목록입니다. 수정·등록은 <strong><a href="#" onclick="event.preventDefault();switchView('products');" style="color:#1A6FDB;">기본상품정보</a></strong> 페이지에서만 가능합니다.
         </div>
         <div class="ob-toolbar">
           <span id="outbound-master-status-${key}" class="ob-status-badge ob-status-idle">대기 중</span>
@@ -4948,34 +5037,36 @@ async function renderOutboundPartnerUpload(partner, key) {
 
   const loadMaster = async () => {
     if (!masterTableEl) return;
-    if (key === "lotte") {
+    if (key === "lotte" || key === "emart" || key === "daiso") {
       try {
-        const partnerName = "롯데마트";
+        const partnerName = partner;
         const items = (state.products || []).filter(
           (p) => Array.isArray(p.deliveryVendors) && p.deliveryVendors.includes(partnerName)
         );
         const rows = items
-          .map(
-            (p, idx) => `<tr>
+          .map((p, idx) => {
+            const vendorItemName = (p.deliveryVendorInfo || []).find((v) => v.vendor === partnerName)?.itemName || "";
+            return `<tr>
               <td>${idx + 1}</td>
               <td>${esc(p.barcode || "")}</td>
               <td>${esc(p.middleBarcode || "")}</td>
               <td>${esc(p.logisticsBarcode || "")}</td>
               <td>${esc(p.ecountCode || p.code || "")}</td>
               <td>${esc(p.ecountName || p.name || "")}</td>
+              <td>${esc(vendorItemName || "-")}</td>
               <td>${esc(p.status || "")}</td>
-            </tr>`
-          )
+            </tr>`;
+          })
           .join("");
         masterTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:690px;">
           <table id="outbound-master-table-list-${key}">
-            <thead><tr><th>순번</th><th>바코드(SKU)</th><th>바코드(INN)</th><th>바코드(카톤)</th><th>이카운트코드</th><th>품명</th><th>상태</th></tr></thead>
-            <tbody>${rows || `<tr><td colspan="7" class="muted">롯데마트 판매처 상품 없음</td></tr>`}</tbody>
+            <thead><tr><th>순번</th><th>바코드(SKU)</th><th>바코드(INN)</th><th>바코드(카톤)</th><th>이카운트코드</th><th>품명</th><th>판매처 상품명</th><th>상태</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="8" class="muted">${esc(partnerName)} 판매처 상품 없음</td></tr>`}</tbody>
           </table>
         </div>`;
         delete TABLE_FILTER_MEMORY[`#outbound-master-table-list-${key}`];
         applyExcelLikeFilter(`#outbound-master-table-list-${key}`);
-        if (masterStatusEl) masterStatusEl.textContent = `롯데마트 상품 ${items.length}건`;
+        if (masterStatusEl) masterStatusEl.textContent = `${partnerName} 상품 ${items.length}건`;
       } catch (e) {
         if (masterStatusEl) masterStatusEl.textContent = e.message || "상품 조회 실패";
         masterTableEl.innerHTML = `<span class="muted">${esc(e.message || "오류")}</span>`;
@@ -4988,22 +5079,20 @@ async function renderOutboundPartnerUpload(partner, key) {
       const rows = items
         .map(
           (x, idx) => {
-            const fallbackName = (() => {
-              const code = String(x.ecountCode || "").trim();
-              if (!code) return "";
-              const p = (state.products || []).find((it) => String(it.ecountCode || it.code || "").trim() === code);
-              return p ? String(p.ecountName || p.name || "").trim() : "";
-            })();
+            const code = String(x.ecountCode || "").trim();
+            const p = code ? (state.products || []).find((it) => String(it.ecountCode || it.code || "").trim() === code) : null;
+            const fallbackName = p ? String(p.ecountName || p.name || "").trim() : "";
+            const vendorItemName = (p?.deliveryVendorInfo || []).find((v) => v.vendor === partner)?.itemName || "";
             return `<tr><td>${idx + 1}</td><td>${esc(x.sourceCode || "")}</td><td>${esc(x.ecountCode || "")}</td><td>${esc(
               x.name || fallbackName || "-"
-          )}</td><td>${esc(formatDateTimeDisplay(x.updatedAt || ""))}</td></tr>`
+          )}</td><td>${esc(vendorItemName || "-")}</td><td>${esc(formatDateTimeDisplay(x.updatedAt || ""))}</td></tr>`
           }
         )
         .join("");
       masterTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:690px;">
         <table id="outbound-master-table-list-${key}">
-          <thead><tr><th>순번</th><th>바코드 SKU</th><th>이카운트코드</th><th>품명 및 규격(이카운트)</th><th>수정일시</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="5" class="muted">등록된 코드마스터 없음</td></tr>`}</tbody>
+          <thead><tr><th>순번</th><th>바코드 SKU</th><th>이카운트코드</th><th>품명 및 규격(이카운트)</th><th>판매처 상품명</th><th>수정일시</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="6" class="muted">등록된 코드마스터 없음</td></tr>`}</tbody>
         </table>
       </div>`;
       delete TABLE_FILTER_MEMORY[`#outbound-master-table-list-${key}`];
@@ -7778,33 +7867,37 @@ function renderPurchaseProductsList() {
     `<button class="ppl-tab${pplActiveTab === v ? " active" : ""}" data-tab="${esc(v)}">${esc(v)} <span class="ppl-tab-count">${tabCountMap[v]}</span></button>`
   ).join("");
 
-  const rows = state.products.map((p) => {
+  const rows = state.products.map((p, pIdx) => {
     const st = `${p.ecountCode||p.code||""} ${p.code||""} ${p.ecountName||p.name||""} ${p.purchaseVendor||""} ${p.purchaseItemCode||""} ${p.purchaseItemName||""} ${p.barcode||""} ${p.spec||""}`.toLowerCase();
     const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
     const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
-    return `<tr data-code="${esc(p.code)}" data-search="${esc(st)}" data-status="${esc(p.status||"")}" data-supply="${esc(p.supplyType||"")}"${rowClass ? ` class="${rowClass}"` : ""}>
+    const vendorRows = getProductVendorRows(p);
+    const isMulti = vendorRows.length > 1;
+    const groupClass = pIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
+    return vendorRows.map((v) => `<tr data-code="${esc(p.code)}" data-search="${esc(st)}" data-status="${esc(p.status||"")}" data-supply="${esc(p.supplyType||"")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}">
       <td data-col-orig-idx="0"><input type="checkbox" class="ppl-row-check" data-code="${esc(p.code)}" /></td>
       <td data-col-orig-idx="1">${esc(p.ecountCode||p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode||"")}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode||"")}</td>
       <td data-col-orig-idx="4">${esc(p.logisticsBarcode||"")}</td>
       <td data-col-orig-idx="5">${esc(p.ecountName||p.name)}</td>
-      <td data-col-orig-idx="6"${statusStyle}>${esc(p.status||"")}</td>
-      <td data-col-orig-idx="7" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChips(p.deliveryVendors)}</td>
-      <td data-col-orig-idx="8">${esc(p.deliveryVendorCode||"")}</td>
-      <td data-col-orig-idx="9">${esc(p.deliveryItemName||"")}</td>
-      <td data-col-orig-idx="10">${esc(p.spec||"")}</td>
-      <td data-col-orig-idx="11">${esc(p.purchaseVendor||"")}</td>
-      <td data-col-orig-idx="12">${esc(p.supplyType||"")}</td>
-      <td data-col-orig-idx="13">${esc(p.orderDept||"")}</td>
-      <td data-col-orig-idx="14" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
-      <td data-col-orig-idx="15">${esc(p.purchaseItemCode||"")}</td>
-      <td data-col-orig-idx="16">${esc(p.purchaseItemName||"")}</td>
-      <td data-col-orig-idx="17">${esc(p.warehouseGroup||"")}</td>
-      <td data-col-orig-idx="18" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
-      <td data-col-orig-idx="19">${esc(p.itemType||"")}</td>
-      <td data-col-orig-idx="20" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
-    </tr>`;
+      <td data-col-orig-idx="6">${esc(p.spec||"")}</td>
+      <td data-col-orig-idx="7"${statusStyle}>${esc(p.status||"")}</td>
+      <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${esc(v.vendor || "")}</td>
+      <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
+      <td data-col-orig-idx="10">${esc(v.code || "")}</td>
+      <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
+      <td data-col-orig-idx="12">${esc(p.purchaseVendor||"")}</td>
+      <td data-col-orig-idx="13">${esc(p.supplyType||"")}</td>
+      <td data-col-orig-idx="14">${esc(p.orderDept||"")}</td>
+      <td data-col-orig-idx="15" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+      <td data-col-orig-idx="16">${esc(p.purchaseItemCode||"")}</td>
+      <td data-col-orig-idx="17">${esc(p.purchaseItemName||"")}</td>
+      <td data-col-orig-idx="18">${esc(p.warehouseGroup||"")}</td>
+      <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
+      <td data-col-orig-idx="20">${esc(p.itemType||"")}</td>
+      <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+    </tr>`).join("");
   }).join("");
 
   sec.innerHTML = `
@@ -7844,21 +7937,22 @@ function renderPurchaseProductsList() {
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
                 <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
                 <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
-                <th data-col-orig-idx="6" data-col-label="상태">상태</th>
-                <th data-col-orig-idx="7" data-col-label="판매처">판매처</th>
-                <th data-col-orig-idx="8" data-col-label="판매처관리코드">판매처관리코드</th>
-                <th data-col-orig-idx="9" data-col-label="판매처 품목명">판매처 품목명</th>
-                <th data-col-orig-idx="10" data-col-label="규격">규격</th>
-                <th data-col-orig-idx="11" data-col-label="구매처">구매처</th>
-                <th data-col-orig-idx="12" data-col-label="수급형태">수급형태</th>
-                <th data-col-orig-idx="13" data-col-label="발주부서">발주부서</th>
-                <th data-col-orig-idx="14" data-col-label="발주담당자">발주담당자</th>
-                <th data-col-orig-idx="15" data-col-label="구매처 품목코드">구매처 품목코드</th>
-                <th data-col-orig-idx="16" data-col-label="구매처 품목명">구매처 품목명</th>
-                <th data-col-orig-idx="17" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
-                <th data-col-orig-idx="18" data-col-label="사용창고">사용창고</th>
-                <th data-col-orig-idx="19" data-col-label="구분">구분</th>
-                <th data-col-orig-idx="20" data-col-label="카테고리">카테고리</th>
+                <th data-col-orig-idx="6" data-col-label="규격">규격</th>
+                <th data-col-orig-idx="7" data-col-label="상태">상태</th>
+                <th data-col-orig-idx="8" data-col-label="판매처">판매처</th>
+                <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
+                <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
+                <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
+                <th data-col-orig-idx="12" data-col-label="구매처">구매처</th>
+                <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
+                <th data-col-orig-idx="14" data-col-label="발주부서">발주부서</th>
+                <th data-col-orig-idx="15" data-col-label="발주담당자">발주담당자</th>
+                <th data-col-orig-idx="16" data-col-label="구매처 품목코드">구매처 품목코드</th>
+                <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
+                <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
+                <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
+                <th data-col-orig-idx="20" data-col-label="구분">구분</th>
+                <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -7895,17 +7989,14 @@ function renderPurchaseProductsList() {
           <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
-          <div class="multi-select-field">
-            <label>판매처</label>
-            <div class="row product-search-row multi-select-row">
-              <select id="ppl-select-deliveryVendors"><option value="">옵션 선택</option>${selectItems(opts.deliveryVendors)}</select>
-              <button type="button" id="ppl-add-deliveryVendors">추가</button>
-            </div>
-            <input type="hidden" name="deliveryVendors" />
+          <div class="multi-select-field vendor-info-field">
+            <label>판매처 (판매처별 코드/상품명)</label>
+            <table class="vendor-info-table">
+              <thead><tr><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th></th></tr></thead>
+              <tbody id="ppl-vendor-info-rows"></tbody>
+            </table>
+            <button type="button" id="ppl-add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
           </div>
-          <div id="ppl-preview-deliveryVendors" class="tagline multi-tags"></div>
-          <div><label>판매처관리코드</label><input name="deliveryVendorCode" /></div>
-          <div><label>판매처 품목명</label><input name="deliveryItemName" /></div>
           <div><label>규격</label><input name="spec" /></div>
           <div><label>구매처</label><input name="purchaseVendor" /></div>
           <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType,"")}</select></div>
@@ -8062,28 +8153,33 @@ function renderPurchaseProductsList() {
   // ── 엑셀 내보내기 ──────────────────────────────────────────────────────────
   qs("#ppl-export-btn").onclick = () => {
     try {
-      const exportRows = state.products.map((p) => ({
-        "품목코드(이카운트)": p.ecountCode||p.code,
-        "바코드(SKU)": p.barcode||"",
-        "바코드(INN)": p.middleBarcode||"",
-        "바코드(CT)": p.logisticsBarcode||"",
-        "품목명(이카운트)": p.ecountName||p.name,
-        "상태": p.status||"",
-        "판매처": (p.deliveryVendors||[]).join(", "),
-        "판매처관리코드": p.deliveryVendorCode||"",
-        "판매처 품목명": p.deliveryItemName||"",
-        "규격": p.spec||"",
-        "구매처": p.purchaseVendor||"",
-        "수급형태": p.supplyType||"",
-        "발주부서": p.orderDept||"",
-        "발주담당자": (p.orderManagers||[]).join(", "),
-        "구매처 품목코드": p.purchaseItemCode||"",
-        "구매처 품목명": p.purchaseItemName||"",
-        "창고그룹(이카운트)": p.warehouseGroup||"",
-        "사용창고": (p.usedWarehouses||[]).join(", "),
-        "구분": p.itemType||"",
-        "카테고리": (p.categories||[]).join(", "),
-      }));
+      const exportRows = state.products.flatMap((p) => {
+        const vendorRows = getProductVendorRows(p);
+        const multi = vendorRows.length > 1 ? "다중" : "단일";
+        return vendorRows.map((v) => ({
+          "품목코드(이카운트)": p.ecountCode||p.code,
+          "바코드(SKU)": p.barcode||"",
+          "바코드(INN)": p.middleBarcode||"",
+          "바코드(CT)": p.logisticsBarcode||"",
+          "품목명(이카운트)": p.ecountName||p.name,
+          "상태": p.status||"",
+          "판매처": v.vendor||"",
+          "판매처관리코드": v.code||"",
+          "판매처 품목명": v.itemName||"",
+          "판매처구분": multi,
+          "규격": p.spec||"",
+          "구매처": p.purchaseVendor||"",
+          "수급형태": p.supplyType||"",
+          "발주부서": p.orderDept||"",
+          "발주담당자": (p.orderManagers||[]).join(", "),
+          "구매처 품목코드": p.purchaseItemCode||"",
+          "구매처 품목명": p.purchaseItemName||"",
+          "창고그룹(이카운트)": p.warehouseGroup||"",
+          "사용창고": (p.usedWarehouses||[]).join(", "),
+          "구분": p.itemType||"",
+          "카테고리": (p.categories||[]).join(", "),
+        }));
+      });
       const ws = XLSX.utils.json_to_sheet(exportRows);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "구매품목");
@@ -8122,7 +8218,7 @@ function renderPurchaseProductsList() {
     draw();
     return { setValues(vals) { selected = toTagList(vals); draw(); } };
   };
-  pplMultiControllers.deliveryVendors  = setupPplMulti("deliveryVendors",  "ppl-select-deliveryVendors",  "ppl-add-deliveryVendors",  "ppl-preview-deliveryVendors");
+  pplMultiControllers.deliveryVendors  = setupVendorInfoTable("ppl-vendor-info-rows", "ppl-add-vendor-info-row", opts.deliveryVendors);
   pplMultiControllers.orderManagers    = setupPplMulti("orderManagers",    "ppl-select-orderManagers",    "ppl-add-orderManagers",    "ppl-preview-orderManagers");
   pplMultiControllers.usedWarehouses   = setupPplMulti("usedWarehouses",   "ppl-select-usedWarehouses",   "ppl-add-usedWarehouses",   "ppl-preview-usedWarehouses");
   pplMultiControllers.categories       = setupPplMulti("categories",       "ppl-select-categories",       "ppl-add-categories",       "ppl-preview-categories");
@@ -8142,9 +8238,7 @@ function renderPurchaseProductsList() {
     setVal("logisticsBarcode", p.logisticsBarcode);
     setVal("ecountName", p.ecountName || p.name);
     setVal("status", p.status);
-    pplMultiControllers.deliveryVendors?.setValues(p.deliveryVendors);
-    setVal("deliveryVendorCode", p.deliveryVendorCode);
-    setVal("deliveryItemName", p.deliveryItemName);
+    pplMultiControllers.deliveryVendors?.setValues(p.deliveryVendorInfo);
     setVal("spec", p.spec);
     setVal("purchaseVendor", p.purchaseVendor);
     setVal("supplyType", p.supplyType);
@@ -8174,7 +8268,9 @@ function renderPurchaseProductsList() {
       data.itemType = toTagList(data.itemType)[0] || "";
       data.code = pplEditingCode || data.ecountCode;
       data.name = data.ecountName;
-      data.deliveryVendors = toTagList(data.deliveryVendors);
+      const vendorInfoRows = pplMultiControllers.deliveryVendors?.getValues() || [];
+      data.deliveryVendorInfo = vendorInfoRows;
+      data.deliveryVendors = vendorInfoRows.map((r) => r.vendor);
       data.orderManagers = toTagList(data.orderManagers);
       data.categories = toTagList(data.categories);
       data.usedWarehouses = toTagList(data.usedWarehouses);
@@ -8193,7 +8289,7 @@ function renderPurchaseProductsList() {
 
   // ── 선택 수정 버튼 ─────────────────────────────────────────────────────────
   qs("#ppl-edit-selected")?.addEventListener("click", () => {
-    const codes = Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code);
+    const codes = Array.from(new Set(Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code)));
     if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
     const p = state.products.find((x) => String(x.code) === String(codes[0]));
     if (p) openPplEdit(p);
@@ -8201,7 +8297,7 @@ function renderPurchaseProductsList() {
 
   // ── 선택 삭제 버튼 ─────────────────────────────────────────────────────────
   qs("#ppl-delete-selected")?.addEventListener("click", async () => {
-    const codes = Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code);
+    const codes = Array.from(new Set(Array.from(document.querySelectorAll(".ppl-row-check:checked")).map((el) => el.dataset.code)));
     if (!codes.length) return alert("삭제할 상품을 선택하세요.");
     if (!confirm(`선택한 ${codes.length}개 상품을 삭제할까요?`)) return;
     try {

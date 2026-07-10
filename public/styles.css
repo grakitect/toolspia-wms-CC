@@ -675,6 +675,8 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
 #products-table { width: auto; white-space: nowrap; }
+#products-table tr.product-group-odd td { background: #FAFBFC; }
+#products-table tr.product-group-odd td:first-child { background: #FAFBFC; }
 #products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #products-table td { padding: 7px 14px; }
@@ -767,6 +769,8 @@ tbody tr:last-child td { border-bottom: 0; }
 #stock-table tr.stock-row-over td { background: #FFFBEB; }
 
 #ppl-table { width: auto; white-space: nowrap; }
+#ppl-table tr.product-group-odd td { background: #FAFBFC; }
+#ppl-table tr.product-group-odd td:first-child { background: #FAFBFC; }
 #ppl-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #ppl-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #ppl-table td { padding: 7px 14px; }
@@ -889,10 +893,37 @@ tbody tr:last-child td { border-bottom: 0; }
 #product-popup-form > div { min-width: 0; }
 #product-popup-form .multi-select-field { grid-column: span 2; }
 #product-popup-form .multi-select-row { grid-template-columns: 1fr 86px; }
-#preview-deliveryVendors,
+#product-popup-form .vendor-info-field { grid-column: 1 / -1; }
 #preview-orderManagers,
 #preview-categories,
 #product-popup-form > div:last-child { grid-column: 1 / -1; }
+
+.vendor-info-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 6px;
+}
+.vendor-info-table th {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--t2, #64748B);
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border, #E2E8F0);
+}
+.vendor-info-table td { padding: 3px 6px; }
+.vendor-info-table select,
+.vendor-info-table input { width: 100%; }
+.vi-remove {
+  border: none;
+  background: transparent;
+  color: var(--t3, #94A3B8);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.vi-remove:hover { color: var(--red, #F04452); }
 
 /* ═══════════════════════════════════════════════════════════════
    PRODUCTS TOOLBAR (BH = BigHeader)
