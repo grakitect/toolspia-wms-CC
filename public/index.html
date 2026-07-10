@@ -190,12 +190,36 @@
                 <i data-lucide="bell"></i>
                 <span>알림</span>
               </button>
-              <button data-view="barcode-print" class="sidebar-sub">
-                <i data-lucide="scan-barcode"></i>
+            </div></div>
+          </div>
+
+          <!-- 바코드 인쇄 그룹 -->
+          <div class="sidebar-group">
+            <button class="sidebar-group-btn" data-group="barcode">
+              <i data-lucide="scan-barcode"></i>
+              <span>바코드 인쇄</span>
+              <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+            </button>
+            <div class="sidebar-group-body"><div>
+              <button data-barcode-tab="products" class="sidebar-sub">
+                <i data-lucide="search"></i>
+                <span>상품 검색</span>
+              </button>
+              <button data-barcode-tab="labels" class="sidebar-sub">
+                <i data-lucide="tag"></i>
+                <span>라벨 템플릿</span>
+              </button>
+              <button data-barcode-tab="print" class="sidebar-sub">
+                <i data-lucide="printer"></i>
                 <span>바코드 인쇄</span>
               </button>
             </div></div>
           </div>
+
+          <button data-view="dev-notes">
+            <i data-lucide="sticky-note"></i>
+            <span>개발 메모</span>
+          </button>
         </nav>
       </aside>
 
@@ -223,6 +247,7 @@
         <section id="view-purchase-products" class="view hidden"></section>
         <section id="view-purchase-orders" class="view hidden"></section>
         <section id="view-barcode-print" class="view hidden" style="padding:0;overflow:hidden;"></section>
+        <section id="view-dev-notes" class="view hidden"></section>
       </main>
     </div>
     <script src="/app.js"></script>

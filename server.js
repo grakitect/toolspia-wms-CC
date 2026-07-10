@@ -285,6 +285,25 @@ function normalizeDb(db) {
   if (!Array.isArray(db.locations)) db.locations = [];
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
   if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
+  if (!Array.isArray(db.devBoards)) db.devBoards = [];
+  for (const b of db.devBoards) {
+    if (!Array.isArray(b.sections)) {
+      const legacyItems = Array.isArray(b.items) ? b.items : [];
+      b.sections = legacyItems.length
+        ? [{
+            id: `DS-${String(db.seq++).padStart(5, "0")}`,
+            title: "할일",
+            items: legacyItems,
+            createdAt: b.createdAt || new Date().toISOString(),
+            updatedAt: b.updatedAt || new Date().toISOString()
+          }]
+        : [];
+    }
+    delete b.items;
+    for (const s of b.sections) {
+      if (!Array.isArray(s.items)) s.items = [];
+    }
+  }
 }
 
 function sendJson(res, code, payload) {
@@ -5970,6 +5989,224 @@ async function handleApi(req, res, urlObj) {
       const idx = db.purchaseOrders.findIndex((o) => o.id === id);
       if (idx === -1) throw new Error("발주서를 찾을 수 없습니다.");
       db.purchaseOrders.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 개발 메모 (할일 보드) ──────────────────────────────────────
+  if (req.method === "GET" && pathname === "/api/dev-boards") {
+    return sendJson(res, 200, { items: db.devBoards });
+  }
+
+  if (req.method === "POST" && pathname === "/api/dev-boards") {
+    try {
+      const body = await parseBody(req);
+      const title = String(body.title || "").trim() || "새 보드";
+      const now = new Date().toISOString();
+      const board = {
+        id: `DB-${String(db.seq++).padStart(5, "0")}`,
+        title,
+        sections: [{
+          id: `DS-${String(db.seq++).padStart(5, "0")}`,
+          title: "할일",
+          items: [],
+          createdAt: now,
+          updatedAt: now
+        }],
+        createdAt: now,
+        updatedAt: now
+      };
+      db.devBoards.push(board);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: board });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/dev-boards") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      const board = db.devBoards.find((b) => b.id === id);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      if (body.title !== undefined) board.title = String(body.title).trim() || "제목 없음";
+      board.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: board });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/dev-boards") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      const idx = db.devBoards.findIndex((b) => b.id === id);
+      if (idx === -1) throw new Error("보드를 찾을 수 없습니다.");
+      db.devBoards.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 중제목(섹션) ──
+  if (req.method === "POST" && pathname === "/api/dev-boards/sections") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const title = String(body.title || "").trim();
+      if (!title) throw new Error("중제목 이름은 필수입니다.");
+      const section = {
+        id: `DS-${String(db.seq++).padStart(5, "0")}`,
+        title,
+        items: [],
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      board.sections.push(section);
+      board.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: section });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/dev-boards/sections") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const sectionId = String(body.sectionId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const section = board.sections.find((s) => s.id === sectionId);
+      if (!section) throw new Error("중제목을 찾을 수 없습니다.");
+      if (body.title !== undefined) section.title = String(body.title).trim() || "제목 없음";
+      section.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item: section });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/dev-boards/sections") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const sectionId = String(body.sectionId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const idx = board.sections.findIndex((s) => s.id === sectionId);
+      if (idx === -1) throw new Error("중제목을 찾을 수 없습니다.");
+      board.sections.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 할일(아이템) — 중제목 하위 ──
+  if (req.method === "POST" && pathname === "/api/dev-boards/items") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const sectionId = String(body.sectionId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const section = board.sections.find((s) => s.id === sectionId);
+      if (!section) throw new Error("중제목을 찾을 수 없습니다.");
+      const text = String(body.text || "").trim();
+      if (!text) throw new Error("할 일 내용은 필수입니다.");
+      const item = {
+        id: `DI-${String(db.seq++).padStart(5, "0")}`,
+        text,
+        done: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      section.items.push(item);
+      section.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PATCH" && pathname === "/api/dev-boards/items") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const sectionId = String(body.sectionId || "").trim();
+      const itemId = String(body.itemId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const section = board.sections.find((s) => s.id === sectionId);
+      if (!section) throw new Error("중제목을 찾을 수 없습니다.");
+      const item = section.items.find((i) => i.id === itemId);
+      if (!item) throw new Error("할 일을 찾을 수 없습니다.");
+      if (body.text !== undefined) item.text = String(body.text).trim();
+      if (body.done !== undefined) item.done = !!body.done;
+      item.updatedAt = new Date().toISOString();
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, item });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/dev-boards/items") {
+    try {
+      const body = await parseBody(req);
+      const boardId = String(body.boardId || "").trim();
+      const sectionId = String(body.sectionId || "").trim();
+      const itemId = String(body.itemId || "").trim();
+      const board = db.devBoards.find((b) => b.id === boardId);
+      if (!board) throw new Error("보드를 찾을 수 없습니다.");
+      const section = board.sections.find((s) => s.id === sectionId);
+      if (!section) throw new Error("중제목을 찾을 수 없습니다.");
+      const idx = section.items.findIndex((i) => i.id === itemId);
+      if (idx === -1) throw new Error("할 일을 찾을 수 없습니다.");
+      section.items.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/dev-boards/items/move") {
+    try {
+      const body = await parseBody(req);
+      const fromBoardId = String(body.fromBoardId || "").trim();
+      const fromSectionId = String(body.fromSectionId || "").trim();
+      const toBoardId = String(body.toBoardId || "").trim();
+      const toSectionId = String(body.toSectionId || "").trim();
+      const itemId = String(body.itemId || "").trim();
+      const fromBoard = db.devBoards.find((b) => b.id === fromBoardId);
+      const toBoard = db.devBoards.find((b) => b.id === toBoardId);
+      if (!fromBoard || !toBoard) throw new Error("보드를 찾을 수 없습니다.");
+      const fromSection = fromBoard.sections.find((s) => s.id === fromSectionId);
+      const toSection = toBoard.sections.find((s) => s.id === toSectionId);
+      if (!fromSection || !toSection) throw new Error("중제목을 찾을 수 없습니다.");
+      const idx = fromSection.items.findIndex((i) => i.id === itemId);
+      if (idx === -1) throw new Error("할 일을 찾을 수 없습니다.");
+      const [item] = fromSection.items.splice(idx, 1);
+      const toIndex = Math.max(0, Math.min(Number(body.toIndex) || 0, toSection.items.length));
+      toSection.items.splice(toIndex, 0, item);
+      fromSection.updatedAt = new Date().toISOString();
+      toSection.updatedAt = new Date().toISOString();
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {

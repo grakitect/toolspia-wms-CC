@@ -1,5 +1,6 @@
 const views = [
   "dashboard",
+  "dev-notes",
   "master",
   "products",
   "stock",
@@ -46,7 +47,8 @@ const state = {
   },
   partners: { inbound: [], outbound: [], purchase: [] },
   managers: [],
-  purchaseOrders: []
+  purchaseOrders: [],
+  devBoards: []
 };
 
 function qs(sel) {
@@ -857,7 +859,7 @@ function downloadGuide(type) {
       {
         "품목코드(이카운트)": "EC-1001",
         "바코드(SKU)": "8800000000012",
-        "바코드(중포)": "8800000000012-M",
+        "바코드(INN)": "8800000000012-M",
         "바코드(카톤)": "L-8800000000012",
         "품목명(이카운트)": "샘플상품",
         "상태": "판매중",
@@ -910,7 +912,7 @@ function normalizeProductRows(rows) {
         ecountName: String(ecountName || "").trim(),
         barcode: String(getByKeys(r, ["바코드(SKU)", "바코드", "barcode"]) || "").trim(),
         middleBarcode: String(
-          getByKeys(r, ["바코드(중포)", "중포바코드", "중포 바코드", "중포", "middleBarcode", "middle_barcode"]) || ""
+          getByKeys(r, ["바코드(INN)", "INN", "중포바코드", "중포 바코드", "중포", "middleBarcode", "middle_barcode"]) || ""
         ).trim(),
         logisticsBarcode: String(getByKeys(r, ["바코드(카톤)", "물류바코드", "logisticsBarcode"]) || "").trim(),
         status: String(getByKeys(r, ["상태", "status"]) || "판매중").trim(),
@@ -1432,7 +1434,7 @@ function renderProducts() {
                 <th data-col-orig-idx="0" data-col-label=""><input id="product-check-all" type="checkbox" /></th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
-                <th data-col-orig-idx="3" data-col-label="바코드(중포)">바코드(중포)</th>
+                <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
                 <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
                 <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
                 <th data-col-orig-idx="6" data-col-label="상태">상태</th>
@@ -1483,7 +1485,7 @@ function renderProducts() {
         <form id="product-popup-form" class="modal-form">
           <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
-          <div><label>바코드(중포)</label><input name="middleBarcode" /></div>
+          <div><label>바코드(INN)</label><input name="middleBarcode" /></div>
           <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
@@ -2073,7 +2075,7 @@ function renderProducts() {
       const rowsForExport = items.map((p) => ({
         "품목코드(이카운트)": p.ecountCode || p.code || "",
         "바코드(SKU)": p.barcode || "",
-        "바코드(중포)": p.middleBarcode || "",
+        "바코드(INN)": p.middleBarcode || "",
         "바코드(카톤)": p.logisticsBarcode || "",
         "품목명(이카운트)": p.ecountName || p.name || "",
         "상태": p.status || "",
@@ -3146,7 +3148,7 @@ async function renderInboundPlan2() {
               <th>순번</th>
               <th>품목코드</th>
               <th>바코드(SKU)</th>
-              <th>바코드(중포)</th>
+              <th>바코드(INN)</th>
               <th>바코드(CT)</th>
               <th style="min-width:200px;">품목명</th>
               <th>규격</th>
@@ -4967,7 +4969,7 @@ async function renderOutboundPartnerUpload(partner, key) {
           .join("");
         masterTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:690px;">
           <table id="outbound-master-table-list-${key}">
-            <thead><tr><th>순번</th><th>바코드(SKU)</th><th>바코드(중포)</th><th>바코드(카톤)</th><th>이카운트코드</th><th>품명</th><th>상태</th></tr></thead>
+            <thead><tr><th>순번</th><th>바코드(SKU)</th><th>바코드(INN)</th><th>바코드(카톤)</th><th>이카운트코드</th><th>품명</th><th>상태</th></tr></thead>
             <tbody>${rows || `<tr><td colspan="7" class="muted">롯데마트 판매처 상품 없음</td></tr>`}</tbody>
           </table>
         </div>`;
@@ -7338,10 +7340,24 @@ function renderAlert() {
   `;
 }
 
-function renderBarcodePrint() {
+function syncBarcodeTab(tab) {
+  document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.barcodeTab === tab);
+  });
+}
+window.syncBarcodeTab = syncBarcodeTab;
+
+function renderBarcodePrint(tab = "products") {
   const el = qs("#view-barcode-print");
-  if (el.querySelector("iframe")) return;
-  el.innerHTML = `<iframe src="/barcode-print.html" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+  const iframe = el.querySelector("iframe");
+  if (iframe) {
+    try { iframe.contentWindow.showTab(tab); } catch(_) {}
+    return;
+  }
+  el.innerHTML = `<iframe src="/barcode-print.html?embedded=1" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+  el.querySelector("iframe").addEventListener("load", () => {
+    try { el.querySelector("iframe").contentWindow.showTab(tab); } catch(_) {}
+  });
 }
 
 async function renderPurchaseOrders() {
@@ -7524,6 +7540,219 @@ async function renderPurchaseOrders() {
   renderList();
 }
 
+async function renderDevNotes() {
+  const sec = qs("#view-dev-notes");
+
+  async function reload(focus) {
+    const res = await fetch("/api/dev-boards").then((r) => r.json()).catch(() => ({ items: [] }));
+    state.devBoards = res.items || [];
+    renderBoards();
+    if (focus) {
+      const el = sec.querySelector(`[data-focus="${focus.type}:${focus.id}"]`);
+      if (el) { el.focus(); el.select(); }
+    }
+  }
+
+  function itemHtml(board, section, item) {
+    return `
+      <li class="dnb-item" draggable="true" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" data-item-id="${esc(item.id)}">
+        <input type="checkbox" class="dnb-item-checkbox" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" data-item-id="${esc(item.id)}" ${item.done ? "checked" : ""} />
+        <textarea rows="1" class="dnb-item-text-input${item.done ? " dnb-item-text-done" : ""}" data-focus="item:${esc(item.id)}" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" data-item-id="${esc(item.id)}">${esc(item.text)}</textarea>
+        <button type="button" class="dnb-item-del" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" data-item-id="${esc(item.id)}" title="삭제">&times;</button>
+      </li>`;
+  }
+
+  function sectionHtml(board, section) {
+    const items = section.items || [];
+    return `
+      <div class="dnb-section" data-section-id="${esc(section.id)}">
+        <div class="dnb-section-header">
+          <input type="text" class="dnb-section-title" data-focus="section:${esc(section.id)}" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" value="${esc(section.title)}" />
+          <div class="dnb-section-actions">
+            <button type="button" class="dnb-section-add-item-btn" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" title="할일 추가">+</button>
+            <button type="button" class="dnb-section-del" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}" title="중제목 삭제">&times;</button>
+          </div>
+        </div>
+        <ul class="dnb-item-list" data-board-id="${esc(board.id)}" data-section-id="${esc(section.id)}">
+          ${items.map((i) => itemHtml(board, section, i)).join("")}
+        </ul>
+      </div>`;
+  }
+
+  function boardHtml(board) {
+    const sections = board.sections || [];
+    return `
+      <div class="dnb-board" data-board-id="${esc(board.id)}">
+        <div class="dnb-board-header">
+          <input type="text" class="dnb-board-title" data-board-id="${esc(board.id)}" value="${esc(board.title)}" />
+          <button type="button" class="dnb-board-del" data-board-id="${esc(board.id)}" title="보드 삭제">&times;</button>
+        </div>
+        <div class="dnb-section-list">
+          ${sections.map((s) => sectionHtml(board, s)).join("")}
+        </div>
+        <button type="button" class="dnb-add-section-link-btn" data-board-id="${esc(board.id)}">+ 할일 추가</button>
+      </div>`;
+  }
+
+  function renderBoards() {
+    sec.innerHTML = `
+      <div class="card" style="margin-bottom:16px;">
+        <h2>개발 메모</h2>
+        <p class="muted" style="margin-top:4px;">개발/수정이 필요한 내용을 보드별로 등록하고 완료 체크하세요.</p>
+      </div>
+      <div class="dnb-wrap">
+        ${state.devBoards.map(boardHtml).join("")}
+        <button type="button" id="dnb-add-board-btn" class="dnb-add-board-btn">+ 보드 추가</button>
+      </div>
+    `;
+
+    const enterBlurs = (input) => {
+      input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
+    };
+
+    const autosize = (textarea) => {
+      textarea.style.height = "auto";
+      textarea.style.height = textarea.scrollHeight + "px";
+    };
+
+    qs("#dnb-add-board-btn").onclick = async () => {
+      const r = await fetch("/api/dev-boards", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "할일" }) });
+      if (!r.ok) { alert("보드 추가 실패"); return; }
+      await reload();
+    };
+
+    sec.querySelectorAll(".dnb-board-title").forEach((input) => {
+      enterBlurs(input);
+      input.addEventListener("change", async () => {
+        const r = await fetch("/api/dev-boards", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: input.dataset.boardId, title: input.value.trim() }) });
+        if (!r.ok) { alert("제목 수정 실패"); return; }
+        await reload();
+      });
+    });
+
+    sec.querySelectorAll(".dnb-board-del").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("이 보드를 삭제하시겠습니까? 등록된 중제목/할일도 모두 삭제됩니다.")) return;
+        const r = await fetch("/api/dev-boards", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: btn.dataset.boardId }) });
+        if (!r.ok) { alert("삭제 실패"); return; }
+        await reload();
+      };
+    });
+
+    sec.querySelectorAll(".dnb-add-section-link-btn").forEach((btn) => {
+      btn.onclick = async () => {
+        const r = await fetch("/api/dev-boards/sections", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: btn.dataset.boardId, title: "중제목" }) });
+        if (!r.ok) { alert("중제목 추가 실패"); return; }
+        const data = await r.json();
+        await reload({ type: "section", id: data.item.id });
+      };
+    });
+
+    sec.querySelectorAll(".dnb-section-title").forEach((input) => {
+      enterBlurs(input);
+      input.addEventListener("change", async () => {
+        const r = await fetch("/api/dev-boards/sections", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: input.dataset.boardId, sectionId: input.dataset.sectionId, title: input.value.trim() }) });
+        if (!r.ok) { alert("제목 수정 실패"); return; }
+        await reload();
+      });
+    });
+
+    sec.querySelectorAll(".dnb-section-del").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("이 중제목을 삭제하시겠습니까? 등록된 할일도 모두 삭제됩니다.")) return;
+        const r = await fetch("/api/dev-boards/sections", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: btn.dataset.boardId, sectionId: btn.dataset.sectionId }) });
+        if (!r.ok) { alert("삭제 실패"); return; }
+        await reload();
+      };
+    });
+
+    sec.querySelectorAll(".dnb-section-add-item-btn").forEach((btn) => {
+      btn.onclick = async () => {
+        const r = await fetch("/api/dev-boards/items", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: btn.dataset.boardId, sectionId: btn.dataset.sectionId, text: "할일" }) });
+        if (!r.ok) { alert("할일 추가 실패"); return; }
+        const data = await r.json();
+        await reload({ type: "item", id: data.item.id });
+      };
+    });
+
+    sec.querySelectorAll(".dnb-item-checkbox").forEach((cb) => {
+      cb.onchange = async () => {
+        const r = await fetch("/api/dev-boards/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: cb.dataset.boardId, sectionId: cb.dataset.sectionId, itemId: cb.dataset.itemId, done: cb.checked }) });
+        if (!r.ok) { alert("업데이트 실패"); return; }
+        await reload();
+      };
+    });
+
+    sec.querySelectorAll(".dnb-item-text-input").forEach((input) => {
+      enterBlurs(input);
+      autosize(input);
+      input.addEventListener("input", () => autosize(input));
+      input.addEventListener("change", async () => {
+        const r = await fetch("/api/dev-boards/items", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: input.dataset.boardId, sectionId: input.dataset.sectionId, itemId: input.dataset.itemId, text: input.value.trim() }) });
+        if (!r.ok) { alert("수정 실패"); return; }
+        await reload();
+      });
+    });
+
+    sec.querySelectorAll(".dnb-item-del").forEach((btn) => {
+      btn.onclick = async () => {
+        const r = await fetch("/api/dev-boards/items", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: btn.dataset.boardId, sectionId: btn.dataset.sectionId, itemId: btn.dataset.itemId }) });
+        if (!r.ok) { alert("삭제 실패"); return; }
+        await reload();
+      };
+    });
+
+    let draggingItem = null;
+    sec.querySelectorAll(".dnb-item").forEach((card) => {
+      card.addEventListener("dragstart", (e) => {
+        draggingItem = { boardId: card.dataset.boardId, sectionId: card.dataset.sectionId, itemId: card.dataset.itemId };
+        card.classList.add("dnb-item-dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      card.addEventListener("dragend", () => {
+        card.classList.remove("dnb-item-dragging");
+        draggingItem = null;
+      });
+    });
+
+    sec.querySelectorAll(".dnb-item-list").forEach((list) => {
+      list.addEventListener("dragover", (e) => {
+        if (!draggingItem) return;
+        e.preventDefault();
+        list.classList.add("dnb-item-list-over");
+      });
+      list.addEventListener("dragleave", () => {
+        list.classList.remove("dnb-item-list-over");
+      });
+      list.addEventListener("drop", async (e) => {
+        e.preventDefault();
+        list.classList.remove("dnb-item-list-over");
+        if (!draggingItem) return;
+        const cards = [...list.querySelectorAll(".dnb-item")].filter((c) => c.dataset.itemId !== draggingItem.itemId);
+        let toIndex = cards.length;
+        for (let i = 0; i < cards.length; i++) {
+          const rect = cards[i].getBoundingClientRect();
+          if (e.clientY < rect.top + rect.height / 2) { toIndex = i; break; }
+        }
+        const payload = {
+          fromBoardId: draggingItem.boardId,
+          fromSectionId: draggingItem.sectionId,
+          itemId: draggingItem.itemId,
+          toBoardId: list.dataset.boardId,
+          toSectionId: list.dataset.sectionId,
+          toIndex
+        };
+        draggingItem = null;
+        const r = await fetch("/api/dev-boards/items/move", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        if (!r.ok) { alert("이동 실패"); return; }
+        await reload();
+      });
+    });
+  }
+
+  await reload();
+}
+
 let stockPageIndex = 0;
 let pplPageIndex = 0;
 let pplActiveTab = "";
@@ -7612,7 +7841,7 @@ function renderPurchaseProductsList() {
                 <th data-col-orig-idx="0" data-col-label=""><input id="ppl-check-all" type="checkbox" /></th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
-                <th data-col-orig-idx="3" data-col-label="바코드(중포)">바코드(중포)</th>
+                <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
                 <th data-col-orig-idx="4" data-col-label="바코드(CT)">바코드(CT)</th>
                 <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
                 <th data-col-orig-idx="6" data-col-label="상태">상태</th>
@@ -7662,7 +7891,7 @@ function renderPurchaseProductsList() {
         <form id="ppl-popup-form" class="modal-form">
           <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
-          <div><label>바코드(중포)</label><input name="middleBarcode" /></div>
+          <div><label>바코드(INN)</label><input name="middleBarcode" /></div>
           <div><label>바코드(CT)</label><input name="logisticsBarcode" /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
@@ -7836,7 +8065,7 @@ function renderPurchaseProductsList() {
       const exportRows = state.products.map((p) => ({
         "품목코드(이카운트)": p.ecountCode||p.code,
         "바코드(SKU)": p.barcode||"",
-        "바코드(중포)": p.middleBarcode||"",
+        "바코드(INN)": p.middleBarcode||"",
         "바코드(CT)": p.logisticsBarcode||"",
         "품목명(이카운트)": p.ecountName||p.name,
         "상태": p.status||"",
@@ -8049,6 +8278,18 @@ async function init() {
       if (v === "purchase-products") renderPurchaseProductsList();
       if (v === "purchase-orders") await renderPurchaseOrders();
       if (v === "barcode-print") renderBarcodePrint();
+      if (v === "dev-notes") await renderDevNotes();
+    };
+  });
+
+  document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      const tab = btn.dataset.barcodeTab;
+      switchView("barcode-print");
+      renderBarcodePrint(tab);
+      document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.barcodeTab === tab);
+      });
     };
   });
 
