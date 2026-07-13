@@ -61,6 +61,7 @@ const PRODUCT_OPTION_KEYS = [
   "deliveryVendors",
   "orderDept",
   "orderManagers",
+  "salesManagers",
   "supplyType",
   "warehouseGroup",
   "itemType",
@@ -220,6 +221,7 @@ function normalizeDb(db) {
     delete p.deliveryVendorCode;
     delete p.deliveryItemName;
     p.orderManagers = toTagList(p.orderManagers);
+    p.salesManagers = toTagList(p.salesManagers);
     p.categories = toTagList(p.categories || p.category);
     p.usedWarehouses = toTagList(p.usedWarehouses).filter((w) => db.warehouses.includes(w));
     if (!p.ecountCode) p.ecountCode = String(p.code || "");
@@ -235,6 +237,7 @@ function normalizeDb(db) {
     db.productOptions.deliveryVendors.push(...toTagList(p.deliveryVendors));
     db.productOptions.orderDept.push(String(p.orderDept || "").trim());
     db.productOptions.orderManagers.push(...toTagList(p.orderManagers));
+    db.productOptions.salesManagers.push(...toTagList(p.salesManagers));
     db.productOptions.supplyType.push(String(p.supplyType || "").trim());
     db.productOptions.warehouseGroup.push(String(p.warehouseGroup || "").trim());
     db.productOptions.itemType.push(String(p.itemType || "").trim());
@@ -445,6 +448,7 @@ function upsertProduct(db, product) {
   const found = db.products.find((p) => p.code === code || String(p.ecountCode || "").trim() === ecountCode);
   const deliveryVendors = toTagList(product.deliveryVendors);
   const orderManagers = toTagList(product.orderManagers);
+  const salesManagers = toTagList(product.salesManagers);
   const categories = toTagList(product.categories || product.category);
   const usedWarehouses = toTagList(product.usedWarehouses).filter((w) => db.warehouses.includes(w));
   const updated = {
@@ -462,6 +466,7 @@ function upsertProduct(db, product) {
     supplyType: firstToken(product.supplyType, ""),
     orderDept: firstToken(product.orderDept, ""),
     orderManagers,
+    salesManagers,
     purchaseItemCode: String(product.purchaseItemCode || ""),
     purchaseItemName: String(product.purchaseItemName || ""),
     warehouseGroup: firstToken(product.warehouseGroup, ""),
@@ -474,6 +479,11 @@ function upsertProduct(db, product) {
     unit: String(product.unit || "EA"),
     safetyStock: Number(product.safetyStock || 0),
     optimalStock: Number(product.optimalStock || 0),
+    ctnEa: String(product.ctnEa || ""),
+    innPerCtn: String(product.innPerCtn || ""),
+    innEa: String(product.innEa || ""),
+    ctnPerPlt: String(product.ctnPerPlt || ""),
+    pltEa: String(product.pltEa || ""),
     note: String(product.note || "")
   };
   if (found) {

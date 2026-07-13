@@ -690,19 +690,59 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 #products-table thead th:first-child {
   left: 0;
-  z-index: 6;
+  z-index: 60;
+  width: 41px;
 }
 #products-table tbody td:first-child {
   position: sticky;
   left: 0;
-  z-index: 1;
+  z-index: 50;
   background: #fff;
-  will-change: transform;
+  width: 41px;
 }
+#products-table thead th:nth-child(2) {
+  position: sticky;
+  left: 41px;
+  z-index: 60;
+}
+#products-table tbody td:nth-child(2) {
+  position: sticky;
+  left: 41px;
+  z-index: 50;
+  background: #fff;
+}
+#products-table thead th:nth-child(2)::after,
+#products-table tbody td:nth-child(2)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 30px;
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.12) 0%,
+    rgba(0, 0, 0, 0.078) 30%,
+    rgba(0, 0, 0, 0.032) 60%,
+    rgba(0, 0, 0, 0.012) 80%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+}
+.table-scroll-x.is-scrolled-x #products-table thead th:nth-child(2)::after,
+.table-scroll-x.is-scrolled-x #products-table tbody td:nth-child(2)::after {
+  opacity: 1;
+}
+#products-table tr.product-group-odd td:nth-child(2) { background: #FAFBFC; }
 #products-table tr.product-row-discontinued td:first-child { background: #F5F5F5; }
 #products-table tr.product-row-suspended td:first-child { background: #F8F9FB; }
+#products-table tr.product-row-discontinued td:nth-child(2) { background: #F5F5F5; }
+#products-table tr.product-row-suspended td:nth-child(2) { background: #F8F9FB; }
 #products-table tr.product-row-checked td { background: #EBF3FF !important; }
 #products-table tr.product-row-checked td:first-child { background: #EBF3FF !important; }
+#products-table tr.product-row-checked td:nth-child(2) { background: #EBF3FF !important; }
 
 .col-settings-item.col-drag-over { border-color: #3182F6; background: #EBF3FF; }
 .column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
