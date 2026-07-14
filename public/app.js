@@ -22,7 +22,8 @@ const views = [
   "location-stock",
   "purchase-products",
   "purchase-orders",
-  "barcode-print"
+  "barcode-print",
+  "barcode-print2"
 ];
 const LAST_VIEW_KEY = "wms:lastView";
 const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
@@ -544,7 +545,7 @@ function switchView(name) {
     if (subgroup && !subgroup.classList.contains("open")) subgroup.classList.add("open");
   }
   // 바코드 인쇄 뷰는 패딩 제거 (풀스크린 iframe)
-  qs(".main").classList.toggle("main-fullscreen", name === "barcode-print");
+  qs(".main").classList.toggle("main-fullscreen", name === "barcode-print" || name === "barcode-print2");
   try {
     localStorage.setItem(LAST_VIEW_KEY, name);
   } catch (_) {}
@@ -939,6 +940,56 @@ function getByKeys(row, keys) {
   return undefined;
 }
 
+/** row에 keys 중 하나라도 실제 컬럼(헤더)으로 존재하는지 확인 — 값이 비어있어도 컬럼 자체가 있으면 true.
+ * 엑셀 업로드 시 "이 컬럼은 시트에 아예 없어서 값을 못 채운 것"과 "컬럼은 있는데 값이 빈 것"을 구분하기 위함. */
+function hasAnyKey(row, keys) {
+  const rowKeys = Object.keys(row || {});
+  const normalizeKey = (v) => String(v || "").replace(/[\s()[\]{}_\-./\\]/g, "").toLowerCase();
+  for (const k of keys) {
+    if (Object.prototype.hasOwnProperty.call(row || {}, k)) return true;
+    const nk = normalizeKey(k);
+    if (rowKeys.some((rk) => normalizeKey(rk) === nk)) return true;
+  }
+  return false;
+}
+
+/** 상품 업로드 행에서 실제로 값이 채워진(=업데이트 대상인) 필드 집합을 계산.
+ * 시트에 없는 컬럼은 기존 상품 값을 그대로 유지하도록, 어떤 필드가 "이 업로드에 포함되어 있었는지" 서버로 함께 전달한다. */
+function getPresentFieldSet(r) {
+  const map = {
+    barcode: ["바코드(SKU)", "바코드", "barcode"],
+    middleBarcode: ["바코드(INN)", "INN", "중포바코드", "중포 바코드", "중포", "middleBarcode", "middle_barcode"],
+    logisticsBarcode: ["바코드(카톤)", "물류바코드", "logisticsBarcode"],
+    status: ["상태", "status"],
+    spec: ["규격", "spec"],
+    purchaseVendor: ["구매처", "purchaseVendor"],
+    supplyType: ["수급형태", "supplyType"],
+    orderDept: ["발주부서", "orderDept"],
+    purchaseItemCode: ["구매처 품목코드", "purchaseItemCode"],
+    purchaseItemName: ["구매처 품목명", "purchaseItemName"],
+    warehouseGroup: ["창고그룹(이카운트)", "창고그룹", "warehouseGroup"],
+    itemType: ["구분", "itemType"],
+    unit: ["단위", "unit"],
+    safetyStock: ["안전재고", "safetyStock"],
+    optimalStock: ["적정재고", "optimalStock"],
+    ctnEa: ["CTN(EA)", "ctnEa"],
+    innPerCtn: ["INN/CTN", "innPerCtn"],
+    innEa: ["INN(EA)", "innEa"],
+    ctnPerPlt: ["CTN/PLT", "ctnPerPlt"],
+    pltEa: ["PLT(EA)", "pltEa"],
+    orderManagers: ["발주담당자", "orderManagers"],
+    usedWarehouses: ["사용창고", "usedWarehouses"],
+    categories: ["카테고리", "categories", "category"],
+    salesManagers: ["영업담당자", "salesManagers"],
+    deliveryVendors: ["판매처", "deliveryVendors", "salesVendor"]
+  };
+  const set = new Set();
+  for (const [field, keys] of Object.entries(map)) {
+    if (hasAnyKey(r, keys)) set.add(field);
+  }
+  return set;
+}
+
 function normalizeProductRows(rows) {
   const parsed = rows
     .map((r) => {
@@ -977,7 +1028,8 @@ function normalizeProductRows(rows) {
         innPerCtn: String(getByKeys(r, ["INN/CTN", "innPerCtn"]) || "").trim(),
         innEa: String(getByKeys(r, ["INN(EA)", "innEa"]) || "").trim(),
         ctnPerPlt: String(getByKeys(r, ["CTN/PLT", "ctnPerPlt"]) || "").trim(),
-        pltEa: String(getByKeys(r, ["PLT(EA)", "pltEa"]) || "").trim()
+        pltEa: String(getByKeys(r, ["PLT(EA)", "pltEa"]) || "").trim(),
+        presentFields: getPresentFieldSet(r)
       };
     })
     .filter((p) => p.ecountCode && p.ecountName);
@@ -996,7 +1048,7 @@ function normalizeProductRows(rows) {
   for (const row of parsed) {
     const key = row.ecountCode;
     if (!groups.has(key)) {
-      const base = { code: row.code, name: row.name, ecountCode: row.ecountCode, ecountName: row.ecountName, deliveryVendors: [], deliveryVendorInfo: [] };
+      const base = { code: row.code, name: row.name, ecountCode: row.ecountCode, ecountName: row.ecountName, deliveryVendors: [], deliveryVendorInfo: [], presentFields: new Set() };
       for (const f of scalarFields) base[f] = row[f];
       for (const f of listFields) base[f] = [...row[f]];
       groups.set(key, base);
@@ -1009,6 +1061,7 @@ function normalizeProductRows(rows) {
     for (const f of listFields) {
       if (!product[f].length && row[f].length) product[f] = [...row[f]];
     }
+    for (const f of row.presentFields) product.presentFields.add(f);
     const vendorsInRow = row.rowVendors.length ? row.rowVendors : [""];
     for (const vendor of vendorsInRow) {
       if (!vendor) continue;
@@ -1018,7 +1071,10 @@ function normalizeProductRows(rows) {
       }
     }
   }
-  return order.map((key) => groups.get(key));
+  return order.map((key) => {
+    const g = groups.get(key);
+    return { ...g, presentFields: [...g.presentFields] };
+  });
 }
 
 /** 상품 1건을 판매처별 행으로 펼침. 판매처 정보가 없으면 판매처 빈 값으로 1행. */
@@ -1030,6 +1086,26 @@ function getProductVendorRows(p) {
 
 function isProductMultiVendor(p) {
   return getProductVendorRows(p).length > 1;
+}
+
+/** 상품 관련 검색창 전체에서 공용으로 쓰는 검색 대상 필드 모음(코드/바코드/품목명/판매처/구매처/규격 등). */
+function buildProductSearchText(p) {
+  if (!p) return "";
+  const vendorTokens = getProductVendorRows(p).flatMap((v) => [v.code || "", v.itemName || ""]);
+  return [
+    p.code || "",
+    p.ecountCode || "",
+    p.name || "",
+    p.ecountName || "",
+    p.barcode || "",
+    p.middleBarcode || "",
+    p.logisticsBarcode || "",
+    p.purchaseVendor || "",
+    p.purchaseItemCode || "",
+    p.purchaseItemName || "",
+    p.spec || "",
+    ...vendorTokens
+  ].join(" ").toLowerCase();
 }
 
 /** 판매처별 코드/상품명 입력 테이블 컨트롤러. bodyId(tbody)/addBtnId 요소를 채우고 행 CRUD 제공. */
@@ -1492,16 +1568,7 @@ function renderProducts() {
   ];
   const rows = state.products
     .map((p, pIdx) => {
-      const baseSearchText = [
-        p.ecountCode || p.code || "",
-        p.code || "",
-        p.barcode || "",
-        p.middleBarcode || "",
-        p.logisticsBarcode || "",
-        p.ecountName || p.name || "",
-        p.purchaseVendor || "",
-        p.purchaseItemCode || ""
-      ].join(" ").toLowerCase();
+      const searchText = buildProductSearchText(p);
       const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
       const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
       const vendorRows = getProductVendorRows(p);
@@ -1510,7 +1577,6 @@ function renderProducts() {
       return vendorRows
         .map(
           (v) => {
-            const searchText = `${baseSearchText} ${v.code || ""} ${v.itemName || ""}`.toLowerCase();
             return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}">
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
@@ -2343,7 +2409,7 @@ function renderStock() {
       const barColor = isLow ? "var(--red)" : isOver ? "var(--accent-2)" : "var(--green)";
       barHtml = `<div class="stock-bar-wrap"><div class="stock-bar-track"><div class="stock-bar-fill" style="width:${pct}%;background:${barColor};"></div></div><span class="stock-bar-pct">${pct}%</span></div>`;
     }
-    const searchText = `${s.code} ${s.name} ${s.ecountCode || ""} ${s.barcode || ""} ${s.warehouse || ""}`.toLowerCase();
+    const searchText = `${buildProductSearchText(s)} ${s.warehouse || ""}`.toLowerCase();
     return `<tr class="${rowClass}" data-code="${esc(s.code)}" data-wh="${esc(s.warehouse || "")}" data-lvl="${stockLvl}" data-search="${esc(searchText)}">
       <td data-col-orig-idx="0">${statusBadge}</td>
       <td data-col-orig-idx="1">${esc(s.warehouse || "-")}</td>
@@ -2383,7 +2449,7 @@ function renderStock() {
         <div class="products-bh-search-row">
           <div class="products-bh-search-wrap">
             <span class="bh-search-icon" aria-hidden="true">🔍</span>
-            <input type="text" id="stock-q" class="products-bh-search" placeholder="상품코드, 상품명, 바코드 검색" autocomplete="off" />
+            <input type="text" id="stock-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처코드·품목명/구매처 검색" autocomplete="off" />
             <button type="button" class="bh-search-go" id="stock-search-btn">조회</button>
           </div>
           <select id="stock-warehouse" class="bh-select">${warehouseOptions}</select>
@@ -4734,8 +4800,10 @@ async function renderOutboundPartnerUpload(partner, key) {
           const sentLabel = x.allSent ? "전송됨" : slipCountNum > 0 ? `${sentCountNum}/${slipCountNum}` : "0/0";
           const sendLabel = x.allSent ? "재전송" : "판매입력 전송";
           const sendDisabled = slipCountNum <= 0 ? "disabled" : "";
+          const confirmedAtDisp = formatDateTimeDisplay(x.updatedAt || "");
           return `<tr>
             <td>${esc(saveDateDisp)}</td>
+            <td>${esc(confirmedAtDisp)}</td>
             <td>${esc(x.centerName || "")}</td>
             <td>${esc(storeInDateDisp)}</td>
             <td>${esc(String(x.slipCount || 0))}</td>
@@ -4757,7 +4825,7 @@ async function renderOutboundPartnerUpload(partner, key) {
       confirmListTableEl.innerHTML = `<div class="outbound-list-scroll" style="max-height:690px;">
         <table id="outbound-confirm-list-table-${key}">
           <thead><tr>
-            <th>저장날짜</th><th>센터명</th><th>점입점일자</th><th>전표수</th><th>라인수</th><th>품목수</th><th>전체수량</th><th>전송상태</th><th>센터 통합 전표번호</th><th>액션</th>
+            <th>저장날짜</th><th>확정 시간</th><th>센터명</th><th>점입점일자</th><th>전표수</th><th>라인수</th><th>품목수</th><th>전체수량</th><th>전송상태</th><th>센터 통합 전표번호</th><th>액션</th>
           </tr></thead>
           <tbody>${rows}</tbody>
         </table>
@@ -5824,7 +5892,7 @@ function renderAdjust() {
       <form id="ADJUST-form">
         <div><label>상품 검색</label>
           <div style="display:flex;gap:8px;">
-            <input id="ADJUST-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <input id="ADJUST-productCode" name="productCode" placeholder="코드/바코드/품명/판매처코드·품명/구매처 일부 입력" autocomplete="off" style="flex:1;" required />
             <button type="button" id="ADJUST-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
           </div>
         </div>
@@ -5845,7 +5913,7 @@ function renderAdjust() {
       <form id="LOC-TRANSFER-form">
         <div><label>상품 검색</label>
           <div style="display:flex;gap:8px;">
-            <input id="LOC-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <input id="LOC-productCode" name="productCode" placeholder="코드/바코드/품명/판매처코드·품명/구매처 일부 입력" autocomplete="off" style="flex:1;" required />
             <button type="button" id="LOC-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
           </div>
         </div>
@@ -5870,7 +5938,7 @@ function renderAdjust() {
       <form id="TRANSFER-form">
         <div><label>상품 검색</label>
           <div style="display:flex;gap:8px;">
-            <input id="TRANSFER-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" required />
+            <input id="TRANSFER-productCode" name="productCode" placeholder="코드/바코드/품명/판매처코드·품명/구매처 일부 입력" autocomplete="off" style="flex:1;" required />
             <button type="button" id="TRANSFER-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
           </div>
         </div>
@@ -5899,7 +5967,7 @@ function renderAdjust() {
         <div>
           <label>상품 검색</label>
           <div style="display:flex;gap:8px;">
-            <input id="UNUSABLE-productCode" name="productCode" placeholder="코드 또는 품명 일부 입력" autocomplete="off" style="flex:1;" />
+            <input id="UNUSABLE-productCode" name="productCode" placeholder="코드/바코드/품명/판매처코드·품명/구매처 일부 입력" autocomplete="off" style="flex:1;" />
             <button type="button" id="UNUSABLE-search-btn" class="primary" style="white-space:nowrap;padding:0 16px;">조회</button>
           </div>
         </div>
@@ -5963,12 +6031,7 @@ function renderAdjust() {
     const render = (q) => {
       if (!q) { close(); return; }
       const lower = q.toLowerCase();
-      const matched = state.products.filter((p) =>
-        (p.code || "").toLowerCase().includes(lower) ||
-        (p.ecountCode || "").toLowerCase().includes(lower) ||
-        (p.name || "").toLowerCase().includes(lower) ||
-        (p.ecountName || "").toLowerCase().includes(lower)
-      ).slice(0, 12);
+      const matched = state.products.filter((p) => buildProductSearchText(p).includes(lower)).slice(0, 12);
       if (!matched.length) { close(); return; }
       ul.innerHTML = matched.map((p) =>
         `<li data-code="${esc(p.code)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #F3F4F6;display:flex;gap:12px;align-items:center;">
@@ -6084,12 +6147,7 @@ function renderAdjust() {
   const renderSuggest = (q) => {
     if (!q || !suggestEl) { closeSuggest(); return; }
     const lower = q.toLowerCase();
-    const matched = state.products.filter((p) =>
-      (p.code || "").toLowerCase().includes(lower) ||
-      (p.ecountCode || "").toLowerCase().includes(lower) ||
-      (p.name || "").toLowerCase().includes(lower) ||
-      (p.ecountName || "").toLowerCase().includes(lower)
-    ).slice(0, 12);
+    const matched = state.products.filter((p) => buildProductSearchText(p).includes(lower)).slice(0, 12);
     if (!matched.length) { closeSuggest(); return; }
     suggestEl.innerHTML = matched.map((p) =>
       `<li data-code="${esc(p.code)}" style="padding:9px 14px;cursor:pointer;font-size:13px;border-bottom:1px solid #F3F4F6;display:flex;gap:12px;align-items:center;">
@@ -7199,7 +7257,7 @@ async function renderLocationStock() {
           <select id="ls-zone-filter" style="height:32px;padding:0 8px;border:1px solid #e2e8f0;border-radius:6px;">
             <option value="">존 전체</option>${zoneOptions}
           </select>
-          <input id="ls-q" placeholder="상품코드/명 검색" style="height:32px;padding:0 10px;border:1px solid #e2e8f0;border-radius:6px;width:180px;" />
+          <input id="ls-q" placeholder="품목코드/바코드/품목명/판매처코드·품목명/구매처 검색" style="height:32px;padding:0 10px;border:1px solid #e2e8f0;border-radius:6px;width:220px;" />
           <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;">
             <input type="checkbox" id="ls-hide-zero" checked /> 재고 0 숨기기
           </label>
@@ -7208,9 +7266,12 @@ async function renderLocationStock() {
       </div>
     `;
 
+    const productByCode = {};
+    (state.products || []).forEach((p) => { productByCode[p.code] = p; });
     const allItems = items.map((it) => {
       const loc = (state.locations || []).find((l) => l.code === it.locationCode);
-      return { ...it, zone: loc ? loc.zone : "", locName: loc ? loc.name : it.locationCode };
+      const searchText = `${buildProductSearchText(productByCode[it.productCode])} ${it.productCode || ""} ${it.productName || ""}`.toLowerCase();
+      return { ...it, zone: loc ? loc.zone : "", locName: loc ? loc.name : it.locationCode, searchText };
     });
 
     function draw() {
@@ -7222,7 +7283,7 @@ async function renderLocationStock() {
       let filtered = allItems;
       if (wh) filtered = filtered.filter((r) => r.warehouse === wh);
       if (zone) filtered = filtered.filter((r) => r.zone === zone);
-      if (q) filtered = filtered.filter((r) => r.productCode.toLowerCase().includes(q) || (r.productName||"").toLowerCase().includes(q));
+      if (q) filtered = filtered.filter((r) => r.searchText.includes(q));
       if (hideZero) filtered = filtered.filter((r) => r.stock !== 0);
 
       if (!filtered.length) {
@@ -7302,7 +7363,7 @@ async function renderHistory() {
       <div class="history-filter-row">
         <div class="history-search-input-wrap">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input id="history-q" class="history-q-input" placeholder="상품코드 · 상품명 검색" />
+          <input id="history-q" class="history-q-input" placeholder="품목코드/바코드/품명/구매처/전표번호/담당자 검색" />
         </div>
         <select id="history-type-filter">
           <option value="ALL">구분 전체</option>
@@ -7566,6 +7627,12 @@ function renderBarcodePrint(tab = "products") {
   el.querySelector("iframe").addEventListener("load", () => {
     try { el.querySelector("iframe").contentWindow.showTab(tab); } catch(_) {}
   });
+}
+
+function renderBarcodePrint2() {
+  const el = qs("#view-barcode-print2");
+  if (el.querySelector("iframe")) return;
+  el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
 }
 
 async function renderPurchaseOrders() {
@@ -7904,6 +7971,7 @@ async function renderDevNotes() {
 
     sec.querySelectorAll(".dnb-item-del").forEach((btn) => {
       btn.onclick = async () => {
+        if (!confirm("이 할일을 삭제하시겠습니까?")) return;
         const r = await fetch("/api/dev-boards/items", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ boardId: btn.dataset.boardId, sectionId: btn.dataset.sectionId, itemId: btn.dataset.itemId }) });
         if (!r.ok) { alert("삭제 실패"); return; }
         await reload();
@@ -7987,7 +8055,7 @@ function renderPurchaseProductsList() {
   ).join("");
 
   const rows = state.products.map((p, pIdx) => {
-    const st = `${p.ecountCode||p.code||""} ${p.code||""} ${p.ecountName||p.name||""} ${p.purchaseVendor||""} ${p.purchaseItemCode||""} ${p.purchaseItemName||""} ${p.barcode||""} ${p.spec||""}`.toLowerCase();
+    const st = buildProductSearchText(p);
     const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
     const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
     const vendorRows = getProductVendorRows(p);
@@ -8002,7 +8070,7 @@ function renderPurchaseProductsList() {
       <td data-col-orig-idx="5">${esc(p.ecountName||p.name)}</td>
       <td data-col-orig-idx="6">${esc(p.spec||"")}</td>
       <td data-col-orig-idx="7"${statusStyle}>${esc(p.status||"")}</td>
-      <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${esc(v.vendor || "")}</td>
+      <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChip(v.vendor)}</td>
       <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
       <td data-col-orig-idx="10">${esc(v.code || "")}</td>
       <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
@@ -8016,6 +8084,11 @@ function renderPurchaseProductsList() {
       <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td data-col-orig-idx="20">${esc(p.itemType||"")}</td>
       <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+      <td data-col-orig-idx="22">${esc(p.ctnEa || "")}</td>
+      <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
+      <td data-col-orig-idx="24">${esc(p.innEa || "")}</td>
+      <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
+      <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
     </tr>`).join("");
   }).join("");
 
@@ -8036,12 +8109,12 @@ function renderPurchaseProductsList() {
           <div class="ppl-filter-row">
             <div class="products-bh-search-wrap" style="margin:0;">
               <span class="bh-search-icon" aria-hidden="true">🔍</span>
-              <input type="text" id="ppl-search-q" class="products-bh-search" placeholder="이카운트 / 상품코드 / 품목명 검색" autocomplete="off" />
+              <input type="text" id="ppl-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처코드·품목명/구매처 검색" autocomplete="off" />
               <button type="button" class="bh-search-go" id="ppl-search-btn">조회</button>
             </div>
             <label id="ppl-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
               <input type="checkbox" id="ppl-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
-              판매중만 표시
+              단종품 포함
             </label>
           </div>
         </div>
@@ -8072,6 +8145,11 @@ function renderPurchaseProductsList() {
                 <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
                 <th data-col-orig-idx="20" data-col-label="구분">구분</th>
                 <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
+                <th data-col-orig-idx="22" data-col-label="CTN(EA)">CTN(EA)</th>
+                <th data-col-orig-idx="23" data-col-label="INN/CTN">INN/CTN</th>
+                <th data-col-orig-idx="24" data-col-label="INN(EA)">INN(EA)</th>
+                <th data-col-orig-idx="25" data-col-label="CTN/PLT">CTN/PLT</th>
+                <th data-col-orig-idx="26" data-col-label="PLT(EA)">PLT(EA)</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -8180,12 +8258,12 @@ function renderPurchaseProductsList() {
 
   const applyFilters = () => {
     const q = (searchInput?.value || "").trim().toLowerCase();
-    const onlyActive = qs("#ppl-only-active")?.checked ?? false;
+    const includeDiscontinued = qs("#ppl-only-active")?.checked ?? false;
     const tab = pplActiveTab && pplActiveTab !== "전체" ? pplActiveTab : "";
     const allRows = Array.from(document.querySelectorAll("#ppl-table tbody tr"));
     const matched = allRows.filter((tr) => {
       if (tr.dataset.wmsExcelVisible === "0") return false;
-      if (onlyActive && (tr.dataset.status || "") !== "판매중") return false;
+      if (!includeDiscontinued && (tr.dataset.status || "") !== "판매중") return false;
       if (tab && (tr.dataset.supply || "") !== tab) return false;
       return !q || String(tr.dataset.search || "").includes(q);
     });
@@ -8198,7 +8276,7 @@ function renderPurchaseProductsList() {
     let mi = 0;
     allRows.forEach((tr) => {
       if (tr.dataset.wmsExcelVisible === "0") { tr.style.display = "none"; return; }
-      if (onlyActive && (tr.dataset.status || "") !== "판매중") { tr.style.display = "none"; return; }
+      if (!includeDiscontinued && (tr.dataset.status || "") !== "판매중") { tr.style.display = "none"; return; }
       if (tab && (tr.dataset.supply || "") !== tab) { tr.style.display = "none"; return; }
       if (q && !String(tr.dataset.search || "").includes(q)) { tr.style.display = "none"; return; }
       tr.style.display = (mi >= start && mi < start + size) ? "" : "none";
@@ -8297,6 +8375,11 @@ function renderPurchaseProductsList() {
           "사용창고": (p.usedWarehouses||[]).join(", "),
           "구분": p.itemType||"",
           "카테고리": (p.categories||[]).join(", "),
+          "CTN(EA)": p.ctnEa||"",
+          "INN/CTN": p.innPerCtn||"",
+          "INN(EA)": p.innEa||"",
+          "CTN/PLT": p.ctnPerPlt||"",
+          "PLT(EA)": p.pltEa||"",
         }));
       });
       const ws = XLSX.utils.json_to_sheet(exportRows);
@@ -8493,6 +8576,7 @@ async function init() {
       if (v === "purchase-products") renderPurchaseProductsList();
       if (v === "purchase-orders") await renderPurchaseOrders();
       if (v === "barcode-print") renderBarcodePrint();
+      if (v === "barcode-print2") renderBarcodePrint2();
       if (v === "dev-notes") await renderDevNotes();
     };
   });
@@ -8532,7 +8616,7 @@ async function init() {
   await renderLocationStock();
   renderPurchaseProductsList();
   await renderPurchaseOrders();
-  // barcode-print은 클릭 시 iframe 생성 (lazy)
+  // barcode-print은 클릭 시 iframe 생성 (lazy) — 새로고침으로 복원될 때도 동일하게 생성해줘야 한다.
   let initialView = "dashboard";
   try {
     const saved = localStorage.getItem(LAST_VIEW_KEY);
@@ -8541,6 +8625,8 @@ async function init() {
     // ignore storage errors
   }
   switchView(initialView);
+  if (initialView === "barcode-print") renderBarcodePrint();
+  if (initialView === "barcode-print2") renderBarcodePrint2();
 }
 
 init().catch((e) => {

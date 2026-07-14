@@ -303,6 +303,7 @@ function normalizeDb(db) {
   if (!Array.isArray(db.locations)) db.locations = [];
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
   if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
+  if (!Array.isArray(db.barcodeCustomTemplates)) db.barcodeCustomTemplates = [];
   if (!Array.isArray(db.devBoards)) db.devBoards = [];
   for (const b of db.devBoards) {
     if (!Array.isArray(b.sections)) {
@@ -489,6 +490,22 @@ function upsertProduct(db, product) {
   if (found) {
     // Keep legacy internal code to avoid breaking existing movement history references.
     updated.code = found.code;
+    // 엑셀 업로드(rows[])는 presentFields로 "이 업로드에 실제로 포함된 컬럼"을 표시한다.
+    // 표시되지 않은 필드는 시트에 해당 컬럼이 없었다는 뜻이므로 기존 값을 그대로 유지한다.
+    // (presentFields가 없는 단건 저장/수정 폼은 항상 전체 필드를 보내므로 기존 전체 덮어쓰기 동작을 유지한다.)
+    if (Array.isArray(product.presentFields)) {
+      const presentFields = new Set(product.presentFields);
+      const PRESENCE_SOURCE = {
+        deliveryVendorInfo: "deliveryVendors",
+        salesVendor: "deliveryVendors",
+        category: "categories"
+      };
+      for (const key of Object.keys(updated)) {
+        if (key === "code" || key === "name" || key === "ecountCode" || key === "ecountName") continue;
+        const sourceField = PRESENCE_SOURCE[key] || key;
+        if (!presentFields.has(sourceField)) updated[key] = found[key];
+      }
+    }
     Object.assign(found, updated);
     found.updatedAt = new Date().toISOString();
   } else {
@@ -3424,21 +3441,37 @@ async function handleApi(req, res, urlObj) {
         const rawSlipNo = String(m.slipNo || "").trim();
         const mappedCenterSlip = sourceToCenterMergedSlipMap.get(normalizeSlipNoText(rawSlipNo)) || "";
         const slipNoDisplay = mappedCenterSlip || rawSlipNo;
+        const searchBlob = [
+          m.productCode,
+          p ? p.name : "",
+          p ? p.ecountCode : "",
+          p ? p.barcode : "",
+          p ? p.middleBarcode : "",
+          p ? p.logisticsBarcode : "",
+          p ? p.purchaseVendor : "",
+          p ? p.purchaseItemCode : "",
+          p ? p.purchaseItemName : "",
+          p ? p.spec : "",
+          rawSlipNo,
+          slipNoDisplay,
+          m.memo,
+          m.user,
+          m.partner,
+          m.warehouse,
+          m.toWarehouse
+        ].map((v) => String(v || "").toLowerCase()).join(" ");
         return {
           ...m,
           slipNoDisplay,
           productName: p ? p.name : "",
           ecountCode: p ? p.ecountCode || "" : "",
-          stockAfter: stockAfter[m.id] ?? 0
+          stockAfter: stockAfter[m.id] ?? 0,
+          searchBlob
         };
       })
       .filter((x) => {
         if (!q) return true;
-        return (
-          String(x.productCode).toLowerCase().includes(q) ||
-          String(x.productName).toLowerCase().includes(q) ||
-          String(x.ecountCode || "").toLowerCase().includes(q)
-        );
+        return x.searchBlob.includes(q);
       })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const outSlipTotals = new Map();
@@ -3449,12 +3482,13 @@ async function handleApi(req, res, urlObj) {
       outSlipTotals.set(slip, (outSlipTotals.get(slip) || 0) + Math.abs(Number(x.qty || 0)));
     }
     const items = joined.map((x) => {
-      if (x.type !== "OUT") return x;
-      const slip = String(x.slipNoDisplay || "").trim();
-      if (!slip) return x;
+      const { searchBlob, ...rest } = x;
+      if (rest.type !== "OUT") return rest;
+      const slip = String(rest.slipNoDisplay || "").trim();
+      if (!slip) return rest;
       return {
-        ...x,
-        qtyDisplay: outSlipTotals.get(slip) ?? Math.abs(Number(x.qty || 0))
+        ...rest,
+        qtyDisplay: outSlipTotals.get(slip) ?? Math.abs(Number(rest.qty || 0))
       };
     });
     return sendJson(res, 200, { items });
@@ -3648,26 +3682,28 @@ async function handleApi(req, res, urlObj) {
         return saved ? { ...row, unshipStatus: saved.unshipStatus ?? row.unshipStatus, fixedQty: saved.fixedQty ?? row.fixedQty } : row;
       });
 
+      // 이전 lines를 교체하기 전에, 이 판매처가 이전에 갖고 있던 slip 목록을 기록해둔다.
+      // (워크플로우 정리 범위를 이 판매처로만 한정하기 위함 - 다른 판매처 데이터는 건드리지 않는다)
+      const oldPartnerSlipKeys = new Set(
+        (db.outboundOrderUpload.lines || [])
+          .filter((row) => row.partnerType === partnerType)
+          .map((row) => normalizeSlipNoText(row.slipNo))
+          .filter(Boolean)
+      );
+
       db.outboundOrderUpload.lines = (db.outboundOrderUpload.lines || []).filter((row) => row.partnerType !== partnerType);
       db.outboundOrderUpload.lines.push(...mergedRows);
 
-      // 적용 파일이 바뀌면 해당 판매처 워크플로우/확정리스트를 정리한다.
-      // - slipWorkflow: 새 배치에 없는 slip 삭제
-      // - confirmedLists: 참조 slip이 하나라도 살아있는 항목은 유지 (재적용 시 확정 내역 보존)
+      // 새 배치에 없는, 이 판매처의 이전 전표에 대한 워크플로우만 정리한다.
+      // confirmedLists(확정리스트)는 재적용/재업로드와 무관하게 항상 보존한다 - 절대 자동 삭제하지 않는다.
       const aliveKeys = new Set(targetRows.map((x) => normalizeSlipNoText(x.slipNo)).filter(Boolean));
       const wf = db.outboundOrderUpload.slipWorkflow || {};
-      for (const k of Object.keys(wf)) {
+      for (const k of oldPartnerSlipKeys) {
         if (!aliveKeys.has(k)) delete wf[k];
       }
       db.outboundOrderUpload.slipWorkflow = wf;
       db.outboundOrderUpload.confirmedLists = db.outboundOrderUpload.confirmedLists || {};
       db.outboundOrderUpload.confirmedLists[partnerType] = db.outboundOrderUpload.confirmedLists[partnerType] || {};
-      const clMap = db.outboundOrderUpload.confirmedLists[partnerType];
-      for (const clKey of Object.keys(clMap)) {
-        const slipNos = Array.isArray(clMap[clKey]?.slipNos) ? clMap[clKey].slipNos : [];
-        const hasAliveSlip = slipNos.some((s) => aliveKeys.has(normalizeSlipNoText(s)));
-        if (!hasAliveSlip) delete clMap[clKey];
-      }
 
       db.outboundOrderUpload.appliedBatchByPartner = db.outboundOrderUpload.appliedBatchByPartner || {};
       db.outboundOrderUpload.appliedBatchByPartner[partnerType] = uploadBatchId;
@@ -3718,8 +3754,7 @@ async function handleApi(req, res, urlObj) {
         db.outboundOrderUpload.uploadedRows = (db.outboundOrderUpload.uploadedRows || []).filter((x) => x.partnerType !== partnerType);
         db.outboundOrderUpload.batches = (db.outboundOrderUpload.batches || []).filter((x) => x.partnerType !== partnerType);
         if (db.outboundOrderUpload.appliedBatchByPartner) delete db.outboundOrderUpload.appliedBatchByPartner[partnerType];
-        db.outboundOrderUpload.confirmedLists = db.outboundOrderUpload.confirmedLists || {};
-        db.outboundOrderUpload.confirmedLists[partnerType] = {};
+        // confirmedLists(확정리스트)는 업로드 전체삭제와 무관하게 항상 보존한다 - 절대 자동 삭제하지 않는다.
       }
       db.outboundOrderUpload.uploadedAt = new Date().toISOString();
       writeDb(db);
@@ -3749,6 +3784,15 @@ async function handleApi(req, res, urlObj) {
       );
       const deletedLineCount = beforeUploaded.length - db.outboundOrderUpload.uploadedRows.length;
 
+      // 필터링 전에, 이 판매처가 갖고 있던 slip 목록을 기록해둔다.
+      // (워크플로우 정리 범위를 이 판매처로만 한정하기 위함 - 다른 판매처 데이터는 건드리지 않는다)
+      const oldPartnerSlipKeys = new Set(
+        (db.outboundOrderUpload.lines || [])
+          .filter((x) => x.partnerType === partnerType)
+          .map((x) => normalizeSlipNoText(x.slipNo))
+          .filter(Boolean)
+      );
+
       const beforeActive = db.outboundOrderUpload.lines || [];
       db.outboundOrderUpload.lines = beforeActive.filter(
         (row) => !(row.partnerType === partnerType && batchIds.has(String(row.uploadBatchId || "").trim()))
@@ -3764,7 +3808,7 @@ async function handleApi(req, res, urlObj) {
           .map((x) => normalizeSlipNoText(x.slipNo))
           .filter(Boolean)
       );
-      for (const k of Object.keys(db.outboundOrderUpload.slipWorkflow || {})) {
+      for (const k of oldPartnerSlipKeys) {
         if (!aliveSlipSet.has(k)) delete db.outboundOrderUpload.slipWorkflow[k];
       }
 
@@ -3772,8 +3816,7 @@ async function handleApi(req, res, urlObj) {
       const appliedId = String(appliedMap[partnerType] || "").trim();
       if (appliedId && batchIds.has(appliedId)) {
         delete appliedMap[partnerType];
-        db.outboundOrderUpload.confirmedLists = db.outboundOrderUpload.confirmedLists || {};
-        db.outboundOrderUpload.confirmedLists[partnerType] = {};
+        // confirmedLists(확정리스트)는 배치삭제와 무관하게 항상 보존한다 - 절대 자동 삭제하지 않는다.
       }
 
       db.outboundOrderUpload.uploadedAt = new Date().toISOString();
@@ -5960,6 +6003,41 @@ async function handleApi(req, res, urlObj) {
       return { ...it, productName: p ? p.name : "" };
     });
     return sendJson(res, 200, { items: enriched });
+  }
+
+  // ── 바코드 인쇄 커스텀 라벨 템플릿 (바코드 인쇄 1/2 화면이 공유) ──────
+  if (req.method === "GET" && pathname === "/api/barcode-custom-templates") {
+    return sendJson(res, 200, { items: db.barcodeCustomTemplates });
+  }
+
+  // 커스텀 템플릿은 바코드 인쇄 1/2 화면이 동시에 열려있을 수 있어 전체 배열을 통째로 덮어쓰지 않고
+  // 항목 단위(upsert/delete)로만 반영한다. 그래야 한쪽에서 추가한 템플릿을 다른 쪽의 저장이 지우지 않는다.
+  if (req.method === "POST" && pathname === "/api/barcode-custom-templates/upsert") {
+    try {
+      const body = await parseBody(req);
+      const item = body.item;
+      if (!item || !item.id) throw new Error("템플릿 데이터가 올바르지 않습니다.");
+      const idx = db.barcodeCustomTemplates.findIndex((t) => t.id === item.id);
+      if (idx !== -1) db.barcodeCustomTemplates[idx] = item;
+      else db.barcodeCustomTemplates.push(item);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, items: db.barcodeCustomTemplates });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/barcode-custom-templates/delete") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      if (!id) throw new Error("삭제할 템플릿 id가 없습니다.");
+      db.barcodeCustomTemplates = db.barcodeCustomTemplates.filter((t) => t.id !== id);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, items: db.barcodeCustomTemplates });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
   }
 
   // ── 구매 발주 관리 ──────────────────────────────────────────

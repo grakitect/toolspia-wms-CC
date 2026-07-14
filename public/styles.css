@@ -323,7 +323,8 @@ body {
   height: 100vh;
   overflow: hidden;
 }
-#view-barcode-print {
+#view-barcode-print,
+#view-barcode-print2 {
   height: 100%;
 }
 
