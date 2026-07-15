@@ -60,6 +60,105 @@ function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
+/** 스레드/외부 캡처용 정보 가리기 모드 — 화면(DOM)에서만 실제 데이터를 무작위 값으로 치환. 서버 데이터는 건드리지 않음. */
+let demoModeOn = false;
+let demoObserver = null;
+const DEMO_COMPANY_NAMES_KO = ["가나상사", "다라유통", "마바물류", "사아상회", "자차무역", "카타상사", "파하유통", "예시상사", "샘플무역", "테스트상회", "온빛유통", "미르상사", "누리물류", "별빛상회"];
+const DEMO_COMPANY_NAMES_EN = ["Acme Corp", "Sample Trading", "Demo Logistics", "Northwind Co", "Globex Ltd", "Umbrella Inc", "Initech LLC", "Hooli Trading", "Wayne Supply", "Stark Imports"];
+const DEMO_PRODUCT_NAMES_KO = ["국내산 사과 1kg", "냉동 만두 500g", "유기농 우유 1L", "구운 아몬드 200g", "즉석밥 210g", "딸기잼 300g", "봉지라면 5개입", "떡볶이소스 300g", "참치캔 150g", "홍삼정 30포", "견과류 믹스 250g", "냉동 새우 1kg", "전복죽 1인분", "한라봉 3kg", "황도 통조림", "곰탕 밀키트", "블루베리잼 400g", "오렌지주스 1.5L", "훈제오리 200g", "포기김치 1kg"];
+const DEMO_PRODUCT_NAMES_EN = ["Organic Apple 1kg", "Frozen Dumpling 500g", "Almond Snack 200g", "Instant Rice 210g", "Strawberry Jam 300g", "Ramen Noodle 5pk", "Tuna Can 150g", "Mixed Nuts 250g", "Frozen Shrimp 1kg", "Orange Juice 1.5L"];
+function demoColumnCategory(label) {
+  const l = String(label || "").trim();
+  if (l.includes("품목명") || l.includes("상품명")) return "product";
+  if (l === "판매처" || l === "구매처") return "company";
+  return null;
+}
+function demoRandomizeText(text, category) {
+  const s = String(text ?? "");
+  if (!s.trim()) return s;
+  const KEEP_AS_IS = new Set(["판매중", "단종", "판매중단", "단일", "다중", "-"]);
+  if (KEEP_AS_IS.has(s.trim())) return s;
+  const hasKorean = /[가-힣]/.test(s);
+  if (category === "product") {
+    const pool = hasKorean ? DEMO_PRODUCT_NAMES_KO : DEMO_PRODUCT_NAMES_EN;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (category === "company") {
+    const pool = hasKorean ? DEMO_COMPANY_NAMES_KO : DEMO_COMPANY_NAMES_EN;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+  if (/^-?\d[\d,.]*%?$/.test(s.trim())) {
+    return s.replace(/\d/g, () => String(Math.floor(Math.random() * 10)));
+  }
+  const hasLatinDigitMix = /[A-Za-z]/.test(s) && /\d/.test(s);
+  if (hasLatinDigitMix) {
+    return s.replace(/[A-Za-z]/g, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).replace(/\d/g, () => String(Math.floor(Math.random() * 10)));
+  }
+  const pool = hasKorean ? DEMO_COMPANY_NAMES_KO : DEMO_COMPANY_NAMES_EN;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function demoScrambleCellText(td, category) {
+  if (td.dataset.demoOrig === undefined) td.dataset.demoOrig = td.textContent;
+  if (td.dataset.demoFake === undefined) td.dataset.demoFake = demoRandomizeText(td.dataset.demoOrig, category);
+  if (td.textContent !== td.dataset.demoFake) td.textContent = td.dataset.demoFake;
+}
+function demoScrambleChip(chip, category) {
+  if (chip.dataset.demoOrig === undefined) chip.dataset.demoOrig = chip.textContent;
+  if (chip.dataset.demoFake === undefined) chip.dataset.demoFake = demoRandomizeText(chip.dataset.demoOrig, category === "product" ? "product" : "company");
+  if (chip.textContent !== chip.dataset.demoFake) chip.textContent = chip.dataset.demoFake;
+}
+function demoScrambleRoot(root) {
+  demoObserver?.disconnect();
+  root.querySelectorAll("table").forEach((table) => {
+    const headerMap = {};
+    table.querySelectorAll("thead th").forEach((th, i) => { headerMap[i] = (th.dataset.colLabel || th.textContent || "").trim(); });
+    table.querySelectorAll("tbody tr").forEach((tr) => {
+      Array.from(tr.children).forEach((td, i) => {
+        if (td.tagName !== "TD") return;
+        const category = demoColumnCategory(headerMap[i] ?? td.dataset.colLabel);
+        const chips = td.querySelectorAll(".tag");
+        if (chips.length && !td.querySelector("input,button,select,textarea")) {
+          chips.forEach((chip) => demoScrambleChip(chip, category));
+          return;
+        }
+        if (td.querySelector("input,button,select,textarea")) return;
+        if (td.children.length) return;
+        demoScrambleCellText(td, category);
+      });
+    });
+  });
+  if (demoModeOn) demoObserver?.observe(root, { childList: true, subtree: true });
+}
+function demoRestoreRoot(root) {
+  root.querySelectorAll("td[data-demo-orig]").forEach((td) => {
+    td.textContent = td.dataset.demoOrig;
+    delete td.dataset.demoOrig;
+    delete td.dataset.demoFake;
+  });
+  root.querySelectorAll(".tag[data-demo-orig]").forEach((chip) => {
+    chip.textContent = chip.dataset.demoOrig;
+    delete chip.dataset.demoOrig;
+    delete chip.dataset.demoFake;
+  });
+}
+function toggleDemoMode() {
+  demoModeOn = !demoModeOn;
+  const root = qs(".main") || document.body;
+  const btn = qs("#demo-mode-toggle");
+  if (demoModeOn) {
+    demoObserver = new MutationObserver(() => demoScrambleRoot(root));
+    demoScrambleRoot(root);
+    btn?.classList.add("demo-mode-active");
+    if (btn) btn.querySelector("span").textContent = "정보 복구";
+  } else {
+    demoObserver?.disconnect();
+    demoObserver = null;
+    demoRestoreRoot(root);
+    btn?.classList.remove("demo-mode-active");
+    if (btn) btn.querySelector("span").textContent = "정보 가리기";
+  }
+}
+
 function formatYmd(v) {
   const raw = String(v || "").trim();
   if (!raw) return "";
@@ -177,6 +276,9 @@ function vendorChipStyle(name) {
 function renderVendorChip(name) {
   if (!name) return "<span class='muted'>-</span>";
   return `<span class="tag" style="${vendorChipStyle(name)}">${esc(name)}</span>`;
+}
+function VENDOR_ARROW_CHIP_HTML(cls, rotateDeg, title) {
+  return `<button type="button" class="tag ${cls}" style="appearance:none;-webkit-appearance:none;box-sizing:border-box;vertical-align:middle;height:auto;line-height:1.6;background:#EEF2F7;color:#475569;border:1px solid #CBD5E1;font-weight:700;cursor:pointer;" title="${esc(title)}"><span style="display:inline-block;transform:rotate(${rotateDeg}deg) scale(2);">▾</span></button>`;
 }
 
 const WAREHOUSE_COLORS = {
@@ -1574,10 +1676,16 @@ function renderProducts() {
       const vendorRows = getProductVendorRows(p);
       const isMulti = vendorRows.length > 1;
       const groupClass = pIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
+      const vendorMultiBadgeHtml = isMulti
+        ? `<span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;" title="${esc(vendorRows.map((v) => v.vendor).filter(Boolean).join(", "))}">다중 (${vendorRows.length})</span> ${VENDOR_ARROW_CHIP_HTML("vendor-multi-badge-btn", -90, "펼치기")}`
+        : "";
       return vendorRows
         .map(
-          (v) => {
-            return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}">
+          (v, vIdx) => {
+            const vendorExtraAttr = vIdx > 0 ? ` data-vendor-extra="1"` : "";
+            const vendorBadgeAttr = vIdx === 0 && isMulti ? ` data-vendor-multi-badge="${encodeURIComponent(vendorMultiBadgeHtml)}"` : "";
+            const vendorGroupAttr = isMulti ? ` data-vendor-group="${pIdx}"` : "";
+            return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}"${vendorExtraAttr}${vendorBadgeAttr}${vendorGroupAttr}>
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
@@ -1645,6 +1753,10 @@ function renderProducts() {
           <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
             <input type="checkbox" id="product-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
             단종품 포함
+          </label>
+          <label id="product-collapse-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+            <input type="checkbox" id="product-collapse-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+            다중판매처 보기
           </label>
           <span class="products-bh-search-actions">
             <button type="button" id="product-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
@@ -1949,15 +2061,17 @@ function renderProducts() {
   const applyProductListFilters = () => {
     const q = (searchInput?.value || "").trim().toLowerCase();
     const includeDiscontinued = qs("#product-only-active")?.checked ?? false;
-    const allRows = Array.from(document.querySelectorAll("#products-table tbody tr"));
-    const matched = allRows.filter((tr) => {
+    const allRows = document.querySelectorAll("#products-table tbody tr");
+    const passesFilter = (tr) => {
       if (tr.dataset.wmsExcelVisible === "0") return false;
+      if (tr.dataset.vendorForceHidden === "1") return false;
       const st = tr.dataset.status || "";
       if (!includeDiscontinued && st !== "판매중") return false;
       return !q || String(tr.dataset.search || "").includes(q);
-    });
+    };
     const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "100", 10) || 100));
-    const total = matched.length;
+    let total = 0;
+    allRows.forEach((tr) => { if (passesFilter(tr)) total += 1; });
     const pages = Math.max(1, Math.ceil(total / size));
     if (productListPageIndex >= pages) productListPageIndex = pages - 1;
     if (productListPageIndex < 0) productListPageIndex = 0;
@@ -1965,14 +2079,13 @@ function renderProducts() {
     const start = page * size;
     let mi = 0;
     allRows.forEach((tr) => {
-      if (tr.dataset.wmsExcelVisible === "0") { tr.style.display = "none"; return; }
-      const st = tr.dataset.status || "";
-      if (!includeDiscontinued && st !== "판매중") { tr.style.display = "none"; return; }
-      const isMatch = !q || String(tr.dataset.search || "").includes(q);
-      if (!isMatch) { tr.style.display = "none"; return; }
-      const vis = mi >= start && mi < start + size;
-      tr.style.display = vis ? "" : "none";
-      mi += 1;
+      let vis = false;
+      if (passesFilter(tr)) {
+        vis = mi >= start && mi < start + size;
+        mi += 1;
+      }
+      const newDisplay = vis ? "" : "none";
+      if (tr.style.display !== newDisplay) tr.style.display = newDisplay;
     });
     if (pageInfoEl) {
       if (total === 0) pageInfoEl.textContent = "0 - 0 / 0";
@@ -2018,6 +2131,93 @@ function renderProducts() {
     };
     onlyActiveChk?.addEventListener("change", () => { productListPageIndex = 0; applyProductListFilters(); updateOnlyActiveStyle(); });
     updateOnlyActiveStyle();
+
+    const collapseVendorChk = qs("#product-collapse-vendor");
+    const collapseVendorBtn = qs("#product-collapse-vendor-btn");
+    const updateCollapseVendorStyle = () => {
+      if (!collapseVendorBtn) return;
+      if (collapseVendorChk?.checked) {
+        collapseVendorBtn.style.borderColor = "#3182F6";
+        collapseVendorBtn.style.background = "#EBF3FF";
+        collapseVendorBtn.style.color = "#1A6FDB";
+      } else {
+        collapseVendorBtn.style.borderColor = "#CBD5E1";
+        collapseVendorBtn.style.background = "#fff";
+        collapseVendorBtn.style.color = "#475569";
+      }
+    };
+    const applyVendorGroupState = (repRow, extraRows, collapse) => {
+      const expanded = repRow.dataset.vendorRowExpanded === "1";
+      const vendorCell = repRow.children[8];
+      const codeCell = repRow.children[10];
+      const nameCell = repRow.children[11];
+      if (!vendorCell || !codeCell || !nameCell) return;
+      if (vendorCell.dataset.origHtml === undefined) vendorCell.dataset.origHtml = vendorCell.innerHTML;
+      if (codeCell.dataset.origHtml === undefined) codeCell.dataset.origHtml = codeCell.innerHTML;
+      if (nameCell.dataset.origHtml === undefined) nameCell.dataset.origHtml = nameCell.innerHTML;
+      const highlightOn = collapse && expanded;
+      const barOn = collapse ? expanded : true;
+      repRow.classList.toggle("product-vendor-expanded-highlight", highlightOn);
+      repRow.classList.toggle("vendor-bar-row", barOn);
+      if (collapse && !expanded) {
+        vendorCell.innerHTML = decodeURIComponent(repRow.dataset.vendorMultiBadge);
+        codeCell.innerHTML = "-";
+        nameCell.innerHTML = "-";
+        extraRows.forEach((tr) => { tr.dataset.vendorForceHidden = "1"; tr.classList.remove("product-vendor-expanded-highlight"); tr.classList.remove("vendor-bar-row"); });
+      } else {
+        vendorCell.innerHTML = vendorCell.dataset.origHtml + (highlightOn ? ` ${VENDOR_ARROW_CHIP_HTML("vendor-collapse-single-btn", 180, "접기")}` : "");
+        codeCell.innerHTML = codeCell.dataset.origHtml;
+        nameCell.innerHTML = nameCell.dataset.origHtml;
+        extraRows.forEach((tr) => { tr.dataset.vendorForceHidden = "0"; tr.classList.toggle("product-vendor-expanded-highlight", highlightOn); tr.classList.toggle("vendor-bar-row", barOn); });
+      }
+    };
+    const syncVendorRows = () => {
+      const collapse = !(collapseVendorChk?.checked ?? false);
+      const extraRowsByGroup = new Map();
+      document.querySelectorAll('#products-table tbody tr[data-vendor-extra="1"]').forEach((tr) => {
+        const gid = tr.dataset.vendorGroup;
+        if (!extraRowsByGroup.has(gid)) extraRowsByGroup.set(gid, []);
+        extraRowsByGroup.get(gid).push(tr);
+      });
+      document.querySelectorAll("#products-table tbody tr[data-vendor-multi-badge]").forEach((repRow) => {
+        applyVendorGroupState(repRow, extraRowsByGroup.get(repRow.dataset.vendorGroup) || [], collapse);
+      });
+    };
+    collapseVendorChk?.addEventListener("change", () => {
+      productListPageIndex = 0;
+      if (!collapseVendorChk.checked) {
+        document.querySelectorAll("#products-table tbody tr[data-vendor-multi-badge]").forEach((tr) => { tr.dataset.vendorRowExpanded = "0"; });
+      }
+      syncVendorRows();
+      applyProductListFilters();
+      updateCollapseVendorStyle();
+    });
+    updateCollapseVendorStyle();
+    syncVendorRows();
+    qs("#products-table")?.addEventListener("click", (e) => {
+      const expandBtn = e.target.closest(".vendor-multi-badge-btn");
+      const collapseBtn = e.target.closest(".vendor-collapse-single-btn");
+      const btn = expandBtn || collapseBtn;
+      if (!btn) return;
+      const tr = btn.closest("tr");
+      if (!tr) return;
+      tr.dataset.vendorRowExpanded = expandBtn ? "1" : "0";
+      const collapse = !(collapseVendorChk?.checked ?? false);
+      const groupId = tr.dataset.vendorGroup;
+      const extraRows = document.querySelectorAll(`#products-table tbody tr[data-vendor-group="${groupId}"][data-vendor-extra="1"]`);
+      applyVendorGroupState(tr, extraRows, collapse);
+      applyProductListFilters();
+    });
+    qs("#products-table")?.addEventListener("click", (e) => {
+      if (e.target.closest(".vendor-multi-badge-btn") || e.target.closest(".vendor-collapse-single-btn")) return;
+      if (e.target.closest(".product-row-check")) return;
+      const tr = e.target.closest("tbody tr");
+      if (!tr) return;
+      const chk = tr.querySelector(".product-row-check");
+      if (!chk) return;
+      chk.checked = !chk.checked;
+      chk.dispatchEvent(new Event("change", { bubbles: true }));
+    });
     pagePrev?.addEventListener("click", () => {
       productListPageIndex = Math.max(0, productListPageIndex - 1);
       applyProductListFilters();
@@ -8580,6 +8780,8 @@ async function init() {
       if (v === "dev-notes") await renderDevNotes();
     };
   });
+
+  qs("#demo-mode-toggle")?.addEventListener("click", () => toggleDemoMode());
 
   document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((btn) => {
     btn.onclick = () => {
