@@ -681,7 +681,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-x { width: 100%; overflow-x: auto; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
-#products-table { width: 5106px; table-layout: fixed; }
+#products-table { width: 5811px; table-layout: fixed; }
 #products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -714,13 +714,71 @@ tbody tr:last-child td { border-bottom: 0; }
 #products-table thead th[data-col-orig-idx="25"] { width: 117px; }
 #products-table thead th[data-col-orig-idx="26"] { width: 121px; }
 #products-table thead th[data-col-orig-idx="27"] { width: 116px; }
+#products-table thead th[data-col-orig-idx="28"] { width: 100px; }
+#products-table thead th[data-col-orig-idx="29"] { width: 121px; }
+#products-table thead th[data-col-orig-idx="30"] { width: 121px; }
+#products-table thead th[data-col-orig-idx="31"] { width: 121px; }
+#products-table thead th[data-col-orig-idx="32"] { width: 121px; }
+#products-table thead th[data-col-orig-idx="33"] { width: 121px; }
+
+/* 입고적재사양(INN(EA)~PLT(EA)) 컬럼 그룹 시각 구분. 헤더 텍스트는 excel-th-label(줄바꿈 허용)로 실제 렌더링됨 */
+#products-table thead th,
+#ppl-table thead th { vertical-align: bottom; }
+#products-table thead th.col-group-cell,
+#ppl-table thead th.col-group-cell { background: #1D6FA5; position: relative; }
+#products-table thead th.col-group-start::first-line,
+#ppl-table thead th.col-group-start::first-line,
+#products-table thead th.col-group-start2::first-line,
+#ppl-table thead th.col-group-start2::first-line { line-height: 1.93em; }
+.excel-th-label { white-space: pre-line; }
+#products-table thead th.col-group-cell::after,
+#ppl-table thead th.col-group-cell::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(9px + 1.6em);
+  border-top: 1px solid rgba(255,255,255,0.35);
+}
+#products-table tbody td[data-col-orig-idx="22"],
+#products-table tbody td[data-col-orig-idx="23"],
+#products-table tbody td[data-col-orig-idx="24"],
+#products-table tbody td[data-col-orig-idx="25"],
+#products-table tbody td[data-col-orig-idx="26"] { background: #F5F8FF; }
+#products-table thead th[data-col-orig-idx="22"],
+#products-table tbody td[data-col-orig-idx="22"] { border-left: 2px solid #C7D7FE; }
+#products-table thead th[data-col-orig-idx="26"],
+#products-table tbody td[data-col-orig-idx="26"] { border-right: 2px solid #C7D7FE; }
+
+/* 출고적재사양(판매처별 INN(EA)~PLT(EA)) 컬럼 그룹 — 입고적재사양 그룹과 다른 색으로 구분 */
+#products-table thead th.col-group-cell2,
+#ppl-table thead th.col-group-cell2 { background: #0E7C86; position: relative; }
+#products-table thead th.col-group-cell2::after,
+#ppl-table thead th.col-group-cell2::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(9px + 1.6em);
+  border-top: 1px solid rgba(255,255,255,0.35);
+}
+#products-table tbody td[data-col-orig-idx="29"],
+#products-table tbody td[data-col-orig-idx="30"],
+#products-table tbody td[data-col-orig-idx="31"],
+#products-table tbody td[data-col-orig-idx="32"],
+#products-table tbody td[data-col-orig-idx="33"] { background: #F2FBFA; }
+#products-table thead th[data-col-orig-idx="29"],
+#products-table tbody td[data-col-orig-idx="29"] { border-left: 2px solid #A9DFDA; }
+#products-table thead th[data-col-orig-idx="33"],
+#products-table tbody td[data-col-orig-idx="33"] { border-right: 2px solid #A9DFDA; }
+
 #products-table thead th {
   position: sticky;
   top: 0;
   z-index: 5;
   background: #1B3F6E;
   color: rgba(255,255,255,.85);
-  padding: 7px 14px;
+  padding: 7px 14px 4px;
 }
 #products-table thead th:first-child {
   left: 0;
@@ -869,7 +927,7 @@ tbody tr:last-child td { border-bottom: 0; }
   z-index: 5;
   background: #1B3F6E;
   color: rgba(255,255,255,.85);
-  padding: 7px 14px;
+  padding: 7px 14px 4px;
 }
 #ppl-table thead th:first-child { left: 0; z-index: 6; }
 #ppl-table tbody td:first-child {
@@ -883,6 +941,24 @@ tbody tr:last-child td { border-bottom: 0; }
 #ppl-table tr.product-row-suspended td:first-child { background: #F8F9FB; }
 #ppl-table tr.product-row-checked td { background: #EBF3FF !important; }
 #ppl-table tr.product-row-checked td:first-child { background: #EBF3FF !important; }
+#ppl-table tbody td[data-col-orig-idx="22"],
+#ppl-table tbody td[data-col-orig-idx="23"],
+#ppl-table tbody td[data-col-orig-idx="24"],
+#ppl-table tbody td[data-col-orig-idx="25"],
+#ppl-table tbody td[data-col-orig-idx="26"] { background: #F5F8FF; }
+#ppl-table thead th[data-col-orig-idx="22"],
+#ppl-table tbody td[data-col-orig-idx="22"] { border-left: 2px solid #C7D7FE; }
+#ppl-table thead th[data-col-orig-idx="26"],
+#ppl-table tbody td[data-col-orig-idx="26"] { border-right: 2px solid #C7D7FE; }
+#ppl-table tbody td[data-col-orig-idx="28"],
+#ppl-table tbody td[data-col-orig-idx="29"],
+#ppl-table tbody td[data-col-orig-idx="30"],
+#ppl-table tbody td[data-col-orig-idx="31"],
+#ppl-table tbody td[data-col-orig-idx="32"] { background: #F2FBFA; }
+#ppl-table thead th[data-col-orig-idx="28"],
+#ppl-table tbody td[data-col-orig-idx="28"] { border-left: 2px solid #A9DFDA; }
+#ppl-table thead th[data-col-orig-idx="32"],
+#ppl-table tbody td[data-col-orig-idx="32"] { border-right: 2px solid #A9DFDA; }
 
 /* ═══════════════════════════════════════════════════════════════
    MODAL

@@ -212,10 +212,11 @@ function normalizeDb(db) {
       p.deliveryVendorInfo = p.deliveryVendors.map((vendor) => ({
         vendor,
         code: vendor === legacyTargetVendor ? legacyCode : "",
-        itemName: vendor === legacyTargetVendor ? legacyItemName : ""
+        itemName: vendor === legacyTargetVendor ? legacyItemName : "",
+        outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: ""
       }));
       if (!p.deliveryVendorInfo.length && (legacyCode || legacyItemName)) {
-        p.deliveryVendorInfo = [{ vendor: "", code: legacyCode, itemName: legacyItemName }];
+        p.deliveryVendorInfo = [{ vendor: "", code: legacyCode, itemName: legacyItemName, outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
       }
     }
     delete p.deliveryVendorCode;
@@ -338,14 +339,20 @@ function toTagList(value) {
     .filter(Boolean);
 }
 
-/** 판매처별 코드/상품명 목록 정규화: [{vendor, code, itemName}] */
+/** 판매처별 코드/상품명/출고단위/출고적재사양 목록 정규화: [{vendor, code, itemName, outUnit, innEa, innPerCtn, ctnEa, ctnPerPlt, pltEa}] */
 function toDeliveryVendorInfoList(value) {
   if (!Array.isArray(value)) return [];
   return value
     .map((row) => ({
       vendor: String(row?.vendor || "").trim(),
       code: String(row?.code || "").trim(),
-      itemName: String(row?.itemName || "").trim()
+      itemName: String(row?.itemName || "").trim(),
+      outUnit: String(row?.outUnit || "").trim(),
+      innEa: String(row?.innEa || "").trim(),
+      innPerCtn: String(row?.innPerCtn || "").trim(),
+      ctnEa: String(row?.ctnEa || "").trim(),
+      ctnPerPlt: String(row?.ctnPerPlt || "").trim(),
+      pltEa: String(row?.pltEa || "").trim()
     }))
     .filter((row) => row.vendor);
 }
@@ -1771,7 +1778,8 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
         unitPrice: String(group[i].unitPrice || "").trim(),
         supplyAmt: String(group[i].supplyAmt || "").trim(),
         vatAmt: String(group[i].vatAmt || "").trim(),
-        totalAmt: String(group[i].totalAmt || "").trim()
+        totalAmt: String(group[i].totalAmt || "").trim(),
+        uploadOrderDate: String(group[i].uploadOrderDate || "").trim()
       });
     }
 
@@ -1785,6 +1793,7 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
           centerName: centerNameFromKey,
           saveDateYmd: saveYmd,
           storeInDateYmd: storeInFromKey,
+          uploadOrderDateYmd: String(lineEntries[0]?.uploadOrderDate || "").replace(/-/g, ""),
           slipNos: [],
           lines: [],
           updatedAt: now.toISOString()
@@ -2047,7 +2056,10 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
   // 기본은 자동번호(빈 문자열) 사용. 환경변수로만 고정 전표번호를 명시 허용.
   const docNo = String(process.env.ECOUNT_OUTBOUND_SALE_DOC_NO || "").trim();
   const centerRemark = String(record.centerName || "").trim();
-  const remarks = (centerRemark || `WMS ${partnerType} ${listKey}`).slice(0, 200);
+  // 출고일자는 업로드 파일명에서 추출한 날짜(MMDD, 연도는 업로드 당시 연도) 우선, 없으면 기존 IO_DATE 로직으로 대체.
+  const shipDateYmd = String(record.uploadOrderDateYmd || "").trim().replace(/-/g, "") || ioDate;
+  const shipDateDashed = `${shipDateYmd.slice(0, 4)}-${shipDateYmd.slice(4, 6)}-${shipDateYmd.slice(6, 8)}`;
+  const remarks = [centerRemark || `WMS ${partnerType} ${listKey}`, shipDateDashed].filter(Boolean).join(" ").slice(0, 200);
   const ioType = String(process.env.ECOUNT_OUTBOUND_SALE_IO_TYPE || "").trim();
   const price = String(process.env.ECOUNT_OUTBOUND_SALE_PRICE ?? "0").trim() || "0";
   const codeMap = getOutboundCodeMasterMap(db, partnerType);
@@ -2110,7 +2122,7 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
     const supplyAmt = num(ln.supplyAmt);
     const vatAmt = num(ln.vatAmt);
     const totalAmt = num(ln.totalAmt);
-    // 바코드는 PROD_CD로 전달하고, ITEM_CD/P_REMARKS1에는 넣지 않음.
+    // 바코드는 PROD_CD로도 전달되지만, 참고용으로 P_REMARKS1에도 별도 기재한다.
     const itemCd = "";
     const k = `${prodCd}\t${whCd}\t${Number.isFinite(unitPrice) ? unitPrice : ""}\t${itemCd}`;
     const prev = agg.get(k);
@@ -2147,7 +2159,8 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
         supplyAmt: Number.isFinite(supplyResolved) ? supplyResolved : NaN,
         vatAmt: Number.isFinite(vatResolved) ? vatResolved : NaN,
         totalAmt: Number.isFinite(totalResolved) ? totalResolved : NaN,
-        itemCd
+        itemCd,
+        barcode: barcodeCode
       });
     }
   }
@@ -2176,7 +2189,7 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
       CUST_AMT: "",
       TTL_CTT: remarks,
       U_MEMO2: remarks,
-      P_REMARKS1: "",
+      P_REMARKS1: row.barcode || "",
       REMARKS1: "",
       REMARKS2: "",
       REMARKS3: ""
@@ -2308,11 +2321,18 @@ async function runOutboundConfirmListSalesToEcount(db, partnerType, listKey) {
   throwIfEcountSaveSaleFailed(result);
 
   let sentNow = 0;
+  const sentTimestamp = new Date().toISOString();
   for (const sk of slipKeys) {
     const wfPrev = db.outboundOrderUpload.slipWorkflow[sk] || { status: "draft", lineQtyByIndex: {} };
-    db.outboundOrderUpload.slipWorkflow[sk] = { ...wfPrev, status: "sent", sentAt: new Date().toISOString() };
+    db.outboundOrderUpload.slipWorkflow[sk] = { ...wfPrev, status: "sent", sentAt: sentTimestamp };
     sentNow += 1;
   }
+
+  // 전송 완료 여부는 확정리스트 레코드 자체에도 영구 기록한다.
+  // slipWorkflow는 배치 재적용/삭제 시 정리되어 사라질 수 있어(확정리스트는 항상 보존되는 것과 달리),
+  // 그것만 근거로 삼으면 재적용 이후 "전송됨" 표시와 취소 가드가 모두 무너진다.
+  record.salesSentAt = sentTimestamp;
+  record.salesSentSlipCount = slipKeys.length;
 
   db.outboundOrderUpload.uploadedAt = new Date().toISOString();
   writeDb(db);
@@ -3607,7 +3627,9 @@ async function handleApi(req, res, urlObj) {
       }
       const uploadBatchId = `OUT-${Date.now()}`;
       const { okRows, errorRows } = parseOutboundOrderRowsByPartner(matrix, partnerType, uploadBatchId, sourceFileName, db);
-      db.outboundOrderUpload.uploadedRows = [...(db.outboundOrderUpload.uploadedRows || []), ...okRows];
+      // 업로드 파일명에서 추출한 날짜(예: 0721 → 이번연도-07-21)를 각 행에 실어, 확정 시 출고일자 산출에 쓴다.
+      const okRowsWithUploadDate = okRows.map((r) => ({ ...r, uploadOrderDate: orderDate }));
+      db.outboundOrderUpload.uploadedRows = [...(db.outboundOrderUpload.uploadedRows || []), ...okRowsWithUploadDate];
       db.outboundOrderUpload.batches = [
         {
           uploadBatchId,
@@ -4226,10 +4248,14 @@ async function handleApi(req, res, urlObj) {
         const slipKeys = Array.isArray(x.slipNos)
           ? [...new Set(x.slipNos.map((s) => normalizeSlipNoText(String(s || ""))).filter(Boolean))]
           : [];
-        const sentCount = slipKeys.filter((sk) => {
+        const wfSentCount = slipKeys.filter((sk) => {
           const wf = db.outboundOrderUpload.slipWorkflow && db.outboundOrderUpload.slipWorkflow[sk];
           return Boolean(wf && wf.sentAt);
         }).length;
+        // salesSentAt은 확정리스트 레코드 자체에 영구 기록되는 전송 완료 플래그.
+        // slipWorkflow 기반 카운트는 배치 재적용/삭제로 지워질 수 있으므로 보조 지표로만 쓴다.
+        const recordSent = Boolean(x.salesSentAt);
+        const sentCount = recordSent ? slipKeys.length : wfSentCount;
         return {
           key: x.key,
           centerMergedSlipNo: x.key,
@@ -4251,7 +4277,8 @@ async function handleApi(req, res, urlObj) {
             return sum + (Number.isFinite(n) ? n : 0);
           }, 0),
           sentCount,
-          allSent: slipKeys.length > 0 && sentCount === slipKeys.length,
+          allSent: recordSent || (slipKeys.length > 0 && sentCount === slipKeys.length),
+          salesSentAt: x.salesSentAt || null,
           updatedAt: x.updatedAt || ""
         };
       })
@@ -4291,6 +4318,9 @@ async function handleApi(req, res, urlObj) {
         ? [...new Set(record.slipNos.map((s) => normalizeSlipNoText(String(s || ""))).filter(Boolean))]
         : [];
 
+      if (record.salesSentAt) {
+        throw new Error("판매입력 전송이 완료된 확정리스트는 취소할 수 없습니다.");
+      }
       for (const sk of slipKeys) {
         const wf = db.outboundOrderUpload.slipWorkflow[sk] || {};
         if (wf.sentAt) throw new Error(`판매입력 전송이 완료된 전표가 포함되어 있어 취소할 수 없습니다: ${sk}`);

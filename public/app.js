@@ -60,51 +60,17 @@ function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
-/** 스레드/외부 캡처용 정보 가리기 모드 — 화면(DOM)에서만 실제 데이터를 무작위 값으로 치환. 서버 데이터는 건드리지 않음. */
+/** 스레드/외부 캡처용 정보 가리기 모드 — 화면(DOM)에서만 실제 데이터를 고정된 가짜 값으로 치환. 서버 데이터는 건드리지 않음. 매핑 규칙은 demo-mask.js(공용, barcode-print.html과 공유) 참고. */
 let demoModeOn = false;
 let demoObserver = null;
-const DEMO_COMPANY_NAMES_KO = ["가나상사", "다라유통", "마바물류", "사아상회", "자차무역", "카타상사", "파하유통", "예시상사", "샘플무역", "테스트상회", "온빛유통", "미르상사", "누리물류", "별빛상회"];
-const DEMO_COMPANY_NAMES_EN = ["Acme Corp", "Sample Trading", "Demo Logistics", "Northwind Co", "Globex Ltd", "Umbrella Inc", "Initech LLC", "Hooli Trading", "Wayne Supply", "Stark Imports"];
-const DEMO_PRODUCT_NAMES_KO = ["국내산 사과 1kg", "냉동 만두 500g", "유기농 우유 1L", "구운 아몬드 200g", "즉석밥 210g", "딸기잼 300g", "봉지라면 5개입", "떡볶이소스 300g", "참치캔 150g", "홍삼정 30포", "견과류 믹스 250g", "냉동 새우 1kg", "전복죽 1인분", "한라봉 3kg", "황도 통조림", "곰탕 밀키트", "블루베리잼 400g", "오렌지주스 1.5L", "훈제오리 200g", "포기김치 1kg"];
-const DEMO_PRODUCT_NAMES_EN = ["Organic Apple 1kg", "Frozen Dumpling 500g", "Almond Snack 200g", "Instant Rice 210g", "Strawberry Jam 300g", "Ramen Noodle 5pk", "Tuna Can 150g", "Mixed Nuts 250g", "Frozen Shrimp 1kg", "Orange Juice 1.5L"];
-function demoColumnCategory(label) {
-  const l = String(label || "").trim();
-  if (l.includes("품목명") || l.includes("상품명")) return "product";
-  if (l === "판매처" || l === "구매처") return "company";
-  return null;
-}
-function demoRandomizeText(text, category) {
-  const s = String(text ?? "");
-  if (!s.trim()) return s;
-  const KEEP_AS_IS = new Set(["판매중", "단종", "판매중단", "단일", "다중", "-"]);
-  if (KEEP_AS_IS.has(s.trim())) return s;
-  const hasKorean = /[가-힣]/.test(s);
-  if (category === "product") {
-    const pool = hasKorean ? DEMO_PRODUCT_NAMES_KO : DEMO_PRODUCT_NAMES_EN;
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-  if (category === "company") {
-    const pool = hasKorean ? DEMO_COMPANY_NAMES_KO : DEMO_COMPANY_NAMES_EN;
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
-  if (/^-?\d[\d,.]*%?$/.test(s.trim())) {
-    return s.replace(/\d/g, () => String(Math.floor(Math.random() * 10)));
-  }
-  const hasLatinDigitMix = /[A-Za-z]/.test(s) && /\d/.test(s);
-  if (hasLatinDigitMix) {
-    return s.replace(/[A-Za-z]/g, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).replace(/\d/g, () => String(Math.floor(Math.random() * 10)));
-  }
-  const pool = hasKorean ? DEMO_COMPANY_NAMES_KO : DEMO_COMPANY_NAMES_EN;
-  return pool[Math.floor(Math.random() * pool.length)];
-}
-function demoScrambleCellText(td, category) {
+function demoScrambleCellText(td, category, categoryHint) {
   if (td.dataset.demoOrig === undefined) td.dataset.demoOrig = td.textContent;
-  if (td.dataset.demoFake === undefined) td.dataset.demoFake = demoRandomizeText(td.dataset.demoOrig, category);
+  if (td.dataset.demoFake === undefined) td.dataset.demoFake = WmsDemoMask.randomizeText(td.dataset.demoOrig, category, categoryHint);
   if (td.textContent !== td.dataset.demoFake) td.textContent = td.dataset.demoFake;
 }
-function demoScrambleChip(chip, category) {
+function demoScrambleChip(chip, category, categoryHint) {
   if (chip.dataset.demoOrig === undefined) chip.dataset.demoOrig = chip.textContent;
-  if (chip.dataset.demoFake === undefined) chip.dataset.demoFake = demoRandomizeText(chip.dataset.demoOrig, category === "product" ? "product" : "company");
+  if (chip.dataset.demoFake === undefined) chip.dataset.demoFake = WmsDemoMask.randomizeText(chip.dataset.demoOrig, category === "product" ? "product" : "company", categoryHint);
   if (chip.textContent !== chip.dataset.demoFake) chip.textContent = chip.dataset.demoFake;
 }
 function demoScrambleRoot(root) {
@@ -112,18 +78,20 @@ function demoScrambleRoot(root) {
   root.querySelectorAll("table").forEach((table) => {
     const headerMap = {};
     table.querySelectorAll("thead th").forEach((th, i) => { headerMap[i] = (th.dataset.colLabel || th.textContent || "").trim(); });
+    const categoryColIdx = Object.keys(headerMap).find((i) => headerMap[i] === "카테고리" || headerMap[i] === "분류");
     table.querySelectorAll("tbody tr").forEach((tr) => {
+      const categoryHint = categoryColIdx !== undefined ? (tr.children[categoryColIdx]?.textContent || "").trim() : null;
       Array.from(tr.children).forEach((td, i) => {
         if (td.tagName !== "TD") return;
-        const category = demoColumnCategory(headerMap[i] ?? td.dataset.colLabel);
+        const category = WmsDemoMask.columnCategory(headerMap[i] ?? td.dataset.colLabel);
         const chips = td.querySelectorAll(".tag");
         if (chips.length && !td.querySelector("input,button,select,textarea")) {
-          chips.forEach((chip) => demoScrambleChip(chip, category));
+          chips.forEach((chip) => demoScrambleChip(chip, category, categoryHint));
           return;
         }
         if (td.querySelector("input,button,select,textarea")) return;
         if (td.children.length) return;
-        demoScrambleCellText(td, category);
+        demoScrambleCellText(td, category, categoryHint);
       });
     });
   });
@@ -141,22 +109,33 @@ function demoRestoreRoot(root) {
     delete chip.dataset.demoFake;
   });
 }
-function toggleDemoMode() {
-  demoModeOn = !demoModeOn;
+function applyDemoModeUi(on) {
   const root = qs(".main") || document.body;
   const btn = qs("#demo-mode-toggle");
-  if (demoModeOn) {
+  const logoTitle = qs("#sidebar-logo-title");
+  if (on) {
+    demoObserver?.disconnect();
     demoObserver = new MutationObserver(() => demoScrambleRoot(root));
     demoScrambleRoot(root);
     btn?.classList.add("demo-mode-active");
     if (btn) btn.querySelector("span").textContent = "정보 복구";
+    if (logoTitle) logoTitle.textContent = "WMS";
   } else {
     demoObserver?.disconnect();
     demoObserver = null;
     demoRestoreRoot(root);
     btn?.classList.remove("demo-mode-active");
     if (btn) btn.querySelector("span").textContent = "정보 가리기";
+    if (logoTitle) logoTitle.textContent = "TOOLSPIA WMS";
   }
+  // 바코드 인쇄 iframe(별도 문서) 등 다른 곳에서도 감지할 수 있도록 공유
+  try { localStorage.setItem(WmsDemoMask.STORAGE_KEY, on ? "1" : "0"); } catch (_) {}
+  qs("#view-barcode-print iframe")?.contentWindow?.postMessage({ type: "wms-demo-mode", on }, "*");
+  qs("#view-barcode-print2 iframe")?.contentWindow?.postMessage({ type: "wms-demo-mode", on }, "*");
+}
+function toggleDemoMode() {
+  demoModeOn = !demoModeOn;
+  applyDemoModeUi(demoModeOn);
 }
 
 function formatYmd(v) {
@@ -839,6 +818,7 @@ function applyTableColumnConfig(tableSelector, storageKey, fixedCols = 0) {
 
     // config 대로 frag에 담기 (고정 컬럼은 옛 저장값에 남아있어도 항상 제외)
     const frag = document.createDocumentFragment();
+    const configIdxSet = new Set(config.map(({ origIdx }) => origIdx));
     config
       .filter(({ origIdx }) => origIdx >= fixedCount)
       .forEach(({ origIdx, visible }) => {
@@ -847,6 +827,12 @@ function applyTableColumnConfig(tableSelector, storageKey, fixedCols = 0) {
         cell.style.display = visible ? "" : "none";
         frag.appendChild(cell);
       });
+    // 저장된 옛 설정에 없는 컬럼(이후에 새로 추가된 컬럼)은 끝에 그대로 이어붙인다(뒤섞이지 않도록).
+    Object.keys(cellMap)
+      .map(Number)
+      .filter((idx) => idx >= fixedCount && !configIdxSet.has(idx))
+      .sort((a, b) => a - b)
+      .forEach((idx) => frag.appendChild(cellMap[idx]));
 
     // 고정 컬럼(들)은 항상 맨 앞에 원래 순서대로
     for (let i = fixedCount - 1; i >= 0; i--) {
@@ -974,6 +960,12 @@ function downloadGuide(type) {
         "판매처": "다이소",
         "판매처관리코드": "D-001",
         "판매처 품목명": "다이소용 상품명",
+        "출고단위": "CTN",
+        "출고적재사양 INN(EA)": 12,
+        "출고적재사양 INN/CTN": 1,
+        "출고적재사양 CTN(EA)": 12,
+        "출고적재사양 CTN/PLT": 60,
+        "출고적재사양 PLT(EA)": 720,
         "규격": "500ml",
         "구매처": "테스트구매처",
         "수급형태": "무역(수입)",
@@ -985,9 +977,9 @@ function downloadGuide(type) {
         "사용창고": "유통사업부, 다이소",
         "구분": "[상품]",
         "카테고리": "보통, 시즌",
-        "CTN(EA)": 40,
-        "INN/CTN": 4,
         "INN(EA)": 10,
+        "INN/CTN": 4,
+        "CTN(EA)": 40,
         "CTN/PLT": 60,
         "PLT(EA)": 2400,
         "영업담당자": "영업A, 영업B"
@@ -1002,6 +994,12 @@ function downloadGuide(type) {
         "판매처": "이마트",
         "판매처관리코드": "E-002",
         "판매처 품목명": "이마트용 상품명",
+        "출고단위": "EA",
+        "출고적재사양 INN(EA)": 10,
+        "출고적재사양 INN/CTN": 1,
+        "출고적재사양 CTN(EA)": 10,
+        "출고적재사양 CTN/PLT": 60,
+        "출고적재사양 PLT(EA)": 600,
         "규격": "500ml",
         "구매처": "테스트구매처",
         "수급형태": "무역(수입)",
@@ -1013,9 +1011,9 @@ function downloadGuide(type) {
         "사용창고": "유통사업부, 다이소",
         "구분": "[상품]",
         "카테고리": "보통, 시즌",
-        "CTN(EA)": 40,
-        "INN/CTN": 4,
         "INN(EA)": 10,
+        "INN/CTN": 4,
+        "CTN(EA)": 40,
         "CTN/PLT": 60,
         "PLT(EA)": 2400,
         "영업담당자": "영업A, 영업B"
@@ -1111,6 +1109,12 @@ function normalizeProductRows(rows) {
         rowVendors: toTagList(getByKeys(r, ["판매처", "deliveryVendors", "salesVendor"])),
         rowVendorCode: String(getByKeys(r, ["판매처관리코드", "deliveryVendorCode"]) || "").trim(),
         rowVendorItemName: String(getByKeys(r, ["판매처 품목명", "deliveryItemName"]) || "").trim(),
+        rowVendorOutUnit: String(getByKeys(r, ["출고단위", "outUnit"]) || "").trim(),
+        rowVendorInnEa: String(getByKeys(r, ["출고적재사양 INN(EA)", "outInnEa"]) || "").trim(),
+        rowVendorInnPerCtn: String(getByKeys(r, ["출고적재사양 INN/CTN", "outInnPerCtn"]) || "").trim(),
+        rowVendorCtnEa: String(getByKeys(r, ["출고적재사양 CTN(EA)", "outCtnEa"]) || "").trim(),
+        rowVendorCtnPerPlt: String(getByKeys(r, ["출고적재사양 CTN/PLT", "outCtnPerPlt"]) || "").trim(),
+        rowVendorPltEa: String(getByKeys(r, ["출고적재사양 PLT(EA)", "outPltEa"]) || "").trim(),
         spec: String(getByKeys(r, ["규격", "spec"]) || "").trim(),
         purchaseVendor: String(getByKeys(r, ["구매처", "purchaseVendor"]) || "").trim(),
         supplyType: String(getByKeys(r, ["수급형태", "supplyType"]) || "").trim(),
@@ -1169,7 +1173,11 @@ function normalizeProductRows(rows) {
       if (!vendor) continue;
       if (!product.deliveryVendors.includes(vendor)) product.deliveryVendors.push(vendor);
       if (!product.deliveryVendorInfo.some((v) => v.vendor === vendor)) {
-        product.deliveryVendorInfo.push({ vendor, code: row.rowVendorCode, itemName: row.rowVendorItemName });
+        product.deliveryVendorInfo.push({
+          vendor, code: row.rowVendorCode, itemName: row.rowVendorItemName, outUnit: row.rowVendorOutUnit,
+          innEa: row.rowVendorInnEa, innPerCtn: row.rowVendorInnPerCtn, ctnEa: row.rowVendorCtnEa,
+          ctnPerPlt: row.rowVendorCtnPerPlt, pltEa: row.rowVendorPltEa
+        });
       }
     }
   }
@@ -1182,7 +1190,7 @@ function normalizeProductRows(rows) {
 /** 상품 1건을 판매처별 행으로 펼침. 판매처 정보가 없으면 판매처 빈 값으로 1행. */
 function getProductVendorRows(p) {
   const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
-  if (!info.length) return [{ vendor: "", code: "", itemName: "" }];
+  if (!info.length) return [{ vendor: "", code: "", itemName: "", outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
   return info;
 }
 
@@ -1222,6 +1230,12 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
       <td><select class="vi-vendor">${vendorOptionsHtml}</select></td>
       <td><input class="vi-code" value="${esc(row.code || "")}" /></td>
       <td><input class="vi-itemname" value="${esc(row.itemName || "")}" /></td>
+      <td><select class="vi-outunit">${["", "EA", "INN", "CTN", "PLT"].map((u) => `<option value="${u}" ${row.outUnit === u ? "selected" : ""}>${u}</option>`).join("")}</select></td>
+      <td><input class="vi-innea" value="${esc(row.innEa || "")}" placeholder="예: 10" /></td>
+      <td><input class="vi-innperctn" value="${esc(row.innPerCtn || "")}" /></td>
+      <td><input class="vi-ctnea" value="${esc(row.ctnEa || "")}" placeholder="예: 12" /></td>
+      <td><input class="vi-ctnperplt" value="${esc(row.ctnPerPlt || "")}" /></td>
+      <td><input class="vi-pltea" value="${esc(row.pltEa || "")}" /></td>
       <td><button type="button" class="vi-remove" title="삭제">&times;</button></td>`;
     tr.querySelector(".vi-vendor").value = row.vendor || "";
     body.appendChild(tr);
@@ -1243,7 +1257,13 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
         .map((tr) => ({
           vendor: tr.querySelector(".vi-vendor").value.trim(),
           code: tr.querySelector(".vi-code").value.trim(),
-          itemName: tr.querySelector(".vi-itemname").value.trim()
+          itemName: tr.querySelector(".vi-itemname").value.trim(),
+          outUnit: tr.querySelector(".vi-outunit").value.trim(),
+          innEa: tr.querySelector(".vi-innea").value.trim(),
+          innPerCtn: tr.querySelector(".vi-innperctn").value.trim(),
+          ctnEa: tr.querySelector(".vi-ctnea").value.trim(),
+          ctnPerPlt: tr.querySelector(".vi-ctnperplt").value.trim(),
+          pltEa: tr.querySelector(".vi-pltea").value.trim()
         }))
         .filter((r) => r.vendor);
     }
@@ -1708,12 +1728,18 @@ function renderProducts() {
       <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
       <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
-      <td data-col-orig-idx="22">${esc(p.ctnEa || "")}</td>
+      <td data-col-orig-idx="22">${esc(p.innEa || "")}</td>
       <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
-      <td data-col-orig-idx="24">${esc(p.innEa || "")}</td>
+      <td data-col-orig-idx="24">${esc(p.ctnEa || "")}</td>
       <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
       <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
       <td data-col-orig-idx="27" data-filter-multi="${esc((p.salesManagers||[]).join('|'))}">${renderTagChips(p.salesManagers)}</td>
+      <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
+      <td data-col-orig-idx="29">${esc(v.innEa || "")}</td>
+      <td data-col-orig-idx="30">${esc(v.innPerCtn || "")}</td>
+      <td data-col-orig-idx="31">${esc(v.ctnEa || "")}</td>
+      <td data-col-orig-idx="32">${esc(v.ctnPerPlt || "")}</td>
+      <td data-col-orig-idx="33">${esc(v.pltEa || "")}</td>
     </tr>`;
           }
         )
@@ -1792,12 +1818,21 @@ function renderProducts() {
                 <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
                 <th data-col-orig-idx="20" data-col-label="구분">구분</th>
                 <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
-                <th data-col-orig-idx="22" data-col-label="CTN(EA)">CTN(EA)</th>
-                <th data-col-orig-idx="23" data-col-label="INN/CTN">INN/CTN</th>
-                <th data-col-orig-idx="24" data-col-label="INN(EA)">INN(EA)</th>
-                <th data-col-orig-idx="25" data-col-label="CTN/PLT">CTN/PLT</th>
-                <th data-col-orig-idx="26" data-col-label="PLT(EA)">PLT(EA)</th>
+                <th data-col-orig-idx="22" data-col-label="입고적재사양 INN(EA)" class="col-group-cell col-group-start">입고적재사양
+INN(EA)</th>
+                <th data-col-orig-idx="23" data-col-label="INN/CTN" class="col-group-cell">INN/CTN</th>
+                <th data-col-orig-idx="24" data-col-label="CTN(EA)" class="col-group-cell">CTN(EA)</th>
+                <th data-col-orig-idx="25" data-col-label="CTN/PLT" class="col-group-cell">CTN/PLT</th>
+                <th data-col-orig-idx="26" data-col-label="PLT(EA)" class="col-group-cell">PLT(EA)</th>
                 <th data-col-orig-idx="27" data-col-label="영업담당자">영업담당자</th>
+                <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
+출고단위</th>
+                <th data-col-orig-idx="29" data-col-label="출고적재사양 INN(EA)" class="col-group-cell2 col-group-start2">출고적재사양
+INN(EA)</th>
+                <th data-col-orig-idx="30" data-col-label="INN/CTN" class="col-group-cell2">INN/CTN</th>
+                <th data-col-orig-idx="31" data-col-label="CTN(EA)" class="col-group-cell2">CTN(EA)</th>
+                <th data-col-orig-idx="32" data-col-label="CTN/PLT" class="col-group-cell2">CTN/PLT</th>
+                <th data-col-orig-idx="33" data-col-label="PLT(EA)" class="col-group-cell2">PLT(EA)</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -1838,7 +1873,23 @@ function renderProducts() {
           <div class="multi-select-field vendor-info-field">
             <label>판매처 (판매처별 코드/상품명)</label>
             <table class="vendor-info-table">
-              <thead><tr><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th></th></tr></thead>
+              <thead>
+              <tr>
+                <th rowspan="2">판매처</th>
+                <th rowspan="2">판매처관리코드</th>
+                <th rowspan="2">판매처 품목명</th>
+                <th rowspan="2">판매처별<br>출고단위</th>
+                <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2"></th>
+              </tr>
+              <tr>
+                <th style="background:#EFF6FF;">INN(EA)</th>
+                <th style="background:#EFF6FF;">INN/CTN</th>
+                <th style="background:#EFF6FF;">CTN(EA)</th>
+                <th style="background:#EFF6FF;">CTN/PLT</th>
+                <th style="background:#EFF6FF;">PLT(EA)</th>
+              </tr>
+              </thead>
               <tbody id="vendor-info-rows"></tbody>
             </table>
             <button type="button" id="add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
@@ -1887,9 +1938,10 @@ function renderProducts() {
             <input type="hidden" name="salesManagers" />
           </div>
           <div id="preview-salesManagers" class="tagline multi-tags"></div>
-          <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
-          <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
+          <div style="grid-column: 1 / -1; font-weight:600; color:#475569; margin-top:4px;">입고적재사양</div>
           <div><label>INN(EA)</label><input name="innEa" type="number" /></div>
+          <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
+          <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
           <div><label>CTN/PLT</label><input name="ctnPerPlt" type="number" /></div>
           <div><label>PLT(EA)</label><input name="pltEa" type="number" /></div>
           <div><label>안전재고(선택)</label><input name="safetyStock" type="number" value="0" /></div>
@@ -2146,28 +2198,25 @@ function renderProducts() {
         collapseVendorBtn.style.color = "#475569";
       }
     };
+    const VENDOR_DASH_COL_IDXS = ["10", "11", "28", "29", "30", "31", "32", "33"];
     const applyVendorGroupState = (repRow, extraRows, collapse) => {
       const expanded = repRow.dataset.vendorRowExpanded === "1";
-      const vendorCell = repRow.children[8];
-      const codeCell = repRow.children[10];
-      const nameCell = repRow.children[11];
-      if (!vendorCell || !codeCell || !nameCell) return;
+      const vendorCell = repRow.querySelector('[data-col-orig-idx="8"]');
+      const dashCells = VENDOR_DASH_COL_IDXS.map((idx) => repRow.querySelector(`[data-col-orig-idx="${idx}"]`)).filter(Boolean);
+      if (!vendorCell || !dashCells.length) return;
       if (vendorCell.dataset.origHtml === undefined) vendorCell.dataset.origHtml = vendorCell.innerHTML;
-      if (codeCell.dataset.origHtml === undefined) codeCell.dataset.origHtml = codeCell.innerHTML;
-      if (nameCell.dataset.origHtml === undefined) nameCell.dataset.origHtml = nameCell.innerHTML;
+      dashCells.forEach((cell) => { if (cell.dataset.origHtml === undefined) cell.dataset.origHtml = cell.innerHTML; });
       const highlightOn = collapse && expanded;
       const barOn = collapse ? expanded : true;
       repRow.classList.toggle("product-vendor-expanded-highlight", highlightOn);
       repRow.classList.toggle("vendor-bar-row", barOn);
       if (collapse && !expanded) {
         vendorCell.innerHTML = decodeURIComponent(repRow.dataset.vendorMultiBadge);
-        codeCell.innerHTML = "-";
-        nameCell.innerHTML = "-";
+        dashCells.forEach((cell) => { cell.innerHTML = "-"; });
         extraRows.forEach((tr) => { tr.dataset.vendorForceHidden = "1"; tr.classList.remove("product-vendor-expanded-highlight"); tr.classList.remove("vendor-bar-row"); });
       } else {
         vendorCell.innerHTML = vendorCell.dataset.origHtml + (highlightOn ? ` ${VENDOR_ARROW_CHIP_HTML("vendor-collapse-single-btn", 180, "접기")}` : "");
-        codeCell.innerHTML = codeCell.dataset.origHtml;
-        nameCell.innerHTML = nameCell.dataset.origHtml;
+        dashCells.forEach((cell) => { cell.innerHTML = cell.dataset.origHtml; });
         extraRows.forEach((tr) => { tr.dataset.vendorForceHidden = "0"; tr.classList.toggle("product-vendor-expanded-highlight", highlightOn); tr.classList.toggle("vendor-bar-row", barOn); });
       }
     };
@@ -2548,6 +2597,12 @@ function renderProducts() {
           "판매처": v.vendor || "",
           "판매처관리코드": v.code || "",
           "판매처 품목명": v.itemName || "",
+          "출고단위": v.outUnit || "",
+          "출고적재사양 INN(EA)": v.innEa || "",
+          "출고적재사양 INN/CTN": v.innPerCtn || "",
+          "출고적재사양 CTN(EA)": v.ctnEa || "",
+          "출고적재사양 CTN/PLT": v.ctnPerPlt || "",
+          "출고적재사양 PLT(EA)": v.pltEa || "",
           "판매처구분": multi,
           "규격": p.spec || "",
           "구매처": p.purchaseVendor || "",
@@ -2560,9 +2615,9 @@ function renderProducts() {
           "사용창고": toTagList(p.usedWarehouses).join(", "),
           "구분": p.itemType || "",
           "카테고리": toTagList(p.categories).join(", "),
-          "CTN(EA)": p.ctnEa || "",
-          "INN/CTN": p.innPerCtn || "",
           "INN(EA)": p.innEa || "",
+          "INN/CTN": p.innPerCtn || "",
+          "CTN(EA)": p.ctnEa || "",
           "CTN/PLT": p.ctnPerPlt || "",
           "PLT(EA)": p.pltEa || "",
           "영업담당자": toTagList(p.salesManagers).join(", ")
@@ -8284,11 +8339,17 @@ function renderPurchaseProductsList() {
       <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td data-col-orig-idx="20">${esc(p.itemType||"")}</td>
       <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
-      <td data-col-orig-idx="22">${esc(p.ctnEa || "")}</td>
+      <td data-col-orig-idx="22">${esc(p.innEa || "")}</td>
       <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
-      <td data-col-orig-idx="24">${esc(p.innEa || "")}</td>
+      <td data-col-orig-idx="24">${esc(p.ctnEa || "")}</td>
       <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
       <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
+      <td data-col-orig-idx="27">${esc(v.outUnit || "")}</td>
+      <td data-col-orig-idx="28">${esc(v.innEa || "")}</td>
+      <td data-col-orig-idx="29">${esc(v.innPerCtn || "")}</td>
+      <td data-col-orig-idx="30">${esc(v.ctnEa || "")}</td>
+      <td data-col-orig-idx="31">${esc(v.ctnPerPlt || "")}</td>
+      <td data-col-orig-idx="32">${esc(v.pltEa || "")}</td>
     </tr>`).join("");
   }).join("");
 
@@ -8345,11 +8406,20 @@ function renderPurchaseProductsList() {
                 <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
                 <th data-col-orig-idx="20" data-col-label="구분">구분</th>
                 <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
-                <th data-col-orig-idx="22" data-col-label="CTN(EA)">CTN(EA)</th>
-                <th data-col-orig-idx="23" data-col-label="INN/CTN">INN/CTN</th>
-                <th data-col-orig-idx="24" data-col-label="INN(EA)">INN(EA)</th>
-                <th data-col-orig-idx="25" data-col-label="CTN/PLT">CTN/PLT</th>
-                <th data-col-orig-idx="26" data-col-label="PLT(EA)">PLT(EA)</th>
+                <th data-col-orig-idx="22" data-col-label="입고적재사양 INN(EA)" class="col-group-cell col-group-start">입고적재사양
+INN(EA)</th>
+                <th data-col-orig-idx="23" data-col-label="INN/CTN" class="col-group-cell">INN/CTN</th>
+                <th data-col-orig-idx="24" data-col-label="CTN(EA)" class="col-group-cell">CTN(EA)</th>
+                <th data-col-orig-idx="25" data-col-label="CTN/PLT" class="col-group-cell">CTN/PLT</th>
+                <th data-col-orig-idx="26" data-col-label="PLT(EA)" class="col-group-cell">PLT(EA)</th>
+                <th data-col-orig-idx="27" data-col-label="판매처별 출고단위">판매처별
+출고단위</th>
+                <th data-col-orig-idx="28" data-col-label="출고적재사양 INN(EA)" class="col-group-cell2 col-group-start2">출고적재사양
+INN(EA)</th>
+                <th data-col-orig-idx="29" data-col-label="INN/CTN" class="col-group-cell2">INN/CTN</th>
+                <th data-col-orig-idx="30" data-col-label="CTN(EA)" class="col-group-cell2">CTN(EA)</th>
+                <th data-col-orig-idx="31" data-col-label="CTN/PLT" class="col-group-cell2">CTN/PLT</th>
+                <th data-col-orig-idx="32" data-col-label="PLT(EA)" class="col-group-cell2">PLT(EA)</th>
               </tr></thead>
               <tbody>${rows}</tbody>
             </table>
@@ -8389,7 +8459,23 @@ function renderPurchaseProductsList() {
           <div class="multi-select-field vendor-info-field">
             <label>판매처 (판매처별 코드/상품명)</label>
             <table class="vendor-info-table">
-              <thead><tr><th>판매처</th><th>판매처관리코드</th><th>판매처 품목명</th><th></th></tr></thead>
+              <thead>
+              <tr>
+                <th rowspan="2">판매처</th>
+                <th rowspan="2">판매처관리코드</th>
+                <th rowspan="2">판매처 품목명</th>
+                <th rowspan="2">판매처별<br>출고단위</th>
+                <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2"></th>
+              </tr>
+              <tr>
+                <th style="background:#EFF6FF;">INN(EA)</th>
+                <th style="background:#EFF6FF;">INN/CTN</th>
+                <th style="background:#EFF6FF;">CTN(EA)</th>
+                <th style="background:#EFF6FF;">CTN/PLT</th>
+                <th style="background:#EFF6FF;">PLT(EA)</th>
+              </tr>
+              </thead>
               <tbody id="ppl-vendor-info-rows"></tbody>
             </table>
             <button type="button" id="ppl-add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
@@ -8563,6 +8649,12 @@ function renderPurchaseProductsList() {
           "판매처": v.vendor||"",
           "판매처관리코드": v.code||"",
           "판매처 품목명": v.itemName||"",
+          "출고단위": v.outUnit||"",
+          "출고적재사양 INN(EA)": v.innEa||"",
+          "출고적재사양 INN/CTN": v.innPerCtn||"",
+          "출고적재사양 CTN(EA)": v.ctnEa||"",
+          "출고적재사양 CTN/PLT": v.ctnPerPlt||"",
+          "출고적재사양 PLT(EA)": v.pltEa||"",
           "판매처구분": multi,
           "규격": p.spec||"",
           "구매처": p.purchaseVendor||"",
@@ -8575,9 +8667,9 @@ function renderPurchaseProductsList() {
           "사용창고": (p.usedWarehouses||[]).join(", "),
           "구분": p.itemType||"",
           "카테고리": (p.categories||[]).join(", "),
-          "CTN(EA)": p.ctnEa||"",
-          "INN/CTN": p.innPerCtn||"",
           "INN(EA)": p.innEa||"",
+          "INN/CTN": p.innPerCtn||"",
+          "CTN(EA)": p.ctnEa||"",
           "CTN/PLT": p.ctnPerPlt||"",
           "PLT(EA)": p.pltEa||"",
         }));
@@ -8829,6 +8921,15 @@ async function init() {
   switchView(initialView);
   if (initialView === "barcode-print") renderBarcodePrint();
   if (initialView === "barcode-print2") renderBarcodePrint2();
+
+  try {
+    if (localStorage.getItem(WmsDemoMask.STORAGE_KEY) === "1") {
+      demoModeOn = true;
+      applyDemoModeUi(true);
+    }
+  } catch (_) {
+    // ignore storage errors
+  }
 }
 
 init().catch((e) => {
