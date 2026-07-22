@@ -1716,12 +1716,14 @@ function renderProducts() {
       <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
       <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChip(v.vendor)}</td>
       <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
+      <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
       <td data-col-orig-idx="10">${esc(v.code || "")}</td>
       <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
-      <td data-col-orig-idx="12">${esc(p.purchaseVendor || "")}</td>
       <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
       <td data-col-orig-idx="14">${esc(p.orderDept || "")}</td>
       <td data-col-orig-idx="15" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+      <td data-col-orig-idx="27" data-filter-multi="${esc((p.salesManagers||[]).join('|'))}">${renderTagChips(p.salesManagers)}</td>
+      <td data-col-orig-idx="12">${esc(p.purchaseVendor || "")}</td>
       <td data-col-orig-idx="16">${esc(p.purchaseItemCode || "")}</td>
       <td data-col-orig-idx="17">${esc(p.purchaseItemName || "")}</td>
       <td data-col-orig-idx="18">${esc(p.warehouseGroup || "")}</td>
@@ -1733,8 +1735,6 @@ function renderProducts() {
       <td data-col-orig-idx="24">${esc(p.ctnEa || "")}</td>
       <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
       <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
-      <td data-col-orig-idx="27" data-filter-multi="${esc((p.salesManagers||[]).join('|'))}">${renderTagChips(p.salesManagers)}</td>
-      <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
       <td data-col-orig-idx="29">${esc(v.innEa || "")}</td>
       <td data-col-orig-idx="30">${esc(v.innPerCtn || "")}</td>
       <td data-col-orig-idx="31">${esc(v.ctnEa || "")}</td>
@@ -1806,12 +1806,15 @@ function renderProducts() {
                 <th data-col-orig-idx="7" data-col-label="상태">상태</th>
                 <th data-col-orig-idx="8" data-col-label="판매처">판매처</th>
                 <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
+                <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
+출고단위</th>
                 <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
                 <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
-                <th data-col-orig-idx="12" data-col-label="구매처">구매처</th>
                 <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
                 <th data-col-orig-idx="14" data-col-label="발주부서">발주부서</th>
                 <th data-col-orig-idx="15" data-col-label="발주담당자">발주담당자</th>
+                <th data-col-orig-idx="27" data-col-label="영업담당자">영업담당자</th>
+                <th data-col-orig-idx="12" data-col-label="구매처">구매처</th>
                 <th data-col-orig-idx="16" data-col-label="구매처 품목코드">구매처 품목코드</th>
                 <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
                 <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
@@ -1824,9 +1827,6 @@ INN(EA)</th>
                 <th data-col-orig-idx="24" data-col-label="CTN(EA)" class="col-group-cell">CTN(EA)</th>
                 <th data-col-orig-idx="25" data-col-label="CTN/PLT" class="col-group-cell">CTN/PLT</th>
                 <th data-col-orig-idx="26" data-col-label="PLT(EA)" class="col-group-cell">PLT(EA)</th>
-                <th data-col-orig-idx="27" data-col-label="영업담당자">영업담당자</th>
-                <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
-출고단위</th>
                 <th data-col-orig-idx="29" data-col-label="출고적재사양 INN(EA)" class="col-group-cell2 col-group-start2">출고적재사양
 INN(EA)</th>
                 <th data-col-orig-idx="30" data-col-label="INN/CTN" class="col-group-cell2">INN/CTN</th>

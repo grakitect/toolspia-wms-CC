@@ -1793,12 +1793,16 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
           centerName: centerNameFromKey,
           saveDateYmd: saveYmd,
           storeInDateYmd: storeInFromKey,
-          uploadOrderDateYmd: String(lineEntries[0]?.uploadOrderDate || "").replace(/-/g, ""),
+          uploadOrderDateYmd: "",
           slipNos: [],
           lines: [],
           updatedAt: now.toISOString()
         };
       }
+      // uploadOrderDateYmd는 최초 생성 시점에만 기록되면 이후 재확정에서 값이 갱신된 업로드가 들어와도 반영되지 않으므로,
+      // 새 값이 있을 때마다 갱신한다(기존 레코드가 이 필드 도입 이전에 만들어졌던 경우의 백필도 겸함).
+      const newUploadOrderDateYmd = String(lineEntries[0]?.uploadOrderDate || "").replace(/-/g, "");
+      if (newUploadOrderDateYmd) recMap[recKey].uploadOrderDateYmd = newUploadOrderDateYmd;
       recMap[recKey].lines = (recMap[recKey].lines || []).filter((ln) => ln && ln.sourceSlipNo !== key);
       if (!recMap[recKey].slipNos.includes(key)) recMap[recKey].slipNos.push(key);
       recMap[recKey].lines.push(...lineEntries);
@@ -2055,11 +2059,11 @@ function buildSaveSalePayloadFromConfirmRecord(db, record, partnerType) {
   const listKey = String(record.key || "").trim();
   // 기본은 자동번호(빈 문자열) 사용. 환경변수로만 고정 전표번호를 명시 허용.
   const docNo = String(process.env.ECOUNT_OUTBOUND_SALE_DOC_NO || "").trim();
-  const centerRemark = String(record.centerName || "").trim();
+  const centerRemark = String(record.centerName || "").trim().replace(/드라이|DRY/gi, "");
   // 출고일자는 업로드 파일명에서 추출한 날짜(MMDD, 연도는 업로드 당시 연도) 우선, 없으면 기존 IO_DATE 로직으로 대체.
   const shipDateYmd = String(record.uploadOrderDateYmd || "").trim().replace(/-/g, "") || ioDate;
   const shipDateDashed = `${shipDateYmd.slice(0, 4)}-${shipDateYmd.slice(4, 6)}-${shipDateYmd.slice(6, 8)}`;
-  const remarks = [centerRemark || `WMS ${partnerType} ${listKey}`, shipDateDashed].filter(Boolean).join(" ").slice(0, 200);
+  const remarks = [centerRemark || `WMS ${partnerType} ${listKey}`, `출고 ${shipDateDashed}`].filter(Boolean).join(" ").slice(0, 200);
   const ioType = String(process.env.ECOUNT_OUTBOUND_SALE_IO_TYPE || "").trim();
   const price = String(process.env.ECOUNT_OUTBOUND_SALE_PRICE ?? "0").trim() || "0";
   const codeMap = getOutboundCodeMasterMap(db, partnerType);

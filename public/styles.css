@@ -725,7 +725,7 @@ tbody tr:last-child td { border-bottom: 0; }
 #products-table thead th,
 #ppl-table thead th { vertical-align: bottom; }
 #products-table thead th.col-group-cell,
-#ppl-table thead th.col-group-cell { background: #1D6FA5; position: relative; }
+#ppl-table thead th.col-group-cell { background: #1D6FA5; position: sticky; top: 0; }
 #products-table thead th.col-group-start::first-line,
 #ppl-table thead th.col-group-start::first-line,
 #products-table thead th.col-group-start2::first-line,
@@ -752,7 +752,7 @@ tbody tr:last-child td { border-bottom: 0; }
 
 /* 출고적재사양(판매처별 INN(EA)~PLT(EA)) 컬럼 그룹 — 입고적재사양 그룹과 다른 색으로 구분 */
 #products-table thead th.col-group-cell2,
-#ppl-table thead th.col-group-cell2 { background: #0E7C86; position: relative; }
+#ppl-table thead th.col-group-cell2 { background: #0E7C86; position: sticky; top: 0; }
 #products-table thead th.col-group-cell2::after,
 #ppl-table thead th.col-group-cell2::after {
   content: "";
