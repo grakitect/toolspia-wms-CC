@@ -389,6 +389,21 @@ h4 {
   color: var(--t2);
   letter-spacing: .1px;
 }
+.common-code-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+.common-code-block {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.common-code-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .grid3 .card strong {
   font-size: 34px;
   font-weight: 700;

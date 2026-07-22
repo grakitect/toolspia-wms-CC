@@ -2,6 +2,7 @@ const views = [
   "dashboard",
   "dev-notes",
   "master",
+  "partners",
   "products",
   "stock",
   "inbound",
@@ -48,9 +49,18 @@ const state = {
   },
   partners: { inbound: [], outbound: [], purchase: [] },
   managers: [],
+  managerRoles: {},
+  companySettings: {
+    companyInfo: { name: "", bizRegNo: "", address: "" },
+    ecount: {
+      comCode: "", userId: "", hasUserPw: false, hasApiKey: false, lang: "",
+      outboundSaleCustEmart: "", defaultWhCd: "", outboundSaleWhCd: "", testSavePurchases: ""
+    }
+  },
   purchaseOrders: [],
   devBoards: []
 };
+let masterActiveTab = "company";
 
 function qs(sel) {
   return document.querySelector(sel);
@@ -1332,22 +1342,25 @@ function normalizeMovementRows(rows, type) {
 }
 
 async function refreshCommon() {
-  const [productsRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes, locRes] = await Promise.all([
+  const [productsRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes, locRes, companySettingsRes] = await Promise.all([
     api("/api/products"),
     api("/api/stock"),
     api("/api/partners"),
     api("/api/managers"),
     api("/api/warehouses"),
     api("/api/product-options"),
-    api("/api/locations")
+    api("/api/locations"),
+    api("/api/company-settings")
   ]);
   state.products = productsRes.items;
   state.stock = stockRes.items;
   state.partners = partnersRes.items || { inbound: [], outbound: [], purchase: [] };
   state.managers = managersRes.items || [];
+  state.managerRoles = managersRes.roles || {};
   state.warehouses = warehousesRes.items || [];
   state.productOptions = optionRes.items || state.productOptions;
   state.locations = locRes.items || [];
+  state.companySettings = companySettingsRes || state.companySettings;
 }
 
 async function renderDashboard() {
@@ -1362,30 +1375,15 @@ async function renderDashboard() {
   `;
 }
 
-function renderMaster() {
-  const productOptions = state.products.map((p) => `<option value="${esc(p.code)}">${esc(p.code)} - ${esc(p.name)}</option>`).join("");
-  const listTags = (arr) => arr.map((v) => `<span class="tag">${esc(v)}</span>`).join("") || "<span class='muted'>없음</span>";
-  const partnerChip = (type, name) => `
-    <span class="tag-wrap">
-      <span class="tag">${esc(name)}</span>
-      <button type="button" class="cancel-btn del-small partner-del" data-type="${type}" data-name="${encodeURIComponent(name)}">삭제</button>
-    </span>
-  `;
-  const managerChip = (name) => `
-    <span class="tag-wrap">
-      <span class="tag">${esc(name)}</span>
-      <button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(name)}">삭제</button>
-    </span>
-  `;
+function renderPartners() {
   const toPartnerObj = (v) => typeof v === "object" ? v : { name: v, custCode: "" };
   const partnerRows = [
     ...state.partners.purchase.map((v) => ({ type: "purchase", label: "구매처", ...toPartnerObj(v) })),
     ...state.partners.outbound.map((v) => ({ type: "outbound", label: "판매처", ...toPartnerObj(v) }))
   ];
-  const managerRows = state.managers.map((v) => ({ name: v }));
 
-  qs("#view-master").innerHTML = `
-    <div class="card"><h1 style="margin:0 0 4px;">기본 정보</h1><p class="muted">거래처/담당자/창고 등록</p></div>
+  qs("#view-partners").innerHTML = `
+    <div class="card"><h1 style="margin:0 0 4px;">거래처 정보</h1><p class="muted">구매처/판매처 거래처 등록</p></div>
 
     <div class="card">
       <h2>거래처 마스터 등록</h2>
@@ -1400,7 +1398,7 @@ function renderMaster() {
         <div><label>이카운트 거래처코드</label><input name="custCode" placeholder="선택 입력" /></div>
         <div><button class="primary" type="submit">등록</button></div>
       </form>
-      <table class="mini-table">
+      <table class="mini-table" id="partner-table">
         <thead><tr><th>구분</th><th>거래처</th><th>이카운트 거래처코드</th><th>수정</th><th>삭제</th></tr></thead>
         <tbody>
           ${partnerRows.length
@@ -1432,31 +1430,332 @@ function renderMaster() {
         </tbody>
       </table>
     </div>
+  `;
+
+  preventEnterSubmit(qs("#partner-master-form"));
+
+  const setPartnerRowEditMode = (tr, editing) => {
+    tr.querySelectorAll(".partner-view-cell").forEach(td => td.style.display = editing ? "none" : "");
+    tr.querySelectorAll(".partner-action-cell").forEach(td => td.style.display = editing ? "none" : "");
+    const editCell = tr.querySelector(".partner-edit-cell");
+    if (editCell) editCell.style.display = editing ? "" : "none";
+  };
+
+  qs("#view-partners").querySelectorAll(".partner-edit-toggle").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setPartnerRowEditMode(btn.closest("tr"), true);
+    });
+  });
+
+  qs("#view-partners").querySelectorAll(".partner-cancel-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setPartnerRowEditMode(btn.closest("tr"), false);
+    });
+  });
+
+  qs("#view-partners").querySelectorAll(".partner-save-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const tr = btn.closest("tr");
+      const type = tr.dataset.type;
+      const name = decodeURIComponent(tr.dataset.name);
+      const newType = tr.querySelector(".partner-edit-type").value;
+      const newName = tr.querySelector(".partner-edit-name").value.trim();
+      const custCode = tr.querySelector(".partner-edit-custcode").value.trim();
+      if (!newName) return alert("거래처명을 입력하세요.");
+      try {
+        await api("/api/partners", {
+          method: "PATCH",
+          body: JSON.stringify({ type, name, newType, newName, custCode })
+        });
+        await refreshCommon();
+        renderPartners();
+      } catch (e) {
+        alert(e.message || "저장 실패");
+      }
+    });
+  });
+
+  qs("#partner-master-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    await api("/api/partners", { method: "POST", body: JSON.stringify(data) });
+    await refreshCommon();
+    renderPartners();
+    renderProducts();
+    renderInbound();
+    renderOutbound();
+    alert("거래처 등록 완료");
+  };
+
+  document.querySelectorAll(".partner-del").forEach((btn) => {
+    btn.onclick = async () => {
+      const type = btn.dataset.type;
+      const name = decodeURIComponent(btn.dataset.name || "");
+      if (!type || !name) return;
+      if (!confirm(`거래처를 삭제할까요? (${name})`)) return;
+      try {
+        await api("/api/partners", { method: "DELETE", body: JSON.stringify({ type, name }) });
+        await refreshCommon();
+        renderPartners();
+        renderProducts();
+        renderInbound();
+        renderOutbound();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+
+  applyExcelLikeFilter("#partner-table");
+}
+
+const MASTER_TABS = [
+  { key: "company", label: "회사정보" },
+  { key: "users", label: "사용자" },
+  { key: "codes", label: "공통 코드" },
+  { key: "warehouse", label: "창고" }
+];
+
+const COMMON_CODE_FIELDS = [
+  { key: "categories", label: "카테고리" },
+  { key: "itemType", label: "구분" },
+  { key: "status", label: "상태" },
+  { key: "supplyType", label: "수급형태" },
+  { key: "orderDept", label: "발주부서" },
+  { key: "orderManagers", label: "발주담당자" },
+  { key: "salesManagers", label: "영업담당자" },
+  { key: "warehouseGroup", label: "창고그룹(이카운트)" },
+  { key: "deliveryVendors", label: "판매처명(자동완성)" }
+];
+
+function renderMaster() {
+  qs("#view-master").innerHTML = `
+    <div class="card">
+      <h1 style="margin:0 0 4px;">기본 정보</h1>
+      <p class="muted">회사/사용자/공통 코드/창고 관리</p>
+      <div class="ppl-tab-bar" id="master-tab-bar" style="margin-top:14px;">
+        ${MASTER_TABS.map((t) => `<button type="button" class="ppl-tab${masterActiveTab === t.key ? " active" : ""}" data-master-tab="${t.key}">${esc(t.label)}</button>`).join("")}
+      </div>
+    </div>
+    <div id="master-tab-body"></div>
+  `;
+
+  qs("#master-tab-bar").querySelectorAll("[data-master-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      masterActiveTab = btn.dataset.masterTab;
+      renderMaster();
+    };
+  });
+
+  const body = qs("#master-tab-body");
+  if (masterActiveTab === "users") renderMasterUsersTab(body);
+  else if (masterActiveTab === "codes") renderMasterCodesTab(body);
+  else if (masterActiveTab === "warehouse") renderMasterWarehouseTab(body);
+  else renderMasterCompanyTab(body);
+}
+
+function renderMasterCompanyTab(container) {
+  const ci = state.companySettings.companyInfo || {};
+  const ec = state.companySettings.ecount || {};
+  container.innerHTML = `
+    <div class="card">
+      <h2>회사 정보</h2>
+      <form id="company-info-form">
+        <div><label>회사명</label><input name="name" value="${esc(ci.name || "")}" /></div>
+        <div><label>사업자등록번호</label><input name="bizRegNo" value="${esc(ci.bizRegNo || "")}" /></div>
+        <div><label>주소</label><input name="address" value="${esc(ci.address || "")}" /></div>
+        <div><button class="primary" type="submit">저장</button></div>
+      </form>
+    </div>
 
     <div class="card">
-      <h2>담당자 등록</h2>
+      <h2>이카운트 연동 설정</h2>
+      <p class="muted" style="margin-top:-6px;">비밀번호/API키는 값을 입력했을 때만 갱신됩니다. 비워두면 기존 값이 유지됩니다.</p>
+      <form id="ecount-settings-form">
+        <div><label>회사코드</label><input name="comCode" value="${esc(ec.comCode || "")}" /></div>
+        <div><label>아이디</label><input name="userId" value="${esc(ec.userId || "")}" /></div>
+        <div><label>비밀번호${ec.hasUserPw ? ' <span class="muted">(설정됨)</span>' : ""}</label><input type="password" name="userPw" placeholder="${ec.hasUserPw ? "변경하려면 입력" : "입력"}" autocomplete="new-password" /></div>
+        <div><label>API키${ec.hasApiKey ? ' <span class="muted">(설정됨)</span>' : ""}</label><input type="password" name="apiKey" placeholder="${ec.hasApiKey ? "변경하려면 입력" : "입력"}" autocomplete="new-password" /></div>
+        <div><label>언어</label><input name="lang" value="${esc(ec.lang || "")}" /></div>
+        <div><label>이마트 출고처 거래처코드</label><input name="outboundSaleCustEmart" value="${esc(ec.outboundSaleCustEmart || "")}" /></div>
+        <div><label>기본 창고코드</label><input name="defaultWhCd" value="${esc(ec.defaultWhCd || "")}" /></div>
+        <div><label>판매입력 창고코드</label><input name="outboundSaleWhCd" value="${esc(ec.outboundSaleWhCd || "")}" /></div>
+        <div><button class="primary" type="submit">저장</button></div>
+      </form>
+    </div>
+  `;
+
+  preventEnterSubmit(qs("#company-info-form"));
+  preventEnterSubmit(qs("#ecount-settings-form"));
+
+  qs("#company-info-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    await api("/api/company-settings", { method: "POST", body: JSON.stringify({ companyInfo: data }) });
+    await refreshCommon();
+    renderMaster();
+    alert("회사 정보가 저장되었습니다.");
+  };
+
+  qs("#ecount-settings-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    await api("/api/company-settings", { method: "POST", body: JSON.stringify({ ecount: data }) });
+    await refreshCommon();
+    renderMaster();
+    alert("이카운트 연동 설정이 저장되었습니다.");
+  };
+}
+
+function renderMasterUsersTab(container) {
+  const rows = state.managers.map((name) => ({ name, role: state.managerRoles[name] || "" }));
+
+  container.innerHTML = `
+    <div class="card">
+      <h2>사용자 등록</h2>
+      <p class="muted" style="margin-top:-6px;">지금은 이름과 역할 태그만 관리합니다. 로그인/화면별 접근권한 제어는 추후 지원 예정입니다.</p>
       <form id="manager-form">
-        <div><label>담당자명</label><input name="name" required /></div>
+        <div><label>이름</label><input name="name" required /></div>
         <div><button class="primary" type="submit">등록</button></div>
       </form>
-      <table class="mini-table">
-        <thead><tr><th>담당자</th><th>삭제</th></tr></thead>
+      <table class="mini-table" id="manager-table">
+        <thead><tr><th>이름</th><th>역할</th><th>삭제</th></tr></thead>
         <tbody>
-          ${managerRows.length
-            ? managerRows
+          ${rows.length
+            ? rows
                 .map(
                   (r) =>
                     `<tr>
                       <td>${esc(r.name)}</td>
+                      <td><input type="text" class="manager-role-input" data-name="${encodeURIComponent(r.name)}" value="${esc(r.role)}" placeholder="예: 관리자" style="padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:140px;" /></td>
                       <td><button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
                     </tr>`
                 )
                 .join("")
-            : `<tr><td colspan="2"><span class="muted">없음</span></td></tr>`}
+            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
         </tbody>
       </table>
     </div>
+  `;
 
+  preventEnterSubmit(qs("#manager-form"));
+
+  qs("#manager-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    await api("/api/managers", { method: "POST", body: JSON.stringify(data) });
+    await refreshCommon();
+    renderMaster();
+    renderInbound();
+    renderOutbound();
+    renderAdjust();
+    alert("사용자 등록 완료");
+  };
+
+  container.querySelectorAll(".manager-role-input").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const name = decodeURIComponent(input.dataset.name || "");
+      const role = input.value.trim();
+      try {
+        await api("/api/managers/role", { method: "POST", body: JSON.stringify({ name, role }) });
+        state.managerRoles[name] = role;
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  container.querySelectorAll(".manager-del").forEach((btn) => {
+    btn.onclick = async () => {
+      const name = decodeURIComponent(btn.dataset.name || "");
+      if (!name) return;
+      if (!confirm(`사용자를 삭제할까요? (${name})`)) return;
+      try {
+        await api("/api/managers", { method: "DELETE", body: JSON.stringify({ name }) });
+        await refreshCommon();
+        renderMaster();
+        renderInbound();
+        renderOutbound();
+        renderAdjust();
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+  });
+
+  applyExcelLikeFilter("#manager-table");
+}
+
+function renderMasterCodesTab(container) {
+  const opts = state.productOptions || {};
+  container.innerHTML = `
+    <div class="card">
+      <h2>공통 코드</h2>
+      <p class="muted" style="margin-top:-6px;">상품 등록 화면 등에서 선택할 수 있는 태그값 목록입니다.</p>
+      <div class="common-code-grid">
+        ${COMMON_CODE_FIELDS.map((f) => `
+          <div class="common-code-block">
+            <h3 style="margin:0 0 8px; font-size:14px;">${esc(f.label)}</h3>
+            <div class="common-code-chips">
+              ${(opts[f.key] || []).length
+                ? (opts[f.key] || [])
+                    .map(
+                      (v) => `
+                <span class="tag-wrap">
+                  <span class="tag">${esc(v)}</span>
+                  <button type="button" class="cancel-btn del-small common-code-del" data-field="${f.key}" data-value="${encodeURIComponent(v)}">삭제</button>
+                </span>`
+                    )
+                    .join("")
+                : `<span class="muted">없음</span>`}
+            </div>
+            <form class="common-code-add-form" data-field="${f.key}" style="display:flex; gap:6px; margin-top:10px;">
+              <input type="text" placeholder="값 추가" style="flex:1; padding:4px 8px; font-size:12px; border:1px solid var(--border); border-radius:4px;" />
+              <button type="submit" class="primary del-small">추가</button>
+            </form>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `;
+
+  container.querySelectorAll(".common-code-add-form").forEach((form) => {
+    preventEnterSubmit(form);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const field = form.dataset.field;
+      const input = form.querySelector("input");
+      const value = input.value.trim();
+      if (!value) return;
+      try {
+        await api("/api/product-options", { method: "POST", body: JSON.stringify({ field, values: [value] }) });
+        await refreshCommon();
+        renderMaster();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  container.querySelectorAll(".common-code-del").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const field = btn.dataset.field;
+      const value = decodeURIComponent(btn.dataset.value || "");
+      if (!confirm(`삭제할까요? (${value})`)) return;
+      const next = (state.productOptions[field] || []).filter((v) => v !== value);
+      try {
+        await api("/api/product-options", { method: "POST", body: JSON.stringify({ field, values: next, replace: true }) });
+        await refreshCommon();
+        renderMaster();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+function renderMasterWarehouseTab(container) {
+  container.innerHTML = `
     <div class="card">
       <h2>창고 등록</h2>
       <form id="warehouse-form">
@@ -1487,73 +1786,8 @@ function renderMaster() {
     </div>
   `;
 
-  preventEnterSubmit(qs("#partner-master-form"));
-  preventEnterSubmit(qs("#manager-form"));
   preventEnterSubmit(qs("#warehouse-form"));
 
-  const setPartnerRowEditMode = (tr, editing) => {
-    tr.querySelectorAll(".partner-view-cell").forEach(td => td.style.display = editing ? "none" : "");
-    tr.querySelectorAll(".partner-action-cell").forEach(td => td.style.display = editing ? "none" : "");
-    const editCell = tr.querySelector(".partner-edit-cell");
-    if (editCell) editCell.style.display = editing ? "" : "none";
-  };
-
-  qs("#view-master").querySelectorAll(".partner-edit-toggle").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      setPartnerRowEditMode(btn.closest("tr"), true);
-    });
-  });
-
-  qs("#view-master").querySelectorAll(".partner-cancel-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      setPartnerRowEditMode(btn.closest("tr"), false);
-    });
-  });
-
-  qs("#view-master").querySelectorAll(".partner-save-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const tr = btn.closest("tr");
-      const type = tr.dataset.type;
-      const name = decodeURIComponent(tr.dataset.name);
-      const newType = tr.querySelector(".partner-edit-type").value;
-      const newName = tr.querySelector(".partner-edit-name").value.trim();
-      const custCode = tr.querySelector(".partner-edit-custcode").value.trim();
-      if (!newName) return alert("거래처명을 입력하세요.");
-      try {
-        await api("/api/partners", {
-          method: "PATCH",
-          body: JSON.stringify({ type, name, newType, newName, custCode })
-        });
-        await refreshCommon();
-        renderMaster();
-      } catch (e) {
-        alert(e.message || "저장 실패");
-      }
-    });
-  });
-
-  qs("#partner-master-form").onsubmit = async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
-    await api("/api/partners", { method: "POST", body: JSON.stringify(data) });
-    await refreshCommon();
-    renderMaster();
-    renderProducts();
-    renderInbound();
-    renderOutbound();
-    alert("거래처 등록 완료");
-  };
-  qs("#manager-form").onsubmit = async (e) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
-    await api("/api/managers", { method: "POST", body: JSON.stringify(data) });
-    await refreshCommon();
-    renderMaster();
-    renderInbound();
-    renderOutbound();
-    renderAdjust();
-    alert("담당자 등록 완료");
-  };
   qs("#warehouse-form").onsubmit = async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target));
@@ -1566,54 +1800,10 @@ function renderMaster() {
     renderAdjust();
     alert("창고 등록 완료");
   };
-  // 안전/적정재고는 기본상품정보 화면에서 수정합니다.
 
-  document.querySelectorAll(".partner-del").forEach((btn) => {
-    btn.onclick = async () => {
-      const type = btn.dataset.type;
-      const name = decodeURIComponent(btn.dataset.name || "");
-      if (!type || !name) return;
-      if (!confirm(`거래처를 삭제할까요? (${name})`)) return;
-      try {
-        await api("/api/partners", { method: "DELETE", body: JSON.stringify({ type, name }) });
-        await refreshCommon();
-        renderMaster();
-        renderProducts();
-        renderInbound();
-        renderOutbound();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-  });
-
-  document.querySelectorAll(".manager-del").forEach((btn) => {
-    btn.onclick = async () => {
-      const name = decodeURIComponent(btn.dataset.name || "");
-      if (!name) return;
-      if (!confirm(`담당자를 삭제할까요? (${name})`)) return;
-      try {
-        await api("/api/managers", { method: "DELETE", body: JSON.stringify({ name }) });
-        await refreshCommon();
-        renderMaster();
-        renderInbound();
-        renderOutbound();
-        renderAdjust();
-      } catch (err) {
-        alert(err.message);
-      }
-    };
-  });
-
-  const miniTables = document.querySelectorAll(".mini-table");
-  if (miniTables[0]) miniTables[0].id = "partner-table";
-  if (miniTables[1]) miniTables[1].id = "manager-table";
-  if (miniTables[2]) miniTables[2].id = "warehouse-table";
-  applyExcelLikeFilter("#partner-table");
-  applyExcelLikeFilter("#manager-table");
   applyExcelLikeFilter("#warehouse-table");
 
-  document.querySelectorAll(".warehouse-del").forEach((btn) => {
+  container.querySelectorAll(".warehouse-del").forEach((btn) => {
     btn.onclick = async () => {
       const name = decodeURIComponent(btn.dataset.name || "");
       if (!name) return;
@@ -1642,7 +1832,7 @@ function renderMaster() {
     };
   });
 
-  document.querySelectorAll(".warehouse-rename").forEach((btn) => {
+  container.querySelectorAll(".warehouse-rename").forEach((btn) => {
     btn.onclick = async () => {
       const oldName = decodeURIComponent(btn.dataset.name || "");
       if (!oldName) return;
@@ -2092,6 +2282,7 @@ INN(EA)</th>
         renderProducts();
         renderStock();
         renderMaster();
+        renderPartners();
         await renderDashboard();
         closeStockModal();
         alert("안전/적정재고 저장 완료");
@@ -2501,6 +2692,7 @@ INN(EA)</th>
         renderProducts();
         renderStock();
         renderMaster();
+        renderPartners();
         await renderDashboard();
         alert("선택 상품 삭제 완료");
       } catch (err) {
@@ -2535,6 +2727,7 @@ INN(EA)</th>
     renderProducts();
     renderStock();
     renderMaster();
+    renderPartners();
     await renderDashboard();
     alert("저장되었습니다.");
   };
@@ -2546,6 +2739,7 @@ INN(EA)</th>
     renderProducts();
     renderStock();
     renderMaster();
+    renderPartners();
     await renderDashboard();
     alert(label);
   };
@@ -8776,6 +8970,7 @@ INN(EA)</th>
       renderProducts();
       renderStock();
       renderMaster();
+      renderPartners();
       await renderDashboard();
       alert("저장되었습니다.");
     };
@@ -8801,6 +8996,7 @@ INN(EA)</th>
       renderProducts();
       renderStock();
       renderMaster();
+      renderPartners();
       await renderDashboard();
       alert("선택 상품 삭제 완료");
     } catch (err) {
@@ -8827,6 +9023,7 @@ async function afterMovementDone() {
   renderStock();
   renderProducts();
   renderMaster();
+  renderPartners();
   await renderDashboard();
   await renderHistory();
   const active = document.querySelector(".main .view:not(.hidden)");
@@ -8846,6 +9043,7 @@ async function init() {
       switchView(v);
       if (v === "dashboard") await renderDashboard();
       if (v === "master") renderMaster();
+      if (v === "partners") renderPartners();
       if (v === "products") renderProducts();
       if (v === "stock") { await refreshCommon(); renderStock(); }
       if (v === "inbound") { renderInbound(); await renderRecentMovements("IN"); }
@@ -8889,6 +9087,7 @@ async function init() {
   await refreshCommon();
   await renderDashboard();
   renderMaster();
+  renderPartners();
   renderProducts();
   renderStock();
   renderInbound();

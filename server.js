@@ -37,6 +37,36 @@ function loadEnvFile() {
   }
 }
 
+/** .env 파일의 특정 KEY=VALUE 값만 갱신(주석/기타 라인은 보존), 즉시 process.env에도 반영한다. */
+function saveEnvFile(updates) {
+  const envPath = path.join(__dirname, ".env");
+  let raw = "";
+  try {
+    raw = fs.readFileSync(envPath, "utf-8");
+  } catch {
+    raw = "";
+  }
+  const lines = raw.length ? raw.split(/\r?\n/) : [];
+  const remaining = new Set(Object.keys(updates));
+  const nextLines = lines.map((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) return line;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) return line;
+    const key = trimmed.slice(0, eq).trim();
+    if (!remaining.has(key)) return line;
+    remaining.delete(key);
+    return `${key}=${updates[key]}`;
+  });
+  for (const key of remaining) {
+    nextLines.push(`${key}=${updates[key]}`);
+  }
+  fs.writeFileSync(envPath, nextLines.join("\n"), "utf-8");
+  for (const [key, value] of Object.entries(updates)) {
+    process.env[key] = value;
+  }
+}
+
 loadEnvFile();
 
 const XLSX = require("xlsx");
@@ -196,6 +226,14 @@ function normalizeDb(db) {
   if (!Array.isArray(db.managers) || db.managers.length === 0) {
     db.managers = ["admin"];
   }
+  if (!db.managerRoles || typeof db.managerRoles !== "object") db.managerRoles = {};
+  for (const name of Object.keys(db.managerRoles)) {
+    if (!db.managers.includes(name)) delete db.managerRoles[name];
+  }
+  if (!db.companyInfo || typeof db.companyInfo !== "object") db.companyInfo = {};
+  db.companyInfo.name = String(db.companyInfo.name || "");
+  db.companyInfo.bizRegNo = String(db.companyInfo.bizRegNo || "");
+  db.companyInfo.address = String(db.companyInfo.address || "");
   if (!Array.isArray(db.warehouses) || db.warehouses.length === 0) {
     db.warehouses = ["유통사업부", "다이소", "아세로직스", "가온플러스"];
   }
@@ -3335,7 +3373,7 @@ async function handleApi(req, res, urlObj) {
   }
 
   if (req.method === "GET" && pathname === "/api/managers") {
-    return sendJson(res, 200, { items: db.managers });
+    return sendJson(res, 200, { items: db.managers, roles: db.managerRoles });
   }
 
   if (req.method === "POST" && pathname === "/api/managers") {
@@ -3357,7 +3395,72 @@ async function handleApi(req, res, urlObj) {
       const name = String(body.name || "").trim();
       if (!name) throw new Error("담당자명은 필수입니다.");
       db.managers = db.managers.filter((x) => x !== name);
+      delete db.managerRoles[name];
       writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/managers/role") {
+    try {
+      const body = await parseBody(req);
+      const name = String(body.name || "").trim();
+      const role = String(body.role || "").trim();
+      if (!name) throw new Error("담당자명은 필수입니다.");
+      if (!db.managers.includes(name)) throw new Error("등록된 담당자가 아닙니다.");
+      if (role) db.managerRoles[name] = role;
+      else delete db.managerRoles[name];
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, roles: db.managerRoles });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/api/company-settings") {
+    return sendJson(res, 200, {
+      companyInfo: db.companyInfo,
+      ecount: {
+        comCode: String(process.env.ECOUNT_COM_CODE || ""),
+        userId: String(process.env.ECOUNT_USER_ID || ""),
+        hasUserPw: Boolean(String(process.env.ECOUNT_USER_PW || "").trim()),
+        hasApiKey: Boolean(String(process.env.ECOUNT_API_KEY || "").trim()),
+        lang: String(process.env.ECOUNT_LANG || ""),
+        outboundSaleCustEmart: String(process.env.ECOUNT_OUTBOUND_SALE_CUST_EMART || ""),
+        defaultWhCd: String(process.env.ECOUNT_DEFAULT_WH_CD || ""),
+        outboundSaleWhCd: String(process.env.ECOUNT_OUTBOUND_SALE_WH_CD || "")
+      }
+    });
+  }
+
+  if (req.method === "POST" && pathname === "/api/company-settings") {
+    try {
+      const body = await parseBody(req);
+      if (body.companyInfo) {
+        const ci = body.companyInfo;
+        db.companyInfo = {
+          name: String(ci.name || "").trim(),
+          bizRegNo: String(ci.bizRegNo || "").trim(),
+          address: String(ci.address || "").trim()
+        };
+        writeDb(db);
+      }
+
+      const ec = body.ecount || {};
+      const envUpdates = {};
+      if (ec.comCode !== undefined) envUpdates.ECOUNT_COM_CODE = String(ec.comCode).trim();
+      if (ec.userId !== undefined) envUpdates.ECOUNT_USER_ID = String(ec.userId).trim();
+      if (ec.lang !== undefined) envUpdates.ECOUNT_LANG = String(ec.lang).trim();
+      if (ec.outboundSaleCustEmart !== undefined) envUpdates.ECOUNT_OUTBOUND_SALE_CUST_EMART = String(ec.outboundSaleCustEmart).trim();
+      if (ec.defaultWhCd !== undefined) envUpdates.ECOUNT_DEFAULT_WH_CD = String(ec.defaultWhCd).trim();
+      if (ec.outboundSaleWhCd !== undefined) envUpdates.ECOUNT_OUTBOUND_SALE_WH_CD = String(ec.outboundSaleWhCd).trim();
+      // 비밀번호/API키는 값이 입력된 경우에만 갱신(빈 값이면 기존 값 유지 — 화면에 평문을 내려주지 않기 위함).
+      if (String(ec.userPw || "").trim()) envUpdates.ECOUNT_USER_PW = String(ec.userPw).trim();
+      if (String(ec.apiKey || "").trim()) envUpdates.ECOUNT_API_KEY = String(ec.apiKey).trim();
+      if (Object.keys(envUpdates).length) saveEnvFile(envUpdates);
+
       return sendJson(res, 200, { ok: true });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });

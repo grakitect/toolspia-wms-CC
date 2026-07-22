@@ -38,7 +38,7 @@
           <div class="sidebar-group">
             <button class="sidebar-group-btn" data-group="master">
               <i data-lucide="database"></i>
-              <span>기준 정보</span>
+              <span>마스터정보</span>
               <i data-lucide="chevron-down" class="sidebar-chevron"></i>
             </button>
             <div class="sidebar-group-body"><div>
@@ -46,22 +46,35 @@
                 <i data-lucide="building-2"></i>
                 <span>기본 정보</span>
               </button>
+              <button data-view="partners" class="sidebar-sub">
+                <i data-lucide="handshake"></i>
+                <span>거래처 정보</span>
+              </button>
               <button data-view="products" class="sidebar-sub">
                 <i data-lucide="package"></i>
                 <span>상품 정보</span>
               </button>
-              <button data-view="location-master" class="sidebar-sub">
-                <i data-lucide="map-pin"></i>
-                <span>로케이션 관리</span>
-              </button>
-              <button data-view="location-map" class="sidebar-sub">
-                <i data-lucide="map"></i>
-                <span>맵 에디터</span>
-              </button>
-              <button data-view="location-map-3d" class="sidebar-sub">
-                <i data-lucide="box"></i>
-                <span>맵 에디터 3D</span>
-              </button>
+              <div class="sidebar-subgroup">
+                <button class="sidebar-sub sidebar-subgroup-btn" data-subgroup="location">
+                  <i data-lucide="map-pin"></i>
+                  <span>로케이션</span>
+                  <i data-lucide="chevron-down" class="sidebar-chevron"></i>
+                </button>
+                <div class="sidebar-subgroup-body"><div>
+                  <button data-view="location-master" class="sidebar-subsub">
+                    <i data-lucide="clipboard-list"></i>
+                    <span>관리 / 등록</span>
+                  </button>
+                  <button data-view="location-map" class="sidebar-subsub">
+                    <i data-lucide="map"></i>
+                    <span>맵 에디터</span>
+                  </button>
+                  <button data-view="location-map-3d" class="sidebar-subsub">
+                    <i data-lucide="box"></i>
+                    <span>맵 에디터 3D</span>
+                  </button>
+                </div></div>
+              </div>
             </div></div>
           </div>
 
@@ -235,6 +248,7 @@
       <main class="main">
         <section id="view-dashboard" class="view"></section>
         <section id="view-master" class="view hidden"></section>
+        <section id="view-partners" class="view hidden"></section>
         <section id="view-products" class="view hidden"></section>
         <section id="view-stock" class="view hidden"></section>
         <section id="view-inbound" class="view hidden"></section>
