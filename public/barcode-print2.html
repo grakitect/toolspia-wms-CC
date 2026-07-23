@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>바코드 라벨 인쇄 2</title>
+<title>바코드 라벨 인쇄</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.5/JsBarcode.all.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -177,6 +177,26 @@ select.form-control { cursor: pointer; }
 .bh2-topbar-logo { font-weight: 700; font-size: 15px; color: var(--accent); }
 .bh2-topbar-sub { color: var(--text3); font-size: 12.5px; }
 .bh2-body { flex: 1; display: grid; grid-template-columns: minmax(460px, 1fr) 1000px; overflow: auto; }
+.bh2-page { flex: 1; overflow-y: auto; padding: 28px 32px; }
+.bh2-page-inner { max-width: 980px; margin: 0 auto; }
+.bh2-filter-pills { display: flex; gap: 8px; margin-bottom: 16px; }
+.bh2-filter-pill { padding: 6px 14px; border-radius: 999px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text3); font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: inherit; }
+.bh2-filter-pill.active { border-color: var(--accent); background: var(--accent-light); color: var(--accent); }
+.bh2-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.bh2-badge-ok { background: #E6F4EA; color: #1E7E34; }
+.bh2-badge-warn { background: #FFF3E0; color: #C05F00; }
+.bh2-preset-card { display: flex; align-items: center; gap: 20px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 12px; }
+.bh2-preset-preview { width: 180px; height: 126px; flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.bh2-preset-papertype { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; width: 88px; height: 126px; flex-shrink: 0; color: var(--text3); }
+.bh2-preset-papertype svg { width: 31px; height: 31px; stroke-width: 1.5; }
+.bh2-preset-papertype span { font-size: 14px; font-weight: 600; color: var(--text2); letter-spacing: .2px; }
+.bh2-preset-preview svg, .bh2-preset-preview img { max-width: 90%; max-height: 90%; }
+.bh2-preset-info { flex: 1; min-width: 0; }
+.bh2-preset-name-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.bh2-preset-name { font-size: 16px; font-weight: 700; }
+.bh2-preset-vendor-badge { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--accent-light); color: var(--accent); }
+.bh2-preset-meta { font-size: 12.5px; color: var(--text3); display: flex; flex-wrap: wrap; gap: 5px 14px; }
+.bh2-preset-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .bh2-left { overflow-y: auto; padding: 28px 32px 100px; min-width: 460px; }
 .bh2-right { background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; padding: 32px; }
 .bh2-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px 26px; box-shadow: var(--shadow-sm); margin-bottom: 20px; }
@@ -199,9 +219,26 @@ select.form-control { cursor: pointer; }
 .bh2-template-nav.hidden { display: none; }
 .bh2-template-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 10px; }
 .bh2-search-wrap { position: relative; margin-bottom: 20px; }
-.bh2-manual-add-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px dashed var(--border); }
+.bh2-manual-add-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .bh2-manual-add-row .form-group { min-width: 120px; }
 .bh2-manual-add-row .form-group.grow { flex: 2; }
+.bh2-add-method { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px; }
+.bh2-add-method-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
+.bh2-add-method-label svg { width: 14px; height: 14px; color: var(--accent); flex-shrink: 0; }
+.bh2-picked-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 10px; }
+.bh2-startcell-grid { display: grid; gap: 3px; margin-top: 8px; max-height: 220px; overflow-y: auto; padding: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.bh2-startcell { aspect-ratio: 1; min-width: 20px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text3); font-size: 10px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background .1s, border-color .1s, color .1s; }
+.bh2-startcell:hover { border-color: var(--accent); color: var(--accent); }
+.bh2-startcell.used { background: repeating-linear-gradient(45deg, var(--border), var(--border) 3px, var(--surface2) 3px, var(--surface2) 6px); color: transparent; }
+.bh2-startcell.start { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+.bh2-startcell-hint { font-size: 12px; color: var(--text3); margin-top: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bh2-sheet-cols { display: flex; gap: 24px; align-items: flex-start; }
+.bh2-sheet-inputs { flex: 2; min-width: 0; }
+.bh2-sheet-startcell { flex: 1; min-width: 180px; }
+.bh2-sheet-startcell .bh2-startcell-grid { max-height: 320px; }
+.bh2-startcell-rowcol { display: flex; gap: 10px; margin-bottom: 10px; }
+.bh2-startcell-rowcol .form-group { flex: 1; min-width: 0; }
+.bh2-startcell-rowcol label { font-size: 11.5px; }
 .bh2-search-box { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 13px 16px; transition: border-color .15s; }
 .bh2-search-box:focus-within { border-color: var(--accent); }
 .bh2-search-box svg { color: var(--text3); width: 17px; height: 17px; flex-shrink: 0; }
@@ -236,7 +273,7 @@ select.form-control { cursor: pointer; }
 <div class="bh2-shell">
   <div class="bh2-topbar" id="bh2-topbar">
     <div id="bh2-topbar-brand">
-      <div class="bh2-topbar-logo">🏷 바코드 인쇄 2</div>
+      <div class="bh2-topbar-logo">🏷 바코드 인쇄</div>
       <div class="bh2-topbar-sub">상품을 검색하거나 직접 입력해서 라벨을 담고 바로 인쇄하세요</div>
     </div>
   </div>
@@ -245,6 +282,20 @@ select.form-control { cursor: pointer; }
     <!-- LEFT: 3-step wizard -->
     <div class="bh2-left">
 
+      <!-- 자주 쓰는 인쇄 (프리셋 빠른 불러오기/저장) -->
+      <div class="bh2-card">
+        <div class="bh2-step-title">
+          자주 쓰는 인쇄
+          <div class="bh2-step-title-actions">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openModal('savePresetModal')">현재 설정 프리셋 등록</button>
+          </div>
+        </div>
+        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 12px;">판매처별로 자주 쓰는 용지·템플릿·상품 목록을 저장해두고 바로 불러오세요</div>
+        <select class="form-control" id="presetLoadSelect" onchange="onPresetLoadSelect()">
+          <option value="">— 저장된 프리셋 선택 —</option>
+        </select>
+      </div>
+
       <!-- Step 1: 용지 설정 -->
       <div class="bh2-card">
         <div class="bh2-step-title"><span class="bh2-step-num">1</span> 용지 설정</div>
@@ -252,7 +303,6 @@ select.form-control { cursor: pointer; }
         <div class="bh2-paper-options" id="paperOptions">
           <label class="bh2-paper-pill active" data-paper="sheet"><input type="radio" name="paperType" value="sheet" checked onchange="onPaperTypeChange()"> A4라벨용지</label>
           <label class="bh2-paper-pill" data-paper="roll"><input type="radio" name="paperType" value="roll" onchange="onPaperTypeChange()"> 롤라벨용지</label>
-          <label class="bh2-paper-pill" data-paper="custom"><input type="radio" name="paperType" value="custom" onchange="onPaperTypeChange()"> 사용자정의</label>
         </div>
         <!-- 실제 시트/롤 로직을 그대로 구동하는 숨김 라디오 -->
         <input type="radio" name="printerMode" value="sheet" id="pm-sheet" checked style="display:none">
@@ -260,6 +310,8 @@ select.form-control { cursor: pointer; }
 
         <!-- 폼텍 라벨지 선택 (라벨 용지 모드) -->
         <div id="sheet-settings">
+        <div class="bh2-sheet-cols">
+        <div class="bh2-sheet-inputs">
           <div class="form-row">
             <div class="form-group" style="flex:2;">
               <label>폼텍 라벨지 규격</label>
@@ -321,6 +373,10 @@ select.form-control { cursor: pointer; }
                 </optgroup>
               </select>
             </div>
+            <div class="form-group" style="flex:1;">
+              <label>규격 검색</label>
+              <input class="form-control" type="text" id="formtecSearch" placeholder="예: 3105" oninput="onFormtecSearchInput()" onkeydown="if(event.key==='Enter')event.preventDefault();">
+            </div>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -335,11 +391,11 @@ select.form-control { cursor: pointer; }
           <div class="form-row">
             <div class="form-group">
               <label>열 수</label>
-              <input class="form-control" type="number" id="labelCols" value="3" min="1" max="20" oninput="setCustomPreset();renderPreview()">
+              <input class="form-control" type="number" id="labelCols" value="3" min="1" max="20" oninput="setCustomPreset();renderStartCellGrid();renderPreview()">
             </div>
             <div class="form-group">
               <label>행 수</label>
-              <input class="form-control" type="number" id="labelRows" value="7" min="1" max="40" oninput="setCustomPreset();renderPreview()">
+              <input class="form-control" type="number" id="labelRows" value="7" min="1" max="40" oninput="setCustomPreset();renderStartCellGrid();renderPreview()">
             </div>
           </div>
           <div class="form-row">
@@ -362,6 +418,27 @@ select.form-control { cursor: pointer; }
               <input class="form-control" type="number" id="gapV" value="0" min="0" max="20" step="0.1" oninput="setCustomPreset();renderPreview()">
             </div>
           </div>
+        </div>
+
+        <div class="bh2-sheet-startcell">
+          <div class="bh2-template-label" style="margin-top:0;">시작 칸 선택</div>
+          <div class="bh2-startcell-rowcol">
+            <div class="form-group">
+              <label>시작 줄</label>
+              <input class="form-control" type="number" id="startCellRow" value="1" min="1" oninput="onStartCellRowColInput()">
+            </div>
+            <div class="form-group">
+              <label>시작 칸</label>
+              <input class="form-control" type="number" id="startCellCol" value="1" min="1" oninput="onStartCellRowColInput()">
+            </div>
+          </div>
+          <div class="bh2-startcell-grid" id="startCellGrid"></div>
+          <div class="bh2-startcell-hint">
+            <span id="startCellHint">첫 칸부터 인쇄합니다</span>
+            <span class="bh2-link" onclick="resetStartCell()">초기화</span>
+          </div>
+        </div>
+        </div>
         </div>
 
         <!-- 감열지 / 사용자 정의 (롤지) 설정 -->
@@ -420,7 +497,7 @@ select.form-control { cursor: pointer; }
         <div class="bh2-step-title">
           <span class="bh2-step-num">2</span> 라벨 디자인
           <div class="bh2-step-title-actions">
-            <button type="button" class="bh2-dashed-btn" onclick="goToLabelTemplatesPage()">+ 커스텀 템플릿 추가</button>
+            <button type="button" class="bh2-dashed-btn" onclick="openBuilder()">+ 커스텀 템플릿 추가</button>
           </div>
         </div>
 
@@ -461,53 +538,56 @@ select.form-control { cursor: pointer; }
         <select id="vendorFilter" style="display:none;"></select>
       </div>
 
-      <!-- Step 3: 상품 검색 (WMS에 등록된 상품) -->
+      <!-- 상품 담기 (검색 + 직접 입력을 하나의 목록으로 통합) -->
       <div class="bh2-card">
-        <div class="bh2-step-title">
-          <span class="bh2-step-num">3</span> 상품 검색
-        </div>
-        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 16px;">WMS에 등록된 상품을 검색해서 인쇄할 목록에 담으세요</div>
+        <div class="bh2-step-title">상품 담기</div>
+        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 16px;">아래 두 방법 중 어느 쪽으로 담아도 같은 목록에 모입니다</div>
 
-        <div class="bh2-search-wrap">
-          <div class="bh2-search-box">
+        <div class="bh2-add-method">
+          <div class="bh2-add-method-label">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input type="text" id="searchInput" placeholder="품목코드/바코드(SKU·INN·CTN)/품목명/판매처코드·품목명/구매처 검색..." oninput="renderSearchDropdown()" onkeydown="handleSearchKeydown(event)" onfocus="renderSearchDropdown()">
+            등록 상품 검색해서 담기
           </div>
-          <div class="bh2-search-dropdown hidden" id="bh2SearchDropdown"></div>
+          <div class="bh2-search-wrap" style="margin-bottom:0;">
+            <div class="bh2-search-box">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="searchInput" placeholder="품목코드/바코드(SKU·INN·CTN)/품목명/판매처코드·품목명/구매처 검색..." oninput="renderSearchDropdown()" onkeydown="handleSearchKeydown(event)" onfocus="renderSearchDropdown()">
+            </div>
+            <div class="bh2-search-dropdown hidden" id="bh2SearchDropdown"></div>
+          </div>
         </div>
 
+        <div class="bh2-add-method">
+          <div class="bh2-add-method-label">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            미등록 상품 직접 입력해서 담기
+            <div class="bh2-step-title-actions" style="text-transform:none;letter-spacing:normal;">
+              <span class="bh2-link" onclick="openModal('excelUploadModal')">엑셀로 추가</span>
+              <span class="bh2-link" onclick="downloadTemplate()">양식 다운로드</span>
+            </div>
+          </div>
+          <div class="bh2-manual-add-row">
+            <div class="form-group grow">
+              <label>상품명 *</label>
+              <input class="form-control" id="manualName" placeholder="WMS 미등록 상품명 직접 입력" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
+            </div>
+            <div class="form-group">
+              <label>바코드 (선택)</label>
+              <input class="form-control" id="manualBarcode" placeholder="비우면 자동생성" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
+            </div>
+            <div class="form-group" style="max-width:90px;">
+              <label>수량</label>
+              <input class="form-control" type="number" id="manualQty" value="1" min="1" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="addManualProduct()">담기</button>
+          </div>
+        </div>
+
+        <div class="bh2-picked-label" style="margin-top:6px;">담은 상품 목록</div>
         <table class="bh2-picked-table">
           <thead><tr><th>상품명</th><th>바코드</th><th>수량</th><th></th></tr></thead>
           <tbody id="pickedTable"></tbody>
         </table>
-      </div>
-
-      <!-- Step 4: 데이터 입력 (WMS에 등록되지 않은 상품) -->
-      <div class="bh2-card">
-        <div class="bh2-step-title">
-          <span class="bh2-step-num">4</span> 데이터 입력
-          <div class="bh2-step-title-actions">
-            <span class="bh2-link" onclick="openModal('excelUploadModal')">엑셀로 추가</span>
-            <span class="bh2-link" onclick="downloadTemplate()">양식 다운로드</span>
-          </div>
-        </div>
-        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 16px;">WMS에 등록되지 않은 상품의 바코드를 인쇄할 때 사용하세요. 담기를 누르면 바로 인쇄 목록에 추가됩니다.</div>
-
-        <div class="bh2-manual-add-row">
-          <div class="form-group grow">
-            <label>상품명 *</label>
-            <input class="form-control" id="manualName" placeholder="상품명 입력" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
-          </div>
-          <div class="form-group">
-            <label>바코드 (선택)</label>
-            <input class="form-control" id="manualBarcode" placeholder="비우면 자동생성" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
-          </div>
-          <div class="form-group" style="max-width:90px;">
-            <label>수량</label>
-            <input class="form-control" type="number" id="manualQty" value="1" min="1" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualProduct();}">
-          </div>
-          <button class="btn btn-primary btn-sm" onclick="addManualProduct()">담기</button>
-        </div>
       </div>
 
     </div>
@@ -531,6 +611,61 @@ select.form-control { cursor: pointer; }
         <span id="pagerLabel">0 / 0</span>
         <button id="nextPageBtn" onclick="gotoPreviewPage(1)">›</button>
       </div>
+    </div>
+  </div>
+
+  <!-- 미등록 상품 인쇄 내역 -->
+  <div class="bh2-page" id="historyView" style="display:none;">
+    <div class="bh2-page-inner">
+      <div class="bh2-card">
+        <div class="bh2-step-title">인쇄 내역</div>
+        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 16px;">"인쇄하기" 또는 "PDF 저장"을 누를 때마다 자동으로 기록됩니다</div>
+        <div class="bh2-filter-pills">
+          <button type="button" class="bh2-filter-pill active" data-filter="unregistered" onclick="setHistoryFilter('unregistered')">미등록 상품만</button>
+          <button type="button" class="bh2-filter-pill" data-filter="all" onclick="setHistoryFilter('all')">전체</button>
+        </div>
+        <table class="bh2-picked-table">
+          <thead><tr><th>인쇄일시</th><th>상품명</th><th>바코드</th><th>수량</th><th>상태</th><th>용지</th></tr></thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 자주 쓰는 인쇄 관리 -->
+  <div class="bh2-page" id="presetsView" style="display:none;">
+    <div class="bh2-page-inner">
+      <div class="bh2-card">
+        <div class="bh2-step-title">자주 쓰는 인쇄</div>
+        <div style="font-size:12.5px;color:var(--text3);margin:-8px 0 16px;">"인쇄" 화면에서 저장한 프리셋 목록입니다. 판매처별로 자주 찍는 용지·템플릿·상품 조합을 관리하세요</div>
+        <div id="presetsListBody"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Save Preset Modal -->
+<div class="modal-overlay" id="savePresetModal">
+  <div class="modal" style="max-width:420px;">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:20px;">
+      <div>
+        <h2 style="margin-bottom:4px;">자주 쓰는 인쇄로 저장</h2>
+        <p style="margin:0;font-size:13px;color:var(--text3);">지금 용지 설정과 담은 상품 목록을 그대로 저장합니다</p>
+      </div>
+      <button class="btn btn-ghost" onclick="closeModal('savePresetModal')" style="margin-top:-4px; font-size:16px;">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:14px;">
+      <label>프리셋 이름 *</label>
+      <input class="form-control" id="presetName" placeholder="예: 이마트 정기출고용">
+    </div>
+    <div class="form-group" style="margin-bottom:20px;">
+      <label>판매처 (선택)</label>
+      <input class="form-control" id="presetVendor" list="presetVendorList" placeholder="예: 이마트">
+      <datalist id="presetVendorList"></datalist>
+    </div>
+    <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeModal('savePresetModal')">취소</button>
+      <button class="btn btn-primary" onclick="saveCurrentAsPreset()">저장</button>
     </div>
   </div>
 </div>
@@ -785,10 +920,378 @@ async function deleteCustomTemplateOnServer(id) {
 let selectedTemplate = 't1';
 
 // ─── INIT ───────────────────────────────────────────────────────────────────
+// ─── 인쇄 내역 ───────────────────────────────────────────────────────────────
+let historyItems = [];
+let historyFilter = 'unregistered';
+
+async function loadPrintHistory() {
+  try {
+    const res = await fetch('/api/barcode-print-history');
+    const data = await res.json();
+    historyItems = Array.isArray(data.items) ? data.items : [];
+  } catch (e) {
+    console.warn('인쇄 내역 로드 실패:', e);
+    historyItems = [];
+  }
+  renderHistoryTable();
+}
+
+function setHistoryFilter(f) {
+  historyFilter = f;
+  document.querySelectorAll('.bh2-filter-pill').forEach(el => el.classList.toggle('active', el.dataset.filter === f));
+  renderHistoryTable();
+}
+
+function renderHistoryTable() {
+  const tbody = document.getElementById('historyTableBody');
+  if (!tbody) return;
+  const rows = [];
+  historyItems.forEach(job => {
+    (job.items || []).forEach(it => {
+      if (historyFilter === 'unregistered' && it.isRegistered) return;
+      rows.push({ ts: job.ts, paperLabel: job.paperLabel, ...it });
+    });
+  });
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px;">${historyFilter === 'unregistered' ? '미등록 상품 인쇄 내역이 없습니다' : '인쇄 내역이 없습니다'}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td>${fmtDateTime(r.ts)}</td>
+      <td><strong>${r.name}</strong></td>
+      <td class="code">${r.barcode || '-'}</td>
+      <td>${r.qty}</td>
+      <td>${r.isRegistered ? '<span class="bh2-badge bh2-badge-ok">WMS 등록</span>' : '<span class="bh2-badge bh2-badge-warn">미등록</span>'}</td>
+      <td>${r.paperLabel || '-'}</td>
+    </tr>`).join('');
+}
+
+function fmtDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return iso || '-';
+  }
+}
+
+function logPrintHistory(p) {
+  const items = Object.keys(selectedProducts).map(id => {
+    const prod = products.find(x => x.id == id);
+    if (!prod) return null;
+    return { id: String(prod.id), name: prod.name, barcode: prod.barcode, qty: selectedProducts[id], isRegistered: !String(prod.id).startsWith('manual-') };
+  }).filter(Boolean);
+  if (!items.length) return;
+  const tpl = [...templates, ...customTemplates].find(t => t.id === p.tplId);
+  const formtecVal = document.getElementById('formtecPreset')?.value;
+  const paperLabel = p.mode === 'roll'
+    ? `롤/사용자정의 ${p.labelWmm}×${p.labelHmm}mm`
+    : `A4 ${formtecVal && formtecVal !== 'custom' ? formtecVal + ' · ' : ''}${p.cols}열×${p.rows}행`;
+  fetch('/api/barcode-print-history', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items, templateId: p.tplId, templateName: tpl ? tpl.name : p.tplId, paperMode: p.mode, paperLabel })
+  }).catch(e => console.warn('인쇄 내역 기록 실패:', e));
+}
+
+// ─── 자주 쓰는 인쇄 (프리셋) ─────────────────────────────────────────────────
+let printPresets = [];
+
+async function loadPrintPresets() {
+  try {
+    const res = await fetch('/api/barcode-print-presets');
+    const data = await res.json();
+    printPresets = Array.isArray(data.items) ? data.items : [];
+  } catch (e) {
+    console.warn('프리셋 로드 실패:', e);
+    printPresets = [];
+  }
+  renderPresetLoadSelect();
+}
+
+function renderPresetLoadSelect() {
+  const sel = document.getElementById('presetLoadSelect');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— 저장된 프리셋 선택 —</option>' +
+    printPresets.map(p => `<option value="${p.id}">${p.name}${p.vendor ? ' · ' + p.vendor : ''}</option>`).join('');
+  sel.value = printPresets.some(p => p.id === cur) ? cur : '';
+}
+
+function onPresetLoadSelect() {
+  const id = document.getElementById('presetLoadSelect').value;
+  if (!id) return;
+  applyPreset(id);
+}
+
+async function loadPartnersForPresetVendor() {
+  try {
+    const res = await fetch('/api/partners');
+    const data = await res.json();
+    const outbound = (data.items && data.items.outbound) || [];
+    const dl = document.getElementById('presetVendorList');
+    if (dl) dl.innerHTML = outbound.map(v => `<option value="${typeof v === 'object' ? (v.name || '') : v}">`).join('');
+  } catch (e) { /* 선택 항목이라 실패해도 무시 */ }
+}
+
+function applyPreset(id) {
+  const p = printPresets.find(x => x.id === id);
+  if (!p) return;
+
+  const loadSel = document.getElementById('presetLoadSelect');
+  if (loadSel) loadSel.value = id;
+
+  const radio = document.querySelector(`input[name=paperType][value="${p.paperType || 'sheet'}"]`);
+  if (radio) radio.checked = true;
+  onPaperTypeChange();
+
+  if ((p.paperType || 'sheet') !== 'roll' && (p.paperType || 'sheet') !== 'custom') {
+    document.getElementById('formtecPreset').value = p.formtecPreset || 'custom';
+    document.getElementById('labelW').value = p.labelW;
+    document.getElementById('labelH').value = p.labelH;
+    document.getElementById('labelCols').value = p.cols;
+    document.getElementById('labelRows').value = p.rows;
+    document.getElementById('marginL').value = p.marginL;
+    document.getElementById('marginT').value = p.marginT;
+    document.getElementById('gapH').value = p.gapH;
+    document.getElementById('gapV').value = p.gapV;
+  } else {
+    document.getElementById('rollW').value = p.rollW;
+    document.getElementById('rollH').value = p.rollH;
+    document.getElementById('rollOrientation').value = p.rollOrientation || 'auto';
+    document.getElementById('rollGap').value = p.rollGap;
+    document.getElementById('rollPad').value = p.rollPad;
+    updateRollSizeHint();
+  }
+  document.getElementById('barcodeFormat').value = p.barcodeFormat || 'CODE128';
+  document.getElementById('labelPad').value = p.labelPad ?? 1.5;
+  document.getElementById('barcodeFontScale').value = Math.round((p.fontScale || 1) * 100);
+
+  selectedProducts = {};
+  (p.items || []).forEach(it => {
+    let prod = products.find(x => x.id === it.id);
+    if (!prod) {
+      prod = { id: it.id || ('manual-' + Date.now() + Math.random()), name: it.name, barcode: it.barcode, sku: '', category: '', price: 0, stock: 0, brand: '', unit: '' };
+      products.push(prod);
+    }
+    selectedProducts[prod.id] = it.qty || 1;
+  });
+
+  startCell = 1;
+  if (p.templateId) selectTemplate(p.templateId);
+  renderStartCellGrid();
+  renderPickedTable();
+  renderPreview();
+  showToast(`"${p.name}" 프리셋을 불러왔습니다`, 'success');
+}
+
+function saveCurrentAsPreset() {
+  const name = document.getElementById('presetName').value.trim();
+  if (!name) { showToast('프리셋 이름을 입력하세요', 'error'); return; }
+  const vendor = document.getElementById('presetVendor').value.trim();
+  const paperType = document.querySelector('input[name=paperType]:checked').value;
+  const p = getPrintParams();
+  const items = Object.keys(selectedProducts).map(id => {
+    const prod = products.find(x => x.id == id);
+    if (!prod) return null;
+    return { id: String(prod.id), name: prod.name, barcode: prod.barcode, qty: selectedProducts[id], isRegistered: !String(prod.id).startsWith('manual-') };
+  }).filter(Boolean);
+  if (!items.length) { showToast('담은 상품이 없습니다', 'error'); return; }
+
+  const item = {
+    name, vendor, paperType,
+    formtecPreset: document.getElementById('formtecPreset').value,
+    labelW: p.labelWmm, labelH: p.labelHmm,
+    cols: p.cols, rows: p.rows,
+    marginL: p.marginL, marginT: p.marginT, gapH: p.gapH, gapV: p.gapV,
+    rollW: document.getElementById('rollW').value, rollH: document.getElementById('rollH').value,
+    rollOrientation: document.getElementById('rollOrientation').value,
+    rollGap: document.getElementById('rollGap').value, rollPad: document.getElementById('rollPad').value,
+    templateId: p.tplId, barcodeFormat: p.fmt, labelPad: p.labelPad, fontScale: p.fontScale,
+    items
+  };
+
+  fetch('/api/barcode-print-presets/upsert', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item })
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      printPresets = data.items;
+      renderPresetLoadSelect();
+      closeModal('savePresetModal');
+      document.getElementById('presetName').value = '';
+      document.getElementById('presetVendor').value = '';
+      showToast('프리셋을 저장했습니다', 'success');
+    } else {
+      showToast(data.error || '저장 실패', 'error');
+    }
+  }).catch(() => showToast('저장 실패', 'error'));
+}
+
+function presetPaperSummary(p) {
+  const paperType = p.paperType || 'sheet';
+  if (paperType === 'roll' || paperType === 'custom') {
+    const label = paperType === 'roll' ? '롤라벨용지' : '사용자정의';
+    return `${label} · ${p.rollOrientation === 'landscape' ? '가로' : p.rollOrientation === 'portrait' ? '세로' : '자동'}`;
+  }
+  const formtec = p.formtecPreset && p.formtecPreset !== 'custom' ? `${p.formtecPreset} · ` : '';
+  return `A4라벨용지 · ${formtec}${p.cols}열×${p.rows}행`;
+}
+
+function presetSizeSummary(p) {
+  const paperType = p.paperType || 'sheet';
+  if (paperType === 'roll' || paperType === 'custom') return `${p.rollW}×${p.rollH}mm`;
+  return `${p.labelW}×${p.labelH}mm`;
+}
+
+// A4 시트(여러 칸)인지 롤/사용자정의(한 장씩)인지 한눈에 보이도록 큰 아이콘 배지로 표기
+function paperTypeBadgeHTML(p) {
+  const paperType = p.paperType || 'sheet';
+  if (paperType === 'sheet') {
+    return `<div class="bh2-preset-papertype" title="A4라벨용지">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2.5h8.5L19 7v14a.5.5 0 0 1-.5.5h-12a.5.5 0 0 1-.5-.5v-18a.5.5 0 0 1 .5-.5z"/><path d="M14.5 2.5V7H19"/></svg>
+      <span>A4</span>
+    </div>`;
+  }
+  const label = paperType === 'roll' ? '롤' : '사용자정의';
+  return `<div class="bh2-preset-papertype" title="${label}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6.5" rx="6.5" ry="2.5"/><path d="M5.5 6.5v9c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5v-9"/><ellipse cx="12" cy="6.5" rx="2" ry=".9"/></svg>
+    <span>${label}</span>
+  </div>`;
+}
+
+// 인쇄 화면의 실제 "미리보기" 패널과 동일한 buildLabelHTML/renderBarcodeSVGs를 그대로 재사용해,
+// 프리셋에 담긴 실제 첫 상품명·바코드가 실제 라벨 비율 그대로 보이도록 렌더링한다.
+function buildPresetPreviewHTML(p) {
+  const paperType = p.paperType || 'sheet';
+  const isRoll = paperType === 'roll' || paperType === 'custom';
+  const labelWmm = (isRoll ? Number(p.rollW) : Number(p.labelW)) || 60;
+  const labelHmm = (isRoll ? Number(p.rollH) : Number(p.labelH)) || 40;
+  const firstItem = p.items && p.items[0];
+  const prod = firstItem
+    ? { ...PLACEHOLDER_PRODUCT, name: firstItem.name || PLACEHOLDER_PRODUCT.name, barcode: firstItem.barcode || PLACEHOLDER_PRODUCT.barcode }
+    : PLACEHOLDER_PRODUCT;
+
+  const boxW = 168, boxH = 114;
+  const scale = Math.min(1, boxW / (labelWmm * MM_TO_PX), boxH / (labelHmm * MM_TO_PX));
+  const wpx = labelWmm * MM_TO_PX * scale;
+  const hpx = labelHmm * MM_TO_PX * scale;
+  const uid = 'ppv-' + p.id;
+  const inner = buildLabelHTML(prod, p.templateId, p.barcodeFormat || 'CODE128', labelWmm, labelHmm, p.labelPad, p.fontScale);
+  return `<div style="width:${wpx}px;height:${hpx}px;overflow:hidden;position:relative;background:white;border:0.5px solid #eee;">
+    <div id="${uid}" style="width:${labelWmm * MM_TO_PX}px;height:${labelHmm * MM_TO_PX}px;transform:scale(${scale});transform-origin:top left;">${inner}</div>
+  </div>`;
+}
+
+function renderPresetPreviews() {
+  printPresets.forEach(p => {
+    const el = document.getElementById('ppv-' + p.id);
+    if (!el) return;
+    renderBarcodeSVGs(el, window.JsBarcode);
+  });
+}
+
+function renderPresetsManageList() {
+  const body = document.getElementById('presetsListBody');
+  if (!body) return;
+  if (!printPresets.length) {
+    body.innerHTML = `<div style="text-align:center;color:var(--text3);padding:24px;">저장된 프리셋이 없습니다. "인쇄" 화면에서 담은 상품과 용지 설정을 프리셋으로 저장해보세요.</div>`;
+    return;
+  }
+  body.innerHTML = printPresets.map(p => {
+    const t = [...templates, ...customTemplates].find(x => x.id === p.templateId);
+    return `
+    <div class="bh2-preset-card">
+      <div class="bh2-preset-preview">${buildPresetPreviewHTML(p)}</div>
+      ${paperTypeBadgeHTML(p)}
+      <div class="bh2-preset-info">
+        <div class="bh2-preset-name-row">
+          <span class="bh2-preset-name">${p.name}</span>
+          ${p.vendor ? `<span class="bh2-preset-vendor-badge">${p.vendor}</span>` : ''}
+        </div>
+        <div class="bh2-preset-meta">
+          <span>${t ? t.name : (p.templateId || '-')}</span>
+          <span>·</span>
+          <span>${(p.items || []).length}개 상품</span>
+          <span>·</span>
+          <span>${presetSizeSummary(p)}</span>
+          <span>·</span>
+          <span>${presetPaperSummary(p)}</span>
+          <span>·</span>
+          <span>${fmtDateTime(p.createdAt)} 저장</span>
+        </div>
+      </div>
+      <div class="bh2-preset-actions">
+        <button class="btn btn-secondary btn-sm" onclick="goApplyPresetInPrintTab('${p.id}')">인쇄 화면에서 불러오기</button>
+        <button class="btn btn-danger btn-sm" onclick="deletePresetFromManage('${p.id}')">삭제</button>
+      </div>
+    </div>`;
+  }).join('');
+  setTimeout(renderPresetPreviews, 50);
+}
+
+function deletePresetFromManage(id) {
+  const p = printPresets.find(x => x.id === id);
+  if (!confirm(`"${p ? p.name : '이 프리셋'}"을(를) 삭제할까요?`)) return;
+  fetch('/api/barcode-print-presets/delete', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id })
+  }).then(r => r.json()).then(data => {
+    if (data.ok) { printPresets = data.items; renderPresetsManageList(); }
+  });
+}
+
+// 프리셋 관리 화면(별도 iframe)에서 "인쇄" 화면으로 이동해 해당 프리셋을 바로 적용한다.
+// 같은 부모 SPA 안의 iframe이라 window.top의 안정적인 전역 함수(switchView)와
+// #view-barcode-print2 컨테이너(둘 다 index.html/app.js의 핵심 요소라 잘 바뀌지 않음)만 사용한다.
+function goApplyPresetInPrintTab(id) {
+  try {
+    if (window.top !== window.self && typeof window.top.switchView === 'function') {
+      window.top.switchView('barcode-print2');
+      const container = window.top.document.getElementById('view-barcode-print2');
+      const iframe = container && container.querySelector('iframe');
+      if (iframe) {
+        const url = new URL(iframe.getAttribute('src'), window.top.location.href);
+        url.searchParams.set('tab', 'print');
+        url.searchParams.set('loadPreset', id);
+        iframe.src = url.pathname + url.search;
+      } else if (container) {
+        // 아직 한 번도 "인쇄" 탭을 연 적이 없어 iframe이 없는 경우 — 프리셋 파라미터를 포함해 직접 생성
+        container.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=print&loadPreset=${encodeURIComponent(id)}" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+      }
+      return;
+    }
+  } catch (e) { /* 크로스오리진 등으로 접근 불가 시 아래 폴백 사용 */ }
+  alert('"바코드 인쇄 > 인쇄" 화면의 "자주 쓰는 인쇄"에서 이 프리셋을 선택해주세요.');
+}
+
+function showBarcodeTab(tab) {
+  const body = document.querySelector('.bh2-body');
+  const historyView = document.getElementById('historyView');
+  const presetsView = document.getElementById('presetsView');
+  if (body) body.style.display = tab === 'print' ? '' : 'none';
+  if (historyView) historyView.style.display = tab === 'history' ? '' : 'none';
+  if (presetsView) presetsView.style.display = tab === 'presets' ? '' : 'none';
+}
+
 async function init() {
   if (new URLSearchParams(location.search).get('embedded') === '1') {
     document.getElementById('bh2-topbar').style.display = 'none';
   }
+
+  const urlParams = new URLSearchParams(location.search);
+  const activeTab = urlParams.get('tab') || 'print';
+  showBarcodeTab(activeTab);
+
+  if (activeTab === 'history') {
+    await loadPrintHistory();
+    return;
+  }
+  if (activeTab === 'presets') {
+    await loadCustomTemplates();
+    await loadPrintPresets();
+    renderPresetsManageList();
+    return;
+  }
+
   try {
     const res = await fetch('/api/products');
     const data = await res.json();
@@ -825,6 +1328,7 @@ async function init() {
   populatePrintTemplateSelect();
   renderColGuide();
   loadRollPresets();
+  loadPartnersForPresetVendor();
   renderPickedTable();
   setTimeout(() => {
     document.getElementById('formtecPreset').value = '3105';
@@ -832,24 +1336,16 @@ async function init() {
   }, 0);
   getJsBarcodeSource();
   renderPreview();
+
+  await loadPrintPresets();
+  const loadPresetId = urlParams.get('loadPreset');
+  if (loadPresetId) applyPreset(loadPresetId);
 }
 
 function refreshTemplateGallery() {
   renderTemplates();
   setTimeout(renderTemplatesBarcodes, 50);
   setTimeout(updateAllTemplateNavVisibility, 60);
-}
-
-// WMS 사이드바의 "바코드 인쇄 > 라벨 템플릿" 화면으로 이동 (커스텀 템플릿 생성/관리는 그쪽에서 진행)
-function goToLabelTemplatesPage() {
-  try {
-    if (window.top !== window.self && typeof window.top.switchView === 'function') {
-      window.top.switchView('barcode-print');
-      window.top.renderBarcodePrint('labels');
-      return;
-    }
-  } catch (e) { /* 크로스 오리진 등으로 접근 불가 시 아래 폴백 사용 */ }
-  window.open('/barcode-print.html', '_blank');
 }
 
 // ─── STEP 1: 용지 ───────────────────────────────────────────────────────────
@@ -861,7 +1357,7 @@ function onPaperTypeChange() {
   onPrinterModeChange();
 }
 
-// ─── STEP 3: 상품 검색 & 담기 ───────────────────────────────────────────────
+// ─── 상품 담기 ①: WMS 상품 검색 ─────────────────────────────────────────────
 function getFilteredProducts() {
   const q = document.getElementById('searchInput').value.toLowerCase().trim();
   if (!q) return [];
@@ -926,7 +1422,7 @@ function removePicked(id) {
   renderPreview();
 }
 
-// ─── STEP 4: 미등록 상품 직접 입력 ──────────────────────────────────────────
+// ─── 상품 담기 ②: 미등록 상품 직접 입력 ─────────────────────────────────────
 function addManualProduct() {
   const nameInput = document.getElementById('manualName');
   const barcodeInput = document.getElementById('manualBarcode');
@@ -960,7 +1456,7 @@ function renderPickedTable() {
   const ids = Object.keys(selectedProducts);
   const tbody = document.getElementById('pickedTable');
   if (!ids.length) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px;">위 검색창에서 상품을 찾거나, 아래 4단계에서 직접 입력해 담아보세요</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text3);padding:24px;">위에서 상품을 검색하거나 직접 입력해 담아보세요</td></tr>`;
     return;
   }
   tbody.innerHTML = ids.map(id => {
@@ -1935,7 +2431,7 @@ const FORMTEC_PRESETS = {
 
 function applyFormtecPreset() {
   const key = document.getElementById('formtecPreset').value;
-  if (key === 'custom') { renderPreview(); return; }
+  if (key === 'custom') { renderStartCellGrid(); renderPreview(); return; }
   const p = FORMTEC_PRESETS[key];
   if (!p) return;
   document.getElementById('labelW').value   = p.labelW;
@@ -1946,10 +2442,94 @@ function applyFormtecPreset() {
   document.getElementById('marginT').value  = p.marginT;
   document.getElementById('gapH').value     = p.gapH;
   document.getElementById('gapV').value     = p.gapV;
+  startCell = 1;
+  renderStartCellGrid();
   renderPreview();
 }
 
+function onFormtecSearchInput() {
+  const q = document.getElementById('formtecSearch').value.trim().toLowerCase();
+  if (!q) return;
+  const select = document.getElementById('formtecPreset');
+  const options = Array.from(select.options);
+  const hit =
+    options.find(o => o.value.toLowerCase().startsWith(q)) ||
+    options.find(o => o.textContent.toLowerCase().includes(q));
+  if (hit && select.value !== hit.value) {
+    select.value = hit.value;
+    applyFormtecPreset();
+  }
+}
+
 function setCustomPreset() { document.getElementById('formtecPreset').value = 'custom'; }
+
+// ─── 시작 칸 선택 (부분 사용된 A4 라벨지의 남은 칸부터 인쇄) ─────────────────
+let startCell = 1;
+
+function renderStartCellGrid() {
+  const wrap = document.getElementById('startCellGrid');
+  if (!wrap) return;
+  const cols = parseInt(document.getElementById('labelCols').value) || 1;
+  const rows = parseInt(document.getElementById('labelRows').value) || 1;
+  const total = cols * rows;
+  if (startCell > total) startCell = 1;
+  const rowEl = document.getElementById('startCellRow');
+  const colEl = document.getElementById('startCellCol');
+  if (rowEl) rowEl.max = rows;
+  if (colEl) colEl.max = cols;
+  syncStartCellRowColInputs(cols);
+  const availPx = Math.max(200, wrap.clientWidth - 20);
+  const cellPx = Math.max(18, Math.min(42, Math.floor((availPx - (cols - 1) * 3) / cols)));
+  wrap.style.gridTemplateColumns = `repeat(${cols}, ${cellPx}px)`;
+  wrap.style.justifyContent = 'start';
+  wrap.innerHTML = Array.from({ length: total }, (_, i) => {
+    const n = i + 1;
+    const cls = n < startCell ? 'used' : (n === startCell ? 'start' : '');
+    return `<button type="button" class="bh2-startcell ${cls}" onclick="setStartCell(${n})" title="${n}번 칸부터 인쇄">${n}</button>`;
+  }).join('');
+  updateStartCellHint();
+}
+
+function syncStartCellRowColInputs(colsArg) {
+  const cols = colsArg || parseInt(document.getElementById('labelCols').value) || 1;
+  const rowEl = document.getElementById('startCellRow');
+  const colEl = document.getElementById('startCellCol');
+  if (rowEl) rowEl.value = Math.floor((startCell - 1) / cols) + 1;
+  if (colEl) colEl.value = ((startCell - 1) % cols) + 1;
+}
+
+function onStartCellRowColInput() {
+  const cols = parseInt(document.getElementById('labelCols').value) || 1;
+  const rows = parseInt(document.getElementById('labelRows').value) || 1;
+  const r = Math.min(Math.max(1, parseInt(document.getElementById('startCellRow').value) || 1), rows);
+  const c = Math.min(Math.max(1, parseInt(document.getElementById('startCellCol').value) || 1), cols);
+  setStartCell((r - 1) * cols + c);
+}
+
+function setStartCell(n) {
+  startCell = n;
+  renderStartCellGrid();
+  renderPreview();
+}
+
+function resetStartCell() {
+  startCell = 1;
+  renderStartCellGrid();
+  renderPreview();
+}
+
+function updateStartCellHint() {
+  const hint = document.getElementById('startCellHint');
+  if (!hint) return;
+  hint.textContent = startCell <= 1
+    ? '첫 칸부터 인쇄합니다'
+    : `${startCell}번 칸부터 인쇄합니다 (앞 ${startCell - 1}칸은 비워둠)`;
+}
+
+function applyStartCellOffset(labels, p) {
+  if (p.mode !== 'sheet' || startCell <= 1) return labels;
+  return Array(startCell - 1).fill(null).concat(labels);
+}
 
 function onPrinterModeChange() {
   const mode = document.querySelector('input[name=printerMode]:checked').value;
@@ -2111,6 +2691,7 @@ function renderPrintPreview() {
   let allLabels = collectLabelQueue();
   const isSample = allLabels.length === 0;
   if (isSample) allLabels = Array(labelsPerPage).fill(PLACEHOLDER_PRODUCT);
+  allLabels = applyStartCellOffset(allLabels, p);
   if (badge) badge.classList.toggle('hidden', !isSample);
   const total = allLabels.length;
 
@@ -2184,8 +2765,10 @@ function collectLabelQueue() {
 
 async function printLabels() {
   const p = getPrintParams();
-  const allLabels = collectLabelQueue();
-  if (!allLabels.length) { showToast('인쇄할 상품을 먼저 담으세요', 'error'); return; }
+  const rawLabels = collectLabelQueue();
+  if (!rawLabels.length) { showToast('인쇄할 상품을 먼저 담으세요', 'error'); return; }
+  const allLabels = applyStartCellOffset(rawLabels, p);
+  logPrintHistory(p);
 
   if (p.mode === 'roll') {
     const pgW = p.labelWmm;
@@ -2215,11 +2798,13 @@ async function printLabels() {
       for (let r = 0; r < p.rows; r++) {
         for (let c = 0; c < p.cols; c++) {
           if (idx >= allLabels.length) break;
+          const prod = allLabels[idx];
+          idx++;
+          if (!prod) continue; // 시작 칸 선택으로 건너뛴, 이미 사용된 칸 — 인쇄하지 않음
           const xmm = p.marginL + c * (p.labelWmm + p.gapH);
           const ymm = p.marginT + r * (p.labelHmm + p.gapV);
-          const labelHtml = buildLabelHTML(allLabels[idx], p.tplId, p.fmt, p.labelWmm, p.labelHmm, p.labelPad, p.fontScale);
+          const labelHtml = buildLabelHTML(prod, p.tplId, p.fmt, p.labelWmm, p.labelHmm, p.labelPad, p.fontScale);
           cellsHtml += `<div style="position:absolute;left:${xmm}mm;top:${ymm}mm;width:${p.labelWmm}mm;height:${p.labelHmm}mm;overflow:hidden;box-sizing:border-box;">${labelHtml}</div>`;
-          idx++;
         }
       }
       pagesHtml += `<div class="sheet-page${isLastPage ? ' last' : ''}">${cellsHtml}</div>`;
@@ -2439,7 +3024,7 @@ function showToast(msg, type='') {
   setTimeout(() => t.className = 'toast', 2500);
 }
 
-// ─── EXCEL UPLOAD (4단계: 미등록 상품 — 가져오면 바로 인쇄 목록에 담김) ────
+// ─── EXCEL UPLOAD (미등록 상품 — 가져오면 바로 인쇄 목록에 담김) ──────────
 const FIELD_DEFS = [
   { key: 'name',     label: '상품명',   required: true,  aliases: ['상품명','품명','제품명','name','item','product','상품'] },
   { key: 'barcode',  label: '바코드',   required: false, aliases: ['바코드','barcode','bcd','code','바코드번호'] },

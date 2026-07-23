@@ -16,6 +16,7 @@ const views = [
   "outbound-upload-lotte",
   "adjust",
   "history",
+  "users",
   "alert",
   "location-master",
   "location-map",
@@ -23,8 +24,18 @@ const views = [
   "location-stock",
   "purchase-products",
   "purchase-orders",
-  "barcode-print",
-  "barcode-print2"
+  "barcode-print2",
+  "barcode-print-history",
+  "barcode-print-presets"
+];
+const MANAGER_PERMISSION_LABELS = [
+  { key: "master", label: "마스터정보" },
+  { key: "inbound", label: "입고" },
+  { key: "outbound", label: "출고" },
+  { key: "stock", label: "재고" },
+  { key: "purchase", label: "구매" },
+  { key: "manage", label: "설정" },
+  { key: "barcode", label: "바코드 인쇄" }
 ];
 const LAST_VIEW_KEY = "wms:lastView";
 const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
@@ -50,6 +61,7 @@ const state = {
   partners: { inbound: [], outbound: [], purchase: [] },
   managers: [],
   managerRoles: {},
+  managerPermissions: {},
   companySettings: {
     companyInfo: { name: "", bizRegNo: "", address: "" },
     ecount: {
@@ -70,7 +82,7 @@ function esc(v) {
   return String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 }
 
-/** 스레드/외부 캡처용 정보 가리기 모드 — 화면(DOM)에서만 실제 데이터를 고정된 가짜 값으로 치환. 서버 데이터는 건드리지 않음. 매핑 규칙은 demo-mask.js(공용, barcode-print.html과 공유) 참고. */
+/** 스레드/외부 캡처용 정보 가리기 모드 — 화면(DOM)에서만 실제 데이터를 고정된 가짜 값으로 치환. 서버 데이터는 건드리지 않음. 매핑 규칙은 demo-mask.js(공용) 참고. */
 let demoModeOn = false;
 let demoObserver = null;
 function demoScrambleCellText(td, category, categoryHint) {
@@ -140,7 +152,6 @@ function applyDemoModeUi(on) {
   }
   // 바코드 인쇄 iframe(별도 문서) 등 다른 곳에서도 감지할 수 있도록 공유
   try { localStorage.setItem(WmsDemoMask.STORAGE_KEY, on ? "1" : "0"); } catch (_) {}
-  qs("#view-barcode-print iframe")?.contentWindow?.postMessage({ type: "wms-demo-mode", on }, "*");
   qs("#view-barcode-print2 iframe")?.contentWindow?.postMessage({ type: "wms-demo-mode", on }, "*");
 }
 function toggleDemoMode() {
@@ -271,9 +282,9 @@ function VENDOR_ARROW_CHIP_HTML(cls, rotateDeg, title) {
 }
 
 const WAREHOUSE_COLORS = {
-  "유통사업부":     { bg: "#F3E8FF", color: "#6B21A8" },
-  "우리물류(회송전)": { bg: "#E0F7F7", color: "#0E7070" },
-  "아세로직스":    { bg: "#FFF0E6", color: "#C04A00" },
+  "유통사업부(W)":     { bg: "#F3E8FF", color: "#6B21A8" },
+  "우리물류(회송전)(W)": { bg: "#E0F7F7", color: "#0E7070" },
+  "아세로직스(W)":    { bg: "#FFF0E6", color: "#C04A00" },
 };
 function warehouseChipStyle(name) {
   const c = WAREHOUSE_COLORS[name] || { bg: "#F1F5F9", color: "#475569" };
@@ -636,7 +647,10 @@ function switchView(name) {
     if (subgroup && !subgroup.classList.contains("open")) subgroup.classList.add("open");
   }
   // 바코드 인쇄 뷰는 패딩 제거 (풀스크린 iframe)
-  qs(".main").classList.toggle("main-fullscreen", name === "barcode-print" || name === "barcode-print2");
+  qs(".main").classList.toggle(
+    "main-fullscreen",
+    name === "barcode-print2" || name === "barcode-print-history" || name === "barcode-print-presets"
+  );
   try {
     localStorage.setItem(LAST_VIEW_KEY, name);
   } catch (_) {}
@@ -984,7 +998,7 @@ function downloadGuide(type) {
         "구매처 품목코드": "PV-001",
         "구매처 품목명": "구매처 샘플명",
         "창고그룹(이카운트)": "기본창고",
-        "사용창고": "유통사업부, 다이소",
+        "사용창고": "유통사업부(W), 다이소",
         "구분": "[상품]",
         "카테고리": "보통, 시즌",
         "INN(EA)": 10,
@@ -1018,7 +1032,7 @@ function downloadGuide(type) {
         "구매처 품목코드": "PV-001",
         "구매처 품목명": "구매처 샘플명",
         "창고그룹(이카운트)": "기본창고",
-        "사용창고": "유통사업부, 다이소",
+        "사용창고": "유통사업부(W), 다이소",
         "구분": "[상품]",
         "카테고리": "보통, 시즌",
         "INN(EA)": 10,
@@ -1029,8 +1043,8 @@ function downloadGuide(type) {
         "영업담당자": "영업A, 영업B"
       }
     ],
-    IN: [{ "상품코드": "P-001", "수량": 10, "창고": "유통사업부", "구매처": "테스트구매처", "담당자": "admin", "메모": "초도 입고" }],
-    OUT: [{ "상품코드": "P-001", "수량": 3, "창고": "유통사업부", "출고처": "출고처A", "담당자": "admin", "메모": "샘플 출고" }]
+    IN: [{ "상품코드": "P-001", "수량": 10, "창고": "유통사업부(W)", "구매처": "테스트구매처", "담당자": "admin", "메모": "초도 입고" }],
+    OUT: [{ "상품코드": "P-001", "수량": 3, "창고": "유통사업부(W)", "출고처": "출고처A", "담당자": "admin", "메모": "샘플 출고" }]
   };
   const ws = XLSX.utils.json_to_sheet(guides[type] || []);
   const wb = XLSX.utils.book_new();
@@ -1357,6 +1371,8 @@ async function refreshCommon() {
   state.partners = partnersRes.items || { inbound: [], outbound: [], purchase: [] };
   state.managers = managersRes.items || [];
   state.managerRoles = managersRes.roles || {};
+  state.managerPermissions = managersRes.permissions || {};
+  state.managerPermissionKeys = managersRes.permissionKeys || MANAGER_PERMISSION_LABELS.map((p) => p.key);
   state.warehouses = warehousesRes.items || [];
   state.productOptions = optionRes.items || state.productOptions;
   state.locations = locRes.items || [];
@@ -1511,8 +1527,7 @@ function renderPartners() {
 
 const MASTER_TABS = [
   { key: "company", label: "회사정보" },
-  { key: "users", label: "사용자" },
-  { key: "codes", label: "공통 코드" },
+  { key: "codes", label: "기초코드" },
   { key: "warehouse", label: "창고" }
 ];
 
@@ -1532,7 +1547,7 @@ function renderMaster() {
   qs("#view-master").innerHTML = `
     <div class="card">
       <h1 style="margin:0 0 4px;">기본 정보</h1>
-      <p class="muted">회사/사용자/공통 코드/창고 관리</p>
+      <p class="muted">회사/기초코드/창고 관리</p>
       <div class="ppl-tab-bar" id="master-tab-bar" style="margin-top:14px;">
         ${MASTER_TABS.map((t) => `<button type="button" class="ppl-tab${masterActiveTab === t.key ? " active" : ""}" data-master-tab="${t.key}">${esc(t.label)}</button>`).join("")}
       </div>
@@ -1548,8 +1563,7 @@ function renderMaster() {
   });
 
   const body = qs("#master-tab-body");
-  if (masterActiveTab === "users") renderMasterUsersTab(body);
-  else if (masterActiveTab === "codes") renderMasterCodesTab(body);
+  if (masterActiveTab === "codes") renderMasterCodesTab(body);
   else if (masterActiveTab === "warehouse") renderMasterWarehouseTab(body);
   else renderMasterCompanyTab(body);
 }
@@ -1607,19 +1621,31 @@ function renderMasterCompanyTab(container) {
   };
 }
 
-function renderMasterUsersTab(container) {
-  const rows = state.managers.map((name) => ({ name, role: state.managerRoles[name] || "" }));
+function renderUsers() {
+  qs("#view-users").innerHTML = `
+    <div class="card"><h1 style="margin:0 0 4px;">사용자</h1><p class="muted">사용자 계정 및 역할 관리</p></div>
+    <div id="users-body"></div>
+  `;
+  renderUsersBody(qs("#users-body"));
+}
+
+function renderUsersBody(container) {
+  const rows = state.managers.map((name) => ({
+    name,
+    role: state.managerRoles[name] || "",
+    permissions: state.managerPermissions[name] || []
+  }));
 
   container.innerHTML = `
     <div class="card">
       <h2>사용자 등록</h2>
-      <p class="muted" style="margin-top:-6px;">지금은 이름과 역할 태그만 관리합니다. 로그인/화면별 접근권한 제어는 추후 지원 예정입니다.</p>
+      <p class="muted" style="margin-top:-6px;">이름/역할과 화면별 이용 권한을 관리합니다. 권한은 태그로 저장되며, 로그인 기능이 추가되면 실제 화면 접근 제한에 사용될 예정입니다.</p>
       <form id="manager-form">
         <div><label>이름</label><input name="name" required /></div>
         <div><button class="primary" type="submit">등록</button></div>
       </form>
       <table class="mini-table" id="manager-table">
-        <thead><tr><th>이름</th><th>역할</th><th>삭제</th></tr></thead>
+        <thead><tr><th>이름</th><th>역할</th><th>권한</th><th>삭제</th></tr></thead>
         <tbody>
           ${rows.length
             ? rows
@@ -1628,11 +1654,20 @@ function renderMasterUsersTab(container) {
                     `<tr>
                       <td>${esc(r.name)}</td>
                       <td><input type="text" class="manager-role-input" data-name="${encodeURIComponent(r.name)}" value="${esc(r.role)}" placeholder="예: 관리자" style="padding:2px 6px; font-size:12px; border:1px solid var(--border); border-radius:4px; width:140px;" /></td>
+                      <td style="min-width:320px;">
+                        ${MANAGER_PERMISSION_LABELS.map(
+                          (p) => `
+                          <label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;margin:2px 8px 2px 0;white-space:nowrap;cursor:pointer;">
+                            <input type="checkbox" class="manager-perm-input" data-name="${encodeURIComponent(r.name)}" data-perm="${p.key}" ${r.permissions.includes(p.key) ? "checked" : ""} />
+                            ${esc(p.label)}
+                          </label>`
+                        ).join("")}
+                      </td>
                       <td><button type="button" class="cancel-btn del-small manager-del" data-name="${encodeURIComponent(r.name)}">삭제</button></td>
                     </tr>`
                 )
                 .join("")
-            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
+            : `<tr><td colspan="4"><span class="muted">없음</span></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1645,7 +1680,7 @@ function renderMasterUsersTab(container) {
     const data = Object.fromEntries(new FormData(e.target));
     await api("/api/managers", { method: "POST", body: JSON.stringify(data) });
     await refreshCommon();
-    renderMaster();
+    renderUsers();
     renderInbound();
     renderOutbound();
     renderAdjust();
@@ -1665,6 +1700,20 @@ function renderMasterUsersTab(container) {
     });
   });
 
+  container.querySelectorAll(".manager-perm-input").forEach((input) => {
+    input.addEventListener("change", async () => {
+      const name = decodeURIComponent(input.dataset.name || "");
+      const checked = container.querySelectorAll(`.manager-perm-input[data-name="${encodeURIComponent(name)}"]:checked`);
+      const permissions = Array.from(checked).map((el) => el.dataset.perm);
+      try {
+        await api("/api/managers/permissions", { method: "POST", body: JSON.stringify({ name, permissions }) });
+        state.managerPermissions[name] = permissions;
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
   container.querySelectorAll(".manager-del").forEach((btn) => {
     btn.onclick = async () => {
       const name = decodeURIComponent(btn.dataset.name || "");
@@ -1673,7 +1722,7 @@ function renderMasterUsersTab(container) {
       try {
         await api("/api/managers", { method: "DELETE", body: JSON.stringify({ name }) });
         await refreshCommon();
-        renderMaster();
+        renderUsers();
         renderInbound();
         renderOutbound();
         renderAdjust();
@@ -1690,7 +1739,7 @@ function renderMasterCodesTab(container) {
   const opts = state.productOptions || {};
   container.innerHTML = `
     <div class="card">
-      <h2>공통 코드</h2>
+      <h2>기초코드</h2>
       <p class="muted" style="margin-top:-6px;">상품 등록 화면 등에서 선택할 수 있는 태그값 목록입니다.</p>
       <div class="common-code-grid">
         ${COMMON_CODE_FIELDS.map((f) => `
@@ -1773,7 +1822,7 @@ function renderMasterWarehouseTab(container) {
                       <td>${esc(w)}</td>
                       <td><button type="button" class="primary del-small warehouse-rename" data-name="${encodeURIComponent(w)}">수정</button></td>
                       <td>${
-                        w === "유통사업부"
+                        w === "유통사업부(W)"
                           ? `<span class="muted">기본창고</span>`
                           : `<button type="button" class="cancel-btn del-small warehouse-del" data-name="${encodeURIComponent(w)}">삭제</button>`
                       }</td>
@@ -8050,38 +8099,77 @@ async function renderHistory() {
 }
 
 function renderAlert() {
+  const all = state.stock || [];
+  const lowItems = all
+    .map((s) => {
+      const netStock = Number(s.stock || 0) - Number(s.unusableStock || 0);
+      const safety = Number(s.safetyStock || 0);
+      return { ...s, netStock, safety, shortage: safety - netStock };
+    })
+    .filter((s) => s.netStock <= s.safety)
+    .sort((a, b) => b.shortage - a.shortage);
+
   qs("#view-alert").innerHTML = `
+    <div class="card"><h1 style="margin:0 0 4px;">알림</h1><p class="muted">안전재고 이하로 떨어진 상품을 알려드립니다.</p></div>
     <div class="card">
-      <h2>알림</h2>
-      <p class="muted">추후 업그레이드 예정 메뉴입니다.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <h2 style="margin:0;">재고부족 알림
+          <span class="ppl-tab-count" style="background:${lowItems.length ? "#DC2626" : "#94A3B8"};color:#fff;">${lowItems.length}</span>
+        </h2>
+        <button type="button" class="primary del-small" id="alert-goto-stock">재고현황에서 보기</button>
+      </div>
+      ${lowItems.length
+        ? `<table class="mini-table" id="alert-table">
+            <thead><tr><th>창고</th><th>상품코드</th><th>상품명</th><th>안전재고</th><th>현재고</th><th>부족수량</th></tr></thead>
+            <tbody>
+              ${lowItems
+                .map(
+                  (s) => `
+                <tr>
+                  <td>${esc(s.warehouse || "-")}</td>
+                  <td>${esc(s.ecountCode || s.code)}</td>
+                  <td>${esc(s.name)}</td>
+                  <td class="num">${s.safety}</td>
+                  <td class="num" style="color:#DC2626;font-weight:600;">${s.netStock}</td>
+                  <td class="num" style="color:#DC2626;font-weight:600;">${s.shortage}</td>
+                </tr>`
+                )
+                .join("")}
+            </tbody>
+          </table>`
+        : `<p class="muted">현재 안전재고 이하 상품이 없습니다.</p>`}
     </div>
   `;
-}
 
-function syncBarcodeTab(tab) {
-  document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((b) => {
-    b.classList.toggle("active", b.dataset.barcodeTab === tab);
+  qs("#alert-goto-stock")?.addEventListener("click", () => {
+    switchView("stock");
+    renderStock();
+    const statusEl = qs("#stock-status");
+    if (statusEl) {
+      statusEl.value = "LOW";
+      statusEl.dispatchEvent(new Event("change"));
+    }
   });
-}
-window.syncBarcodeTab = syncBarcodeTab;
 
-function renderBarcodePrint(tab = "products") {
-  const el = qs("#view-barcode-print");
-  const iframe = el.querySelector("iframe");
-  if (iframe) {
-    try { iframe.contentWindow.showTab(tab); } catch(_) {}
-    return;
-  }
-  el.innerHTML = `<iframe src="/barcode-print.html?embedded=1" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
-  el.querySelector("iframe").addEventListener("load", () => {
-    try { el.querySelector("iframe").contentWindow.showTab(tab); } catch(_) {}
-  });
+  if (lowItems.length) applyExcelLikeFilter("#alert-table");
 }
 
 function renderBarcodePrint2() {
   const el = qs("#view-barcode-print2");
   if (el.querySelector("iframe")) return;
-  el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+  el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=print" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+}
+
+function renderBarcodePrintHistory() {
+  const el = qs("#view-barcode-print-history");
+  if (el.querySelector("iframe")) return;
+  el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=history" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+}
+
+function renderBarcodePrintPresets() {
+  const el = qs("#view-barcode-print-presets");
+  if (el.querySelector("iframe")) return;
+  el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=presets" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
 }
 
 async function renderPurchaseOrders() {
@@ -9024,6 +9112,7 @@ async function afterMovementDone() {
   renderProducts();
   renderMaster();
   renderPartners();
+  renderAlert();
   await renderDashboard();
   await renderHistory();
   const active = document.querySelector(".main .view:not(.hidden)");
@@ -9057,6 +9146,7 @@ async function init() {
       if (v === "outbound-upload-lotte") await renderOutboundPartnerUpload("롯데마트", "lotte");
       if (v === "adjust") renderAdjust();
       if (v === "history") await renderHistory();
+      if (v === "users") renderUsers();
       if (v === "alert") renderAlert();
       if (v === "location-master") await renderLocationMaster();
       if (v === "location-map") renderLocationMap();
@@ -9065,24 +9155,14 @@ async function init() {
       if (v === "location-stock") await renderLocationStock();
       if (v === "purchase-products") renderPurchaseProductsList();
       if (v === "purchase-orders") await renderPurchaseOrders();
-      if (v === "barcode-print") renderBarcodePrint();
       if (v === "barcode-print2") renderBarcodePrint2();
+      if (v === "barcode-print-history") renderBarcodePrintHistory();
+      if (v === "barcode-print-presets") renderBarcodePrintPresets();
       if (v === "dev-notes") await renderDevNotes();
     };
   });
 
   qs("#demo-mode-toggle")?.addEventListener("click", () => toggleDemoMode());
-
-  document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((btn) => {
-    btn.onclick = () => {
-      const tab = btn.dataset.barcodeTab;
-      switchView("barcode-print");
-      renderBarcodePrint(tab);
-      document.querySelectorAll(".sidebar button[data-barcode-tab]").forEach((b) => {
-        b.classList.toggle("active", b.dataset.barcodeTab === tab);
-      });
-    };
-  });
 
   await refreshCommon();
   await renderDashboard();
@@ -9102,6 +9182,7 @@ async function init() {
   await renderOutboundPartnerUpload("롯데마트", "lotte");
   renderAdjust();
   await renderHistory();
+  renderUsers();
   renderAlert();
   await renderLocationMaster();
   renderLocationMap();
@@ -9109,7 +9190,7 @@ async function init() {
   await renderLocationStock();
   renderPurchaseProductsList();
   await renderPurchaseOrders();
-  // barcode-print은 클릭 시 iframe 생성 (lazy) — 새로고침으로 복원될 때도 동일하게 생성해줘야 한다.
+  // barcode-print2는 클릭 시 iframe 생성 (lazy) — 새로고침으로 복원될 때도 동일하게 생성해줘야 한다.
   let initialView = "dashboard";
   try {
     const saved = localStorage.getItem(LAST_VIEW_KEY);
@@ -9118,8 +9199,9 @@ async function init() {
     // ignore storage errors
   }
   switchView(initialView);
-  if (initialView === "barcode-print") renderBarcodePrint();
   if (initialView === "barcode-print2") renderBarcodePrint2();
+  if (initialView === "barcode-print-history") renderBarcodePrintHistory();
+  if (initialView === "barcode-print-presets") renderBarcodePrintPresets();
 
   try {
     if (localStorage.getItem(WmsDemoMask.STORAGE_KEY) === "1") {

@@ -329,8 +329,9 @@ body {
   height: 100vh;
   overflow: hidden;
 }
-#view-barcode-print,
-#view-barcode-print2 {
+#view-barcode-print2,
+#view-barcode-print-history,
+#view-barcode-print-presets {
   height: 100%;
 }
 
@@ -909,6 +910,38 @@ tbody tr:last-child td { border-bottom: 0; }
 .ppl-tab.active .ppl-tab-count {
   background: #1B3F6E;
   color: #fff;
+}
+#master-tab-bar.ppl-tab-bar {
+  gap: 24px;
+  border-bottom: 1px solid #E5E8EB;
+  margin-bottom: 0;
+}
+#master-tab-bar .ppl-tab {
+  position: relative;
+  padding: 8px 2px 14px;
+  font-size: 15px;
+  font-weight: 500;
+  color: #191F28;
+  border-bottom: none;
+  margin-bottom: 0;
+}
+#master-tab-bar .ppl-tab::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  border-radius: 0;
+  background: transparent;
+}
+#master-tab-bar .ppl-tab:hover { color: #3182F6; }
+#master-tab-bar .ppl-tab.active {
+  color: #3182F6;
+  font-weight: 700;
+}
+#master-tab-bar .ppl-tab.active::after {
+  background: #3182F6;
 }
 .ppl-filter-row {
   display: flex;

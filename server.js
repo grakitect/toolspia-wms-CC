@@ -86,6 +86,7 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000).unref();
+const MANAGER_PERMISSION_KEYS = ["master", "inbound", "outbound", "stock", "purchase", "manage", "barcode"];
 const PRODUCT_OPTION_KEYS = [
   "status",
   "deliveryVendors",
@@ -133,7 +134,7 @@ function ensureDb() {
     const initial = {
       products: [],
       movements: [],
-      warehouses: ["유통사업부", "다이소", "아세로직스", "가온플러스"],
+      warehouses: ["유통사업부(W)", "다이소", "아세로직스(W)", "가온플러스(W)"],
       partners: {
         inbound: [],
         outbound: [],
@@ -230,12 +231,17 @@ function normalizeDb(db) {
   for (const name of Object.keys(db.managerRoles)) {
     if (!db.managers.includes(name)) delete db.managerRoles[name];
   }
+  if (!db.managerPermissions || typeof db.managerPermissions !== "object") db.managerPermissions = {};
+  for (const name of Object.keys(db.managerPermissions)) {
+    if (!db.managers.includes(name)) delete db.managerPermissions[name];
+    else db.managerPermissions[name] = (db.managerPermissions[name] || []).filter((k) => MANAGER_PERMISSION_KEYS.includes(k));
+  }
   if (!db.companyInfo || typeof db.companyInfo !== "object") db.companyInfo = {};
   db.companyInfo.name = String(db.companyInfo.name || "");
   db.companyInfo.bizRegNo = String(db.companyInfo.bizRegNo || "");
   db.companyInfo.address = String(db.companyInfo.address || "");
   if (!Array.isArray(db.warehouses) || db.warehouses.length === 0) {
-    db.warehouses = ["유통사업부", "다이소", "아세로직스", "가온플러스"];
+    db.warehouses = ["유통사업부(W)", "다이소", "아세로직스(W)", "가온플러스(W)"];
   }
   if (!db.productOptions || typeof db.productOptions !== "object") db.productOptions = {};
   for (const k of PRODUCT_OPTION_KEYS) {
@@ -286,7 +292,7 @@ function normalizeDb(db) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
   for (const m of db.movements) {
-    if (!m.warehouse) m.warehouse = "유통사업부";
+    if (!m.warehouse) m.warehouse = "유통사업부(W)";
   }
   if (!db.inboundPlanUpload || typeof db.inboundPlanUpload !== "object") {
     db.inboundPlanUpload = { lines: [], sourceFileName: "", uploadedAt: "", slipWorkflow: {} };
@@ -343,6 +349,8 @@ function normalizeDb(db) {
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
   if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
   if (!Array.isArray(db.barcodeCustomTemplates)) db.barcodeCustomTemplates = [];
+  if (!Array.isArray(db.barcodePrintHistory)) db.barcodePrintHistory = [];
+  if (!Array.isArray(db.barcodePrintPresets)) db.barcodePrintPresets = [];
   if (!Array.isArray(db.devBoards)) db.devBoards = [];
   for (const b of db.devBoards) {
     if (!Array.isArray(b.sections)) {
@@ -724,7 +732,7 @@ function cancelMovement(db, id, user) {
     type: "CANCEL",
     productCode: target.productCode,
     qty: -Number(target.qty || 0),
-    warehouse: target.warehouse || "유통사업부",
+    warehouse: target.warehouse || "유통사업부(W)",
     toWarehouse: target.toWarehouse || "",
     partner: target.partner,
     memo: `원거래 ${target.id} 취소`,
@@ -750,7 +758,7 @@ function computeStockAfterEachMovement(db) {
   });
   const afterMap = {};
   for (const m of sorted) {
-    const from = m.warehouse || "유통사업부";
+    const from = m.warehouse || "유통사업부(W)";
     if (!stockMap[from]) stockMap[from] = {};
     if (!(m.productCode in stockMap[from])) stockMap[from][m.productCode] = 0;
     if (m.type === "LOC_TRANSFER") {
@@ -1695,7 +1703,7 @@ function performOutboundWorkflowReopen(db, slipNoInput) {
       type: "ADJUST",
       productCode: group[i].productCode,
       qty: Math.abs(qty),
-      warehouse: String(group[i].warehouse || "").trim() || String(process.env.WMS_DEFAULT_OUTBOUND_WH || "").trim() || "유통사업부",
+      warehouse: String(group[i].warehouse || "").trim() || String(process.env.WMS_DEFAULT_OUTBOUND_WH || "").trim() || "유통사업부(W)",
       partner: "",
       memo: `출고확정 취소 원복 ${memoSlip}`,
       slipNo: memoSlip,
@@ -1772,7 +1780,7 @@ function applyOutboundWorkflowConfirm(db, slipNoInput, stockUserInput, bodyLineQ
       type: "OUT",
       productCode: group[i].productCode,
       qty,
-      warehouse: String(group[i].warehouse || "").trim() || String(process.env.WMS_DEFAULT_OUTBOUND_WH || "").trim() || "유통사업부",
+      warehouse: String(group[i].warehouse || "").trim() || String(process.env.WMS_DEFAULT_OUTBOUND_WH || "").trim() || "유통사업부(W)",
       partner: String(group[i].partner || "").trim(),
       memo: "",
       // 출고 이력 전표번호는 센터 통합 전표번호를 기록
@@ -3190,7 +3198,7 @@ async function handleApi(req, res, urlObj) {
       if (!approver) throw new Error("담당자명 인증이 필요합니다.");
       if (approver !== "박유정") throw new Error("창고 삭제 권한은 박유정에게만 있습니다.");
       if (!db.managers.includes(approver)) throw new Error("등록된 담당자만 삭제할 수 있습니다.");
-      if (name === "유통사업부") throw new Error("기본 창고(유통사업부)는 삭제할 수 없습니다.");
+      if (name === "유통사업부(W)") throw new Error("기본 창고(유통사업부(W))는 삭제할 수 없습니다.");
       const stocks = calculateStock(db, name);
       const hasRemaining = stocks.some((s) => Number(s.stock || 0) !== 0);
       if (hasRemaining) {
@@ -3373,7 +3381,12 @@ async function handleApi(req, res, urlObj) {
   }
 
   if (req.method === "GET" && pathname === "/api/managers") {
-    return sendJson(res, 200, { items: db.managers, roles: db.managerRoles });
+    return sendJson(res, 200, {
+      items: db.managers,
+      roles: db.managerRoles,
+      permissions: db.managerPermissions,
+      permissionKeys: MANAGER_PERMISSION_KEYS
+    });
   }
 
   if (req.method === "POST" && pathname === "/api/managers") {
@@ -3396,6 +3409,7 @@ async function handleApi(req, res, urlObj) {
       if (!name) throw new Error("담당자명은 필수입니다.");
       db.managers = db.managers.filter((x) => x !== name);
       delete db.managerRoles[name];
+      delete db.managerPermissions[name];
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {
@@ -3414,6 +3428,25 @@ async function handleApi(req, res, urlObj) {
       else delete db.managerRoles[name];
       writeDb(db);
       return sendJson(res, 200, { ok: true, roles: db.managerRoles });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/managers/permissions") {
+    try {
+      const body = await parseBody(req);
+      const name = String(body.name || "").trim();
+      const permissions = Array.isArray(body.permissions) ? body.permissions : [];
+      if (!name) throw new Error("담당자명은 필수입니다.");
+      if (!db.managers.includes(name)) throw new Error("등록된 담당자가 아닙니다.");
+      const cleaned = [...new Set(permissions.map((p) => String(p || "").trim()))].filter((p) =>
+        MANAGER_PERMISSION_KEYS.includes(p)
+      );
+      if (cleaned.length) db.managerPermissions[name] = cleaned;
+      else delete db.managerPermissions[name];
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, permissions: db.managerPermissions });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -4179,7 +4212,7 @@ async function handleApi(req, res, urlObj) {
         "SAMPLE-001",
         "샘플상품",
         10,
-        "유통사업부",
+        "유통사업부(W)",
         "샘플 비고"
       ];
       const wb = XLSX.utils.book_new();
@@ -4865,7 +4898,7 @@ async function handleApi(req, res, urlObj) {
             itemName: "샘플상품",
             qty: 120,
             dueDate: to || "2026-04-30",
-            whName: "유통사업부",
+            whName: "유통사업부(W)",
             status: "발주완료"
           }
         ];
@@ -6172,6 +6205,96 @@ async function handleApi(req, res, urlObj) {
       db.barcodeCustomTemplates = db.barcodeCustomTemplates.filter((t) => t.id !== id);
       writeDb(db);
       return sendJson(res, 200, { ok: true, items: db.barcodeCustomTemplates });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 바코드 인쇄 내역 (누가 언제 무엇을 인쇄했는지 로그. 미등록 상품 추적용) ──
+  const BARCODE_PRINT_HISTORY_KEEP = 500;
+
+  if (req.method === "GET" && pathname === "/api/barcode-print-history") {
+    return sendJson(res, 200, { items: db.barcodePrintHistory.slice().reverse() });
+  }
+
+  if (req.method === "POST" && pathname === "/api/barcode-print-history") {
+    try {
+      const body = await parseBody(req);
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (!items.length) throw new Error("인쇄한 상품 목록이 없습니다.");
+      const entry = {
+        id: `BPH-${String(db.seq++).padStart(6, "0")}`,
+        ts: new Date().toISOString(),
+        items: items.map((it) => ({
+          id: String(it.id || ""),
+          name: String(it.name || ""),
+          barcode: String(it.barcode || ""),
+          qty: Number(it.qty) || 1,
+          isRegistered: Boolean(it.isRegistered)
+        })),
+        templateId: String(body.templateId || ""),
+        templateName: String(body.templateName || ""),
+        paperMode: String(body.paperMode || ""),
+        paperLabel: String(body.paperLabel || "")
+      };
+      db.barcodePrintHistory.push(entry);
+      if (db.barcodePrintHistory.length > BARCODE_PRINT_HISTORY_KEEP) {
+        db.barcodePrintHistory = db.barcodePrintHistory.slice(-BARCODE_PRINT_HISTORY_KEEP);
+      }
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, id: entry.id });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/barcode-print-history/delete") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      if (!id) throw new Error("삭제할 내역 id가 없습니다.");
+      db.barcodePrintHistory = db.barcodePrintHistory.filter((x) => x.id !== id);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 자주 쓰는 인쇄 프리셋 (판매처별 용지/템플릿/상품목록 저장) ──────────
+  if (req.method === "GET" && pathname === "/api/barcode-print-presets") {
+    return sendJson(res, 200, { items: db.barcodePrintPresets });
+  }
+
+  if (req.method === "POST" && pathname === "/api/barcode-print-presets/upsert") {
+    try {
+      const body = await parseBody(req);
+      const item = body.item;
+      if (!item || !String(item.name || "").trim()) throw new Error("프리셋 이름이 필요합니다.");
+      if (item.id) {
+        const idx = db.barcodePrintPresets.findIndex((p) => p.id === item.id);
+        if (idx !== -1) { db.barcodePrintPresets[idx] = { ...db.barcodePrintPresets[idx], ...item }; }
+        else { item.createdAt = new Date().toISOString(); db.barcodePrintPresets.push(item); }
+      } else {
+        item.id = `BPP-${String(db.seq++).padStart(5, "0")}`;
+        item.createdAt = new Date().toISOString();
+        db.barcodePrintPresets.push(item);
+      }
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, items: db.barcodePrintPresets });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/barcode-print-presets/delete") {
+    try {
+      const body = await parseBody(req);
+      const id = String(body.id || "").trim();
+      if (!id) throw new Error("삭제할 프리셋 id가 없습니다.");
+      db.barcodePrintPresets = db.barcodePrintPresets.filter((p) => p.id !== id);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, items: db.barcodePrintPresets });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }

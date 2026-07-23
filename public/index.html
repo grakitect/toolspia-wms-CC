@@ -191,14 +191,18 @@
             </div></div>
           </div>
 
-          <!-- 관리 그룹 -->
+          <!-- 설정 그룹 -->
           <div class="sidebar-group">
             <button class="sidebar-group-btn" data-group="manage">
               <i data-lucide="settings-2"></i>
-              <span>관리</span>
+              <span>설정</span>
               <i data-lucide="chevron-down" class="sidebar-chevron"></i>
             </button>
             <div class="sidebar-group-body"><div>
+              <button data-view="users" class="sidebar-sub">
+                <i data-lucide="users"></i>
+                <span>사용자</span>
+              </button>
               <button data-view="alert" class="sidebar-sub">
                 <i data-lucide="bell"></i>
                 <span>알림</span>
@@ -214,21 +218,17 @@
               <i data-lucide="chevron-down" class="sidebar-chevron"></i>
             </button>
             <div class="sidebar-group-body"><div>
-              <button data-barcode-tab="products" class="sidebar-sub">
-                <i data-lucide="search"></i>
-                <span>상품 검색</span>
-              </button>
-              <button data-barcode-tab="labels" class="sidebar-sub">
-                <i data-lucide="tag"></i>
-                <span>라벨 템플릿</span>
-              </button>
-              <button data-barcode-tab="print" class="sidebar-sub">
-                <i data-lucide="printer"></i>
-                <span>바코드 인쇄</span>
-              </button>
               <button data-view="barcode-print2" class="sidebar-sub">
                 <i data-lucide="printer"></i>
-                <span>바코드 인쇄 2 (신규)</span>
+                <span>인쇄</span>
+              </button>
+              <button data-view="barcode-print-presets" class="sidebar-sub">
+                <i data-lucide="star"></i>
+                <span>자주 쓰는 인쇄</span>
+              </button>
+              <button data-view="barcode-print-history" class="sidebar-sub">
+                <i data-lucide="history"></i>
+                <span>인쇄내역</span>
               </button>
             </div></div>
           </div>
@@ -262,6 +262,7 @@
         <section id="view-outbound-upload-lotte" class="view hidden"></section>
         <section id="view-adjust" class="view hidden"></section>
         <section id="view-history" class="view hidden"></section>
+        <section id="view-users" class="view hidden"></section>
         <section id="view-alert" class="view hidden"></section>
         <section id="view-location-master" class="view hidden"></section>
         <section id="view-location-map" class="view hidden"></section>
@@ -269,8 +270,9 @@
         <section id="view-location-stock" class="view hidden"></section>
         <section id="view-purchase-products" class="view hidden"></section>
         <section id="view-purchase-orders" class="view hidden"></section>
-        <section id="view-barcode-print" class="view hidden" style="padding:0;overflow:hidden;"></section>
         <section id="view-barcode-print2" class="view hidden" style="padding:0;overflow:hidden;"></section>
+        <section id="view-barcode-print-history" class="view hidden" style="padding:0;overflow:hidden;"></section>
+        <section id="view-barcode-print-presets" class="view hidden" style="padding:0;overflow:hidden;"></section>
         <section id="view-dev-notes" class="view hidden"></section>
       </main>
     </div>
