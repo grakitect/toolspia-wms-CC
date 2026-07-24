@@ -214,6 +214,23 @@ function writeDb(db) {
   throw lastErr;
 }
 
+// ── 구매이력(이카운트 구매 원장) — 건수가 수만 건대라 매 요청 read/write하는 db.json에는
+// 넣지 않고 별도 파일로 분리해 메인 DB 성능에 영향을 주지 않게 한다.
+const PURCHASE_HISTORY_PATH = path.join(DATA_DIR, "purchase-history.json");
+function readPurchaseHistory() {
+  try {
+    const raw = fs.readFileSync(PURCHASE_HISTORY_PATH, "utf-8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+function writePurchaseHistory(items) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(PURCHASE_HISTORY_PATH, JSON.stringify(items), "utf-8");
+}
+
 function normalizeDb(db) {
   if (!db.partners) {
     db.partners = { inbound: [], outbound: [], purchase: [] };
@@ -348,6 +365,9 @@ function normalizeDb(db) {
   if (!Array.isArray(db.locations)) db.locations = [];
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
   if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
+  if (!Array.isArray(db.purchaseProductMaster)) db.purchaseProductMaster = [];
+  if (!Array.isArray(db.ecountWarehouses)) db.ecountWarehouses = [];
+  if (!Array.isArray(db.purchaseVendorItemNames)) db.purchaseVendorItemNames = [];
   if (!Array.isArray(db.barcodeCustomTemplates)) db.barcodeCustomTemplates = [];
   if (!Array.isArray(db.barcodePrintHistory)) db.barcodePrintHistory = [];
   if (!Array.isArray(db.barcodePrintPresets)) db.barcodePrintPresets = [];
@@ -6363,6 +6383,117 @@ async function handleApi(req, res, urlObj) {
       const idx = db.purchaseOrders.findIndex((o) => o.id === id);
       if (idx === -1) throw new Error("발주서를 찾을 수 없습니다.");
       db.purchaseOrders.splice(idx, 1);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  // ── 구매품목 마스터 (이카운트 구매내역에서 추출한 품목코드/품명/규격) ──
+  if (req.method === "GET" && pathname === "/api/purchase-product-master") {
+    return sendJson(res, 200, { items: db.purchaseProductMaster });
+  }
+
+  // ── 이카운트 창고 리스트 (실제 재고 창고 `db.warehouses`와는 별개의 참고용 마스터) ──
+  if (req.method === "GET" && pathname === "/api/ecount-warehouses") {
+    return sendJson(res, 200, { items: db.ecountWarehouses });
+  }
+
+  // ── 구매이력 (이카운트 구매 원장 — db.json이 아닌 별도 파일에서 읽음) ──
+  if (req.method === "GET" && pathname === "/api/purchase-history") {
+    let items = readPurchaseHistory();
+    const vendorName = (urlObj.searchParams.get("vendorName") || "").trim();
+    const itemCode = (urlObj.searchParams.get("itemCode") || "").trim();
+    const dateFrom = (urlObj.searchParams.get("dateFrom") || "").trim();
+    const dateTo = (urlObj.searchParams.get("dateTo") || "").trim();
+    if (vendorName) items = items.filter((r) => r.vendorName === vendorName);
+    if (itemCode) items = items.filter((r) => r.itemCode === itemCode);
+    if (dateFrom) items = items.filter((r) => r.date >= dateFrom);
+    if (dateTo) items = items.filter((r) => r.date <= dateTo);
+    const limit = Math.min(Number(urlObj.searchParams.get("limit")) || 5000, 20000);
+    const offset = Number(urlObj.searchParams.get("offset")) || 0;
+    return sendJson(res, 200, { total: items.length, items: items.slice(offset, offset + limit) });
+  }
+
+  // ── 구매처별 품목 집계 (구매이력을 구매처 기준으로 묶어 품목별 합계 제공) ──
+  if (req.method === "GET" && pathname === "/api/purchase-history/vendor-summary") {
+    const history = readPurchaseHistory();
+    const vendorMap = new Map(); // vendorName -> { vendorName, vendorCode, items: Map(itemCode -> agg) }
+
+    for (const r of history) {
+      const vName = r.vendorName || "(미지정)";
+      if (!vendorMap.has(vName)) {
+        vendorMap.set(vName, { vendorName: vName, vendorCode: r.vendorCode || "", items: new Map() });
+      }
+      const v = vendorMap.get(vName);
+      if (!v.vendorCode && r.vendorCode) v.vendorCode = r.vendorCode;
+
+      const iCode = r.itemCode || "(코드없음)";
+      if (!v.items.has(iCode)) {
+        v.items.set(iCode, {
+          itemCode: r.itemCode || "",
+          itemName: r.itemName || "",
+          spec: r.spec || "",
+          qty: 0,
+          amount: 0,
+          count: 0,
+          firstDate: r.date || "",
+          lastDate: r.date || ""
+        });
+      }
+      const it = v.items.get(iCode);
+      it.qty += Number(r.qty) || 0;
+      it.amount += Number(r.total) || 0;
+      it.count += 1;
+      if (r.date && (!it.firstDate || r.date < it.firstDate)) it.firstDate = r.date;
+      if (r.date && (!it.lastDate || r.date > it.lastDate)) it.lastDate = r.date;
+    }
+
+    const vendorItemNameMap = new Map(); // "vendorName||itemCode" -> vendorItemName
+    for (const r of db.purchaseVendorItemNames) {
+      vendorItemNameMap.set(`${r.vendorName}||${r.itemCode}`, r.vendorItemName || "");
+    }
+
+    const result = [...vendorMap.values()].map((v) => {
+      const items = [...v.items.values()].map((it) => ({
+        ...it,
+        vendorItemName: vendorItemNameMap.get(`${v.vendorName}||${it.itemCode}`) || ""
+      })).sort((a, b) => b.amount - a.amount);
+      const totalQty = items.reduce((s, it) => s + it.qty, 0);
+      const totalAmount = items.reduce((s, it) => s + it.amount, 0);
+      const transactionCount = items.reduce((s, it) => s + it.count, 0);
+      const lastPurchaseDate = items.reduce((max, it) => (it.lastDate > max ? it.lastDate : max), "");
+      return {
+        vendorName: v.vendorName,
+        vendorCode: v.vendorCode,
+        itemCount: items.length,
+        totalQty,
+        totalAmount,
+        transactionCount,
+        lastPurchaseDate,
+        items
+      };
+    }).sort((a, b) => a.vendorName.localeCompare(b.vendorName, "ko"));
+
+    return sendJson(res, 200, { items: result });
+  }
+
+  // ── 구매처별 업체 품목명(이카운트 품목명과 별개로 사용자가 직접 입력) 저장 ──
+  if (req.method === "POST" && pathname === "/api/purchase-vendor-item-names") {
+    try {
+      const body = await parseBody(req);
+      const vendorName = String(body.vendorName || "").trim();
+      const itemCode = String(body.itemCode || "").trim();
+      const vendorItemName = String(body.vendorItemName || "").trim();
+      if (!vendorName || !itemCode) throw new Error("구매처명과 품목코드가 필요합니다.");
+      const existing = db.purchaseVendorItemNames.find((r) => r.vendorName === vendorName && r.itemCode === itemCode);
+      if (existing) {
+        existing.vendorItemName = vendorItemName;
+        existing.updatedAt = new Date().toISOString();
+      } else {
+        db.purchaseVendorItemNames.push({ vendorName, itemCode, vendorItemName, updatedAt: new Date().toISOString() });
+      }
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {

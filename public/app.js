@@ -22,6 +22,7 @@ const views = [
   "location-map",
   "location-map-3d",
   "location-stock",
+  "purchase-vendors",
   "purchase-products",
   "purchase-orders",
   "barcode-print2",
@@ -70,6 +71,7 @@ const state = {
     }
   },
   purchaseOrders: [],
+  purchaseVendorSummary: [],
   devBoards: []
 };
 let masterActiveTab = "company";
@@ -8172,6 +8174,228 @@ function renderBarcodePrintPresets() {
   el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=presets" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
 }
 
+let pvSelectedVendor = null;
+let pvSearchQuery = "";
+let pvCategoryTab = "전체";
+let pvExpandedItem = null;
+let pvItemHistoryCache = {};
+
+// 구매처명에 한글이 없으면(=영문 상호) 수입, 있으면 국내사입으로 분류
+function pvCategoryOf(vendorName) {
+  return /[가-힣]/.test(vendorName || "") ? "국내사입" : "수입";
+}
+
+async function renderPurchaseVendors() {
+  const sec = qs("#view-purchase-vendors");
+  sec.innerHTML = `<div class="card"><h2>구매처 정보</h2><div class="muted">불러오는 중...</div></div>`;
+  const res = await fetch("/api/purchase-history/vendor-summary").then((r) => r.json()).catch(() => ({ items: [] }));
+  state.purchaseVendorSummary = res.items || [];
+  if (!pvSelectedVendor || !state.purchaseVendorSummary.some((v) => v.vendorName === pvSelectedVendor)) {
+    pvSelectedVendor = state.purchaseVendorSummary[0]?.vendorName || null;
+  }
+  renderPurchaseVendorsBody();
+}
+
+// 검색창의 input 이벤트마다 전체 innerHTML(검색창 자신 포함)을 다시 그리면
+// 한글 조합 중(IME composition)에도 DOM 노드가 매번 교체돼 초성이 풀리는 문제가 있었다.
+// 그래서 검색 시에는 목록(#pv-list)만 갱신하고, <input> 자체는 절대 다시 그리지 않는다.
+function getFilteredPvVendors() {
+  const q = pvSearchQuery.trim().toLowerCase();
+  const all = state.purchaseVendorSummary || [];
+  return all.filter((v) =>
+    (pvCategoryTab === "전체" || pvCategoryOf(v.vendorName) === pvCategoryTab) &&
+    (!q || v.vendorName.toLowerCase().includes(q) || (v.vendorCode || "").toLowerCase().includes(q))
+  );
+}
+
+function renderPvListRows() {
+  const vendors = getFilteredPvVendors();
+  const listRows = vendors.map((v) => `
+    <div class="pv-row" data-vendor="${esc(v.vendorName)}" style="padding:10px 12px; border-bottom:1px solid #eef1f5; cursor:pointer; ${v.vendorName === pvSelectedVendor ? 'background:#eef4ff;' : ''}">
+      <div style="font-weight:600; font-size:13.5px;">${esc(v.vendorName)}</div>
+      <div class="muted" style="font-size:12px; margin-top:2px; display:flex; justify-content:space-between; gap:8px;">
+        <span>${esc(v.vendorCode || "-")}</span>
+        <span>품목 ${v.itemCount}개</span>
+      </div>
+    </div>`).join("");
+  const listEl = qs("#pv-list");
+  if (!listEl) return;
+  listEl.innerHTML = listRows || '<div class="muted" style="padding:16px; text-align:center;">구매처가 없습니다.</div>';
+  listEl.querySelectorAll(".pv-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      pvSelectedVendor = row.dataset.vendor;
+      pvExpandedItem = null;
+      renderPurchaseVendorsBody();
+    });
+  });
+}
+
+// 품목 행을 펼치면 해당 구매처×품목의 과거 구매기록(개별 전표)을 불러와 아코디언으로 보여준다.
+async function loadPvItemHistory(vendorName, itemCode) {
+  const cacheKey = `${vendorName}||${itemCode}`;
+  const el = document.getElementById(`pv-item-history-${cacheKey}`);
+  if (!el) return;
+  let rows = pvItemHistoryCache[cacheKey];
+  if (!rows) {
+    try {
+      const res = await fetch(`/api/purchase-history?vendorName=${encodeURIComponent(vendorName)}&itemCode=${encodeURIComponent(itemCode)}&limit=1000`);
+      const data = await res.json();
+      rows = (data.items || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+      pvItemHistoryCache[cacheKey] = rows;
+    } catch (e) {
+      el.innerHTML = '<div class="muted" style="padding:8px 0;">구매기록을 불러오지 못했습니다.</div>';
+      return;
+    }
+  }
+  if (!rows.length) {
+    el.innerHTML = '<div class="muted" style="padding:8px 0;">구매기록이 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <table class="pv-history-table" style="font-size:12.5px;">
+      <thead><tr>
+        <th>구매일</th><th style="text-align:right;">수량</th><th style="text-align:right;">단가</th>
+        <th style="text-align:right;">공급가액</th><th style="text-align:right;">합계</th>
+        <th>창고</th><th>인보이스번호</th><th>비고</th>
+      </tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr>
+          <td>${esc(r.date)}</td>
+          <td style="text-align:right;">${(r.qty || 0).toLocaleString()}</td>
+          <td style="text-align:right;">${(r.unitPrice || 0).toLocaleString()}원</td>
+          <td style="text-align:right;">${(r.supplyAmount || 0).toLocaleString()}원</td>
+          <td style="text-align:right;">${(r.total || 0).toLocaleString()}원</td>
+          <td>${esc(r.warehouseCode || "")}</td>
+          <td>${esc(r.invoiceNo || "")}</td>
+          <td>${esc(r.note || r.memo || "")}</td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+}
+
+async function savePvVendorItemName(vendorName, itemCode, vendorItemName) {
+  try {
+    await fetch("/api/purchase-vendor-item-names", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ vendorName, itemCode, vendorItemName })
+    });
+    const v = (state.purchaseVendorSummary || []).find((x) => x.vendorName === vendorName);
+    const item = v?.items.find((x) => x.itemCode === itemCode);
+    if (item) item.vendorItemName = vendorItemName;
+  } catch (e) {
+    alert("업체 품목명 저장 실패");
+  }
+}
+
+function renderPurchaseVendorsBody() {
+  const sec = qs("#view-purchase-vendors");
+  const all = state.purchaseVendorSummary || [];
+  const tabCounts = { "전체": all.length, "수입": 0, "국내사입": 0 };
+  all.forEach((v) => { tabCounts[pvCategoryOf(v.vendorName)]++; });
+
+  const tabsHtml = ["전체", "수입", "국내사입"].map((t) =>
+    `<button class="ppl-tab${pvCategoryTab === t ? " active" : ""}" data-tab="${esc(t)}">${esc(t)} <span class="ppl-tab-count">${tabCounts[t]}</span></button>`
+  ).join("");
+
+  const selected = (state.purchaseVendorSummary || []).find((v) => v.vendorName === pvSelectedVendor);
+  const itemRows = selected ? selected.items.map((it) => {
+    const key = `${selected.vendorName}||${it.itemCode}`;
+    const isOpen = pvExpandedItem === it.itemCode;
+    const mainRow = `
+      <tr class="pv-item-row" data-item-code="${esc(it.itemCode)}">
+        <td class="pv-toggle-cell" data-item-code="${esc(it.itemCode)}" style="cursor:pointer; text-align:center; width:32px;" title="${isOpen ? "구매기록 접기" : "구매기록 펼치기"}"><span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:6px; background:${isOpen ? "#3b82f6" : "#eef2f7"}; color:${isOpen ? "#fff" : "#475569"}; font-size:15px; font-weight:700; line-height:1;">${isOpen ? "▾" : "▸"}</span></td>
+        <td class="pv-cell-truncate" style="max-width:120px;" title="${esc(it.itemCode)}">${esc(it.itemCode)}</td>
+        <td class="pv-cell-truncate" style="max-width:280px;" title="${esc(it.itemName)}">${esc(it.itemName)}</td>
+        <td><input class="pv-vendor-item-name-input" data-item-code="${esc(it.itemCode)}" value="${esc(it.vendorItemName || "")}" placeholder="업체 품목명 입력" style="width:100%; box-sizing:border-box; padding:5px 7px; border:1px solid #dde3ea; border-radius:5px; font-size:12.5px;" /></td>
+        <td class="pv-cell-truncate" style="max-width:160px;" title="${esc(it.spec)}">${esc(it.spec)}</td>
+        <td style="text-align:right;">${it.qty.toLocaleString()}</td>
+        <td style="text-align:right;">${it.amount.toLocaleString()}원</td>
+        <td style="text-align:right;">${it.count}</td>
+        <td>${esc(it.lastDate)}</td>
+      </tr>`;
+    const detailRow = isOpen ? `
+      <tr class="pv-item-detail-row">
+        <td colspan="9" style="padding:0; background:#f8fafc;">
+          <div id="pv-item-history-${esc(key)}" style="padding:0 16px 10px; max-height:280px; overflow-y:auto;">불러오는 중...</div>
+        </td>
+      </tr>` : "";
+    return mainRow + detailRow;
+  }).join("") : "";
+
+  sec.innerHTML = `
+    <div class="card" style="margin-bottom:12px; padding:14px 20px; display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;">
+      <h2 style="margin:0;">구매처 정보</h2>
+      <div class="muted" style="font-size:12.5px;">이카운트 구매내역을 기준으로 구매처별 구매 품목을 집계해서 보여줍니다. 품목을 클릭하면 과거 구매기록을 볼 수 있습니다.</div>
+    </div>
+    <div class="ppl-tab-bar" style="margin-bottom:12px;">${tabsHtml}</div>
+    <div id="pv-scroll-area" style="height:calc(100vh - 190px); overflow-y:auto;">
+    <div style="display:flex; gap:16px; align-items:flex-start;">
+      <div class="card" style="width:300px; flex-shrink:0; padding:0; overflow:hidden; position:sticky; top:0; max-height:calc(100vh - 190px); display:flex; flex-direction:column;">
+        <div style="padding:12px; border-bottom:1px solid #e5e9f0;">
+          <input id="pv-search" placeholder="구매처명/코드 검색" value="${esc(pvSearchQuery)}" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
+        </div>
+        <div id="pv-list" style="overflow-y:auto; flex:1;"></div>
+      </div>
+      <div class="card" style="flex:1; min-width:0; padding:0;">
+        ${selected ? `
+          <div style="padding:16px 16px 12px; display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:12px;">
+            <div>
+              <div style="font-size:16px; font-weight:700;">${esc(selected.vendorName)}</div>
+              <div class="muted" style="font-size:12.5px;">이카운트 거래처코드: ${esc(selected.vendorCode || "-")}</div>
+            </div>
+            <div style="display:flex; gap:18px; font-size:13px;">
+              <div><span class="muted">품목 수</span> <strong>${selected.itemCount}</strong></div>
+              <div><span class="muted">총 구매수량</span> <strong>${selected.totalQty.toLocaleString()}</strong></div>
+              <div><span class="muted">총 구매금액</span> <strong>${selected.totalAmount.toLocaleString()}원</strong></div>
+              <div><span class="muted">최근 구매일</span> <strong>${esc(selected.lastPurchaseDate || "-")}</strong></div>
+            </div>
+          </div>
+          <div style="padding:0 16px 16px;">
+            <table class="pv-item-table">
+              <thead><tr>
+                <th></th><th>품목코드</th><th>품목명(이카운트)</th><th>업체 품목명</th><th>규격</th>
+                <th style="text-align:right;">누적수량</th><th style="text-align:right;">누적금액</th>
+                <th style="text-align:right;">구매횟수</th><th>최근구매일</th>
+              </tr></thead>
+              <tbody>${itemRows}</tbody>
+            </table>
+          </div>
+        ` : '<div class="muted" style="padding:24px; text-align:center;">왼쪽에서 구매처를 선택하세요.</div>'}
+      </div>
+    </div>
+    </div>
+  `;
+
+  renderPvListRows();
+
+  const searchEl = qs("#pv-search");
+  searchEl?.addEventListener("input", (e) => {
+    pvSearchQuery = e.target.value;
+    renderPvListRows();
+  });
+  sec.querySelectorAll(".ppl-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      pvCategoryTab = btn.dataset.tab;
+      renderPurchaseVendorsBody();
+    });
+  });
+  sec.querySelectorAll(".pv-vendor-item-name-input").forEach((inp) => {
+    const commit = () => savePvVendorItemName(pvSelectedVendor, inp.dataset.itemCode, inp.value.trim());
+    inp.addEventListener("blur", commit);
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") inp.blur(); });
+  });
+  // 행 전체를 클릭 대상으로 두면 "업체 품목명" 입력칸을 클릭했을 때만 토글이 안 먹어서
+  // "가끔 안 눌린다"는 것처럼 느껴짐 — 그래서 토글 전용 화살표 칸(.pv-toggle-cell)만 클릭 대상으로 둔다.
+  sec.querySelectorAll(".pv-toggle-cell").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const itemCode = cell.dataset.itemCode;
+      pvExpandedItem = pvExpandedItem === itemCode ? null : itemCode;
+      renderPurchaseVendorsBody();
+      if (pvExpandedItem === itemCode) loadPvItemHistory(pvSelectedVendor, itemCode);
+    });
+  });
+}
+
 async function renderPurchaseOrders() {
   const sec = qs("#view-purchase-orders");
   const res = await fetch("/api/purchase-orders").then((r) => r.json()).catch(() => ({ items: [] }));
@@ -9153,6 +9377,7 @@ async function init() {
       if (v === "location-map-3d") renderLocationMap3D();
       else { const w3d = qs("#view-location-map-3d"); if (w3d?._disposeMap3D) { w3d._disposeMap3D(); w3d._disposeMap3D = null; } }
       if (v === "location-stock") await renderLocationStock();
+      if (v === "purchase-vendors") await renderPurchaseVendors();
       if (v === "purchase-products") renderPurchaseProductsList();
       if (v === "purchase-orders") await renderPurchaseOrders();
       if (v === "barcode-print2") renderBarcodePrint2();
@@ -9188,6 +9413,7 @@ async function init() {
   renderLocationMap();
   renderLocationMap3D();
   await renderLocationStock();
+  await renderPurchaseVendors();
   renderPurchaseProductsList();
   await renderPurchaseOrders();
   // barcode-print2는 클릭 시 iframe 생성 (lazy) — 새로고침으로 복원될 때도 동일하게 생성해줘야 한다.

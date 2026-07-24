@@ -225,6 +225,17 @@ select.form-control { cursor: pointer; }
 .bh2-add-method { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 12px; }
 .bh2-add-method-label { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px; }
 .bh2-add-method-label svg { width: 14px; height: 14px; color: var(--accent); flex-shrink: 0; }
+.bh2-ts-block { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 10px; }
+.bh2-ts-title { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; color: var(--text2); margin-bottom: 12px; }
+.bh2-ts-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+.bh2-ts-row .form-group { min-width: 78px; flex: 1; }
+.bh2-ts-row .form-group.wide { min-width: 120px; flex: 1.4; }
+.bh2-ts-row .form-group.icon-seg { min-width: 64px; flex: 0.8; }
+.bh2-seg { display: flex; border: 1.5px solid var(--border); border-radius: 6px; overflow: hidden; height: 34px; }
+.bh2-seg button { flex: 1; display: flex; align-items: center; justify-content: center; border: none; background: var(--surface); color: var(--text3); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s; padding: 0 6px; white-space: nowrap; }
+.bh2-seg button + button { border-left: 1.5px solid var(--border); }
+.bh2-seg button.active { background: var(--accent); color: #fff; }
+.bh2-seg button:hover:not(.active) { background: var(--accent-light); color: var(--accent); }
 .bh2-picked-label { font-size: 12px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 10px; }
 .bh2-startcell-grid { display: grid; gap: 3px; margin-top: 8px; max-height: 220px; overflow-y: auto; padding: 10px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .bh2-startcell { aspect-ratio: 1; min-width: 20px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text3); font-size: 10px; line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background .1s, border-color .1s, color .1s; }
@@ -513,26 +524,8 @@ select.form-control { cursor: pointer; }
           <div class="bh2-template-nav next" onclick="scrollTemplateStrip('custom-template-grid',1)">›</div>
         </div>
 
-        <div class="form-row" style="margin-top:14px;">
-          <div class="form-group">
-            <label>바코드 형식</label>
-            <select class="form-control" id="barcodeFormat" onchange="renderPreview()">
-              <option value="CODE128">Code128 (기본)</option>
-              <option value="CODE39">Code39</option>
-              <option value="EAN13">EAN-13</option>
-              <option value="ITF14">ITF-14</option>
-              <option value="QR">QR코드</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label>라벨 내부 여백 (mm)</label>
-            <input class="form-control" type="number" id="labelPad" value="1.5" min="0" max="10" step="0.5" oninput="renderPreview()">
-          </div>
-          <div class="form-group">
-            <label>바코드 숫자 크기 (%)</label>
-            <input class="form-control" type="number" id="barcodeFontScale" value="100" min="50" max="250" step="10" oninput="renderPreview()">
-          </div>
-        </div>
+        <div id="textStyleControls" style="margin-top:20px;"></div>
+
         <!-- getPrintParams()가 참조하는 실제 선택값. 갤러리 클릭으로 자동 동기화되며 화면엔 노출하지 않는다. -->
         <select id="printTemplate" style="display:none;"></select>
         <select id="vendorFilter" style="display:none;"></select>
@@ -625,7 +618,7 @@ select.form-control { cursor: pointer; }
           <button type="button" class="bh2-filter-pill" data-filter="all" onclick="setHistoryFilter('all')">전체</button>
         </div>
         <table class="bh2-picked-table">
-          <thead><tr><th>인쇄일시</th><th>상품명</th><th>바코드</th><th>수량</th><th>상태</th><th>용지</th></tr></thead>
+          <thead><tr><th>인쇄일시</th><th>상품명</th><th>바코드</th><th>수량</th><th>상태</th><th>용지</th><th></th></tr></thead>
           <tbody id="historyTableBody"></tbody>
         </table>
       </div>
@@ -867,6 +860,146 @@ select.form-control { cursor: pointer; }
 let products = []; // WMS API에서 로드
 let selectedProducts = {}; // id -> qty (=담은 상품)
 
+// ─── 텍스트 스타일 (기본 템플릿의 상품명/설명/바코드 텍스트) ──────────────────
+const DEFAULT_TEXT_STYLE = {
+  title:       { fontSize: 14, bold: true,  align: 'center', lines: 1 },
+  desc:        { show: 'none', fontSize: 9,  bold: false, align: 'center', lines: 1 },
+  barcodeText: { fontSize: 10, bold: true,  align: 'center', heightMm: 12 },
+};
+let textStyle = JSON.parse(JSON.stringify(DEFAULT_TEXT_STYLE));
+
+function mergeTextStyle(partial) {
+  const base = JSON.parse(JSON.stringify(DEFAULT_TEXT_STYLE));
+  if (!partial) return base;
+  return {
+    title:       { ...base.title,       ...(partial.title||{}) },
+    desc:        { ...base.desc,        ...(partial.desc||{}) },
+    barcodeText: { ...base.barcodeText, ...(partial.barcodeText||{}) },
+  };
+}
+
+const TEXT_STYLE_FIELDS = [
+  { key: 'barcodeText', label: '기본 스타일 설정', hasLines: false, hasShow: false, hasFormat: true, sizeLabel: '바코드 텍스트 크기(pt)' },
+  { key: 'title',       label: '상품명',      hasLines: true,  hasShow: false, hasFormat: false },
+  { key: 'desc',        label: '부가정보',    hasLines: true,  hasShow: true,  hasFormat: false },
+];
+const TS_SHOW_OPTIONS = [
+  { value: 'none',      label: '표시 안 함' },
+  { value: 'sku',       label: 'SKU' },
+  { value: 'price',     label: '가격' },
+  { value: 'sku_price', label: 'SKU + 가격' },
+];
+
+const TS_ICON = {
+  boldOff: '<span style="font-family:Arial,\'Malgun Gothic\',sans-serif;font-size:14px;font-weight:400;">B</span>',
+  boldOn:  '<span style="font-family:Arial,\'Malgun Gothic\',sans-serif;font-size:14px;font-weight:800;">B</span>',
+  alignLeft: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="17" y2="18"/></svg>',
+  alignCenter: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="5.5" y1="18" x2="18.5" y2="18"/></svg>',
+  alignRight: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="10" y1="12" x2="20" y2="12"/><line x1="7" y1="18" x2="20" y2="18"/></svg>',
+};
+
+function renderTextStyleControls() {
+  const el = document.getElementById('textStyleControls');
+  if (!el) return;
+  const existingFmtEl = document.getElementById('barcodeFormat');
+  const currentFmt = existingFmtEl ? existingFmtEl.value : 'CODE128';
+  const existingPadEl = document.getElementById('labelPad');
+  const currentPad = existingPadEl ? existingPadEl.value : 1.5;
+
+  el.innerHTML = TEXT_STYLE_FIELDS.map(f => {
+    const st = textStyle[f.key];
+    const segBtns = (opts, current, onClick) => `<div class="bh2-seg">${opts.map(o =>
+      `<button type="button" class="${current === o.value ? 'active' : ''}" title="${o.title||o.label}" onclick="${onClick}('${o.value}')">${o.icon || o.label}</button>`
+    ).join('')}</div>`;
+
+    const showRow = f.hasShow ? `
+      <div class="form-group wide">
+        <label>표시 항목</label>
+        ${segBtns(TS_SHOW_OPTIONS, st.show, `setTextStyleField('${f.key}','show')`)}
+      </div>` : '';
+
+    const formatRow = f.hasFormat ? `
+      <div class="bh2-ts-row" style="margin-bottom:10px;">
+        <div class="form-group wide">
+          <label>바코드 형식</label>
+          <select class="form-control" id="barcodeFormat" onchange="renderPreview()">
+            <option value="CODE128" ${currentFmt==='CODE128'?'selected':''}>Code128 (기본)</option>
+            <option value="CODE39" ${currentFmt==='CODE39'?'selected':''}>Code39</option>
+            <option value="EAN13" ${currentFmt==='EAN13'?'selected':''}>EAN-13</option>
+            <option value="ITF14" ${currentFmt==='ITF14'?'selected':''}>ITF-14</option>
+            <option value="QR" ${currentFmt==='QR'?'selected':''}>QR코드</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>바코드 높이 (mm)</label>
+          <input class="form-control" type="number" min="4" max="80" step="0.5" value="${st.heightMm}" onchange="updateTextStyleNum('${f.key}','heightMm',this.value)">
+        </div>
+        <div class="form-group">
+          <label>라벨 내부 여백 (mm)</label>
+          <input class="form-control" type="number" id="labelPad" min="0" max="10" step="0.5" value="${currentPad}" oninput="renderPreview()">
+        </div>
+      </div>` : '';
+
+    const linesRow = f.hasLines ? `
+      <div class="form-group">
+        <label>줄 수</label>
+        <select class="form-control" onchange="updateTextStyleNum('${f.key}','lines',this.value)">
+          <option value="1" ${st.lines===1?'selected':''}>1줄</option>
+          <option value="2" ${st.lines===2?'selected':''}>2줄</option>
+          <option value="3" ${st.lines===3?'selected':''}>3줄</option>
+        </select>
+      </div>` : '';
+
+    const boldOpts = [
+      { value: 'false', title: '보통', icon: TS_ICON.boldOff },
+      { value: 'true',  title: '굵게', icon: TS_ICON.boldOn },
+    ];
+    const alignOpts = [
+      { value: 'left',   title: '왼쪽 정렬',   icon: TS_ICON.alignLeft },
+      { value: 'center', title: '가운데 정렬', icon: TS_ICON.alignCenter },
+      { value: 'right',  title: '오른쪽 정렬', icon: TS_ICON.alignRight },
+    ];
+
+    return `
+      <div class="bh2-ts-block">
+        <div class="bh2-ts-title">${f.label}</div>
+        ${showRow}
+        ${formatRow}
+        <div class="bh2-ts-row">
+          <div class="form-group">
+            <label>${f.sizeLabel || '크기(pt)'}</label>
+            <input class="form-control" type="number" min="4" max="40" step="0.5" value="${st.fontSize}" onchange="updateTextStyleNum('${f.key}','fontSize',this.value)">
+          </div>
+          <div class="form-group icon-seg">
+            <label>굵기</label>
+            ${segBtns(boldOpts, String(st.bold), `setTextStyleField('${f.key}','bold')`)}
+          </div>
+          ${linesRow}
+          <div class="form-group icon-seg" style="min-width:88px;">
+            <label>정렬</label>
+            ${segBtns(alignOpts, st.align, `setTextStyleField('${f.key}','align')`)}
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// onclick 인라인에서 setTextStyleField('title','bold')('true') 형태로 호출되는 커링 함수
+function setTextStyleField(key, field) {
+  return function(value) {
+    if (field === 'bold') value = (value === 'true');
+    textStyle[key][field] = value;
+    renderTextStyleControls();
+    renderPreview();
+  };
+}
+
+function updateTextStyleNum(key, field, val) {
+  const n = parseFloat(val);
+  textStyle[key][field] = Number.isFinite(n) ? n : textStyle[key][field];
+  renderPreview();
+}
+
 // ─── TEMPLATES ─────────────────────────────────────────────────────────────
 let templates = [
   { id:'t1', name:'타입 1: 기본 바코드', desc:'바코드 + 상품명', preset: true, type:'barcode-name', w:160, h:80 },
@@ -942,6 +1075,8 @@ function setHistoryFilter(f) {
   renderHistoryTable();
 }
 
+let historyRows = [];
+
 function renderHistoryTable() {
   const tbody = document.getElementById('historyTableBody');
   if (!tbody) return;
@@ -952,11 +1087,12 @@ function renderHistoryTable() {
       rows.push({ ts: job.ts, paperLabel: job.paperLabel, ...it });
     });
   });
+  historyRows = rows;
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--text3);padding:24px;">${historyFilter === 'unregistered' ? '미등록 상품 인쇄 내역이 없습니다' : '인쇄 내역이 없습니다'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text3);padding:24px;">${historyFilter === 'unregistered' ? '미등록 상품 인쇄 내역이 없습니다' : '인쇄 내역이 없습니다'}</td></tr>`;
     return;
   }
-  tbody.innerHTML = rows.map(r => `
+  tbody.innerHTML = rows.map((r, i) => `
     <tr>
       <td>${fmtDateTime(r.ts)}</td>
       <td><strong>${r.name}</strong></td>
@@ -964,7 +1100,56 @@ function renderHistoryTable() {
       <td>${r.qty}</td>
       <td>${r.isRegistered ? '<span class="bh2-badge bh2-badge-ok">WMS 등록</span>' : '<span class="bh2-badge bh2-badge-warn">미등록</span>'}</td>
       <td>${r.paperLabel || '-'}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="reprintHistoryItem(${i})">다시 담기</button></td>
     </tr>`).join('');
+}
+
+function reprintHistoryItem(i) {
+  const r = historyRows[i];
+  if (!r) return;
+  try {
+    localStorage.setItem('bh2-reprint-item', JSON.stringify({
+      id: r.id, name: r.name, barcode: r.barcode, qty: r.qty || 1
+    }));
+  } catch (e) {
+    console.warn('재인쇄 항목 저장 실패:', e);
+    return;
+  }
+  const parentDoc = window.parent && window.parent !== window ? window.parent.document : null;
+  const parentBtn = parentDoc ? parentDoc.querySelector('.sidebar button[data-view="barcode-print2"]') : null;
+  if (parentBtn) {
+    parentBtn.click();
+    // 인쇄 탭 iframe이 이미 로드돼 있으면(뒤로가기 방식) init()이 재실행되지 않으므로 직접 반영
+    const printIframe = parentDoc.querySelector('#view-barcode-print2 iframe');
+    const printWin = printIframe && printIframe.contentWindow;
+    if (printWin && typeof printWin.consumeReprintItem === 'function') {
+      printWin.consumeReprintItem();
+    }
+  } else {
+    location.href = '/barcode-print2.html?embedded=1&tab=print';
+  }
+}
+
+function consumeReprintItem() {
+  let raw;
+  try {
+    raw = localStorage.getItem('bh2-reprint-item');
+  } catch (e) { return; }
+  if (!raw) return;
+  localStorage.removeItem('bh2-reprint-item');
+  let it;
+  try { it = JSON.parse(raw); } catch (e) { return; }
+  if (!it || !it.id) return;
+
+  let prod = products.find(x => String(x.id) === String(it.id));
+  if (!prod) {
+    prod = { id: it.id, name: it.name, barcode: it.barcode, sku: '', category: '', price: 0, stock: 0, brand: '', unit: '' };
+    products.push(prod);
+  }
+  selectedProducts[prod.id] = (selectedProducts[prod.id] || 0) + (it.qty || 1);
+  renderPickedTable();
+  renderPreview();
+  showToast(`"${prod.name}"을(를) 인쇄 목록에 담았습니다`, 'success');
 }
 
 function fmtDateTime(iso) {
@@ -1065,7 +1250,8 @@ function applyPreset(id) {
   }
   document.getElementById('barcodeFormat').value = p.barcodeFormat || 'CODE128';
   document.getElementById('labelPad').value = p.labelPad ?? 1.5;
-  document.getElementById('barcodeFontScale').value = Math.round((p.fontScale || 1) * 100);
+  textStyle = mergeTextStyle(p.textStyle);
+  renderTextStyleControls();
 
   selectedProducts = {};
   (p.items || []).forEach(it => {
@@ -1107,7 +1293,8 @@ function saveCurrentAsPreset() {
     rollW: document.getElementById('rollW').value, rollH: document.getElementById('rollH').value,
     rollOrientation: document.getElementById('rollOrientation').value,
     rollGap: document.getElementById('rollGap').value, rollPad: document.getElementById('rollPad').value,
-    templateId: p.tplId, barcodeFormat: p.fmt, labelPad: p.labelPad, fontScale: p.fontScale,
+    templateId: p.tplId, barcodeFormat: p.fmt, labelPad: p.labelPad,
+    textStyle: p.textStyle,
     items
   };
 
@@ -1176,7 +1363,7 @@ function buildPresetPreviewHTML(p) {
   const wpx = labelWmm * MM_TO_PX * scale;
   const hpx = labelHmm * MM_TO_PX * scale;
   const uid = 'ppv-' + p.id;
-  const inner = buildLabelHTML(prod, p.templateId, p.barcodeFormat || 'CODE128', labelWmm, labelHmm, p.labelPad, p.fontScale);
+  const inner = buildLabelHTML(prod, p.templateId, p.barcodeFormat || 'CODE128', labelWmm, labelHmm, p.labelPad, p.fontScale, mergeTextStyle(p.textStyle));
   return `<div style="width:${wpx}px;height:${hpx}px;overflow:hidden;position:relative;background:white;border:0.5px solid #eee;">
     <div id="${uid}" style="width:${labelWmm * MM_TO_PX}px;height:${labelHmm * MM_TO_PX}px;transform:scale(${scale});transform-origin:top left;">${inner}</div>
   </div>`;
@@ -1327,8 +1514,10 @@ async function init() {
   refreshTemplateGallery();
   populatePrintTemplateSelect();
   renderColGuide();
+  renderTextStyleControls();
   loadRollPresets();
   loadPartnersForPresetVendor();
+  consumeReprintItem();
   renderPickedTable();
   setTimeout(() => {
     document.getElementById('formtecPreset').value = '3105';
@@ -2618,7 +2807,7 @@ function getPrintParams() {
       gapV:     parseFloat(document.getElementById('rollGap').value) || 2,
       pad:      parseFloat(document.getElementById('rollPad').value)  || 2,
       labelPad: parseFloat(document.getElementById('labelPad').value) ?? 1.5,
-      fontScale: (parseFloat(document.getElementById('barcodeFontScale').value) || 100) / 100,
+      textStyle: mergeTextStyle(textStyle),
     };
   }
   return {
@@ -2632,7 +2821,7 @@ function getPrintParams() {
     gapH:     parseFloat(document.getElementById('gapH').value)      || 0,
     gapV:     parseFloat(document.getElementById('gapV').value)      || 0,
     labelPad: parseFloat(document.getElementById('labelPad').value)  ?? 1.5,
-    fontScale: (parseFloat(document.getElementById('barcodeFontScale').value) || 100) / 100,
+    textStyle: mergeTextStyle(textStyle),
     pad: 2,
   };
 }
@@ -2851,12 +3040,15 @@ function renderBarcodeSVGs(root, JB) {
     const fontSizeMm = parseFloat(svg.getAttribute('data-fontsize-mm'));
     const desiredFontSize = fontSizeMm ? (fontSizeMm * MM_TO_PX) : Math.max(MIN_BARCODE_FONT_MM * MM_TO_PX, hPx * 0.18);
     const fontSize = showNum ? clampBarcodeFontSize(desiredFontSize * fscale, wPx, val.length) : 0;
+    const isBold    = svg.getAttribute('data-bold') === '1' || svg.getAttribute('data-bold') === null;
+    const textAlign = svg.getAttribute('data-align') || 'center';
     try {
       JB(svg, val, {
         format:       fmt,
         displayValue: showNum,
         font:         'Arial, Helvetica, sans-serif',
-        fontOptions:  'bold',
+        fontOptions:  isBold ? 'bold' : '',
+        textAlign:    textAlign,
         fontSize:     fontSize,
         textMargin:   showNum ? 2 : 0,
         margin:       0,
@@ -2904,9 +3096,10 @@ async function openPrintIframe(fullHtml) {
   }
 }
 
-function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm, fontScale) {
+function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm, fontScale, ts) {
   const pad = (padMm != null ? padMm : 1.5);
   const fscale = fontScale || 1;
+  ts = ts || textStyle;
   const tpl = [...templates, ...customTemplates].find(t => t.id === tplId) || templates[0];
 
   const outer = (inner, bg) =>
@@ -2945,37 +3138,61 @@ function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm, fontScale) {
 
   const availWmm = wMm - pad * 2;
   const availHmm = hMm - pad * 2;
-  const bcHmm = Math.max(4, availHmm * 0.52);
   const bcWmm = availWmm;
-  const fsMm  = Math.max(2, hMm * 0.11);
 
-  const bcSvg = (h, digitFsMm) =>
-    `<svg data-barcode="${cleanBarcode(prod.barcode)}" data-format="${fmt}" data-wmm="${bcWmm}" data-hmm="${h}" data-fontsize-mm="${digitFsMm}" data-displayvalue="true" data-fontscale="${fscale}" style="width:${bcWmm}mm;height:${h}mm;display:block;flex-shrink:0;"></svg>`;
+  const ALIGN_CSS = { left: 'left', center: 'center', right: 'right' };
+  const tsBoxStyle = (style, extra) => {
+    const fsMm = (style.fontSize || 10) / MM_TO_PX;
+    const lines = style.lines || 1;
+    const wrap = lines > 1
+      ? `display:-webkit-box;-webkit-line-clamp:${lines};-webkit-box-orient:vertical;overflow:hidden;white-space:normal;word-break:break-word;`
+      : `white-space:nowrap;overflow:hidden;text-overflow:ellipsis;`;
+    return `font-size:${fsMm}mm;font-weight:${style.bold?'bold':'normal'};text-align:${ALIGN_CSS[style.align]||'center'};width:100%;${wrap}${extra||''}`;
+  };
+  const tsBlockHmm = (style) => ((style.fontSize||10)/MM_TO_PX) * 1.25 * (style.lines||1);
 
-  const nameDiv = (fs, extra) =>
-    `<div style="font-size:${fs}mm;text-align:center;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${extra||''}">${prod.name.replace(/</g,'&lt;')}</div>`;
+  const bcSvg = (h, digitFsMm, bcStyle) =>
+    `<svg data-barcode="${cleanBarcode(prod.barcode)}" data-format="${fmt}" data-wmm="${bcWmm}" data-hmm="${h}" data-fontsize-mm="${digitFsMm}" data-displayvalue="true" data-fontscale="${fscale}" data-bold="${bcStyle&&bcStyle.bold?1:0}" data-align="${(bcStyle&&bcStyle.align)||'center'}" style="width:${bcWmm}mm;height:${h}mm;display:block;flex-shrink:0;"></svg>`;
+
+  const nameDiv = (extra) =>
+    `<div style="${tsBoxStyle(ts.title, extra)}">${prod.name.replace(/</g,'&lt;')}</div>`;
+
+  const descEnabled = !!(ts.desc && ts.desc.show && ts.desc.show !== 'none');
+  const descLine = () => {
+    if (!descEnabled) return '';
+    let content = '';
+    if (ts.desc.show === 'sku') content = (prod.sku||'').replace(/</g,'&lt;');
+    else if (ts.desc.show === 'price') content = '&#8361;' + (prod.price||0).toLocaleString();
+    else if (ts.desc.show === 'sku_price') {
+      const skuTxt = (prod.sku||'').replace(/</g,'&lt;');
+      content = skuTxt ? `${skuTxt} &middot; &#8361;${(prod.price||0).toLocaleString()}` : `&#8361;${(prod.price||0).toLocaleString()}`;
+    }
+    return `<div style="${tsBoxStyle(ts.desc, 'margin-top:0.5mm;color:#888;')}">${content}</div>`;
+  };
+  const descBlockHmm = descEnabled ? (tsBlockHmm(ts.desc) + 0.5) : 0;
+  const bcTextFsMm = (ts.barcodeText.fontSize||10) / MM_TO_PX;
+  const bcWantHmm = ts.barcodeText.heightMm || 12;
 
   if (tpl.type === 'barcode-name') {
-    // 바코드 아래 상품명 한 줄(+여백)이 들어갈 공간을 먼저 빼고, 남는 높이를 바코드에 최대한 준다.
-    // (기존에는 availHmm의 104%를 바코드에 배정해 상품명이 라벨 아래로 잘려 나갔다.)
-    const nameLineHmm = fsMm * 1.25;
-    const bcHmm1 = Math.max(4, availHmm - nameLineHmm - 0.5);
-    const digitFsMm = Math.max(MIN_BARCODE_FONT_MM, hMm * 0.11);
+    // 바코드 아래 상품명(+설명) 줄이 들어갈 공간을 먼저 빼고, 남는 높이 안에서 원하는 바코드 높이를 최대한 반영한다.
+    const bcMaxHmm = Math.max(4, availHmm - tsBlockHmm(ts.title) - descBlockHmm - 0.5);
+    const bcHmm1 = Math.max(4, Math.min(bcWantHmm, bcMaxHmm));
     const content = fmt === 'QR'
       ? `<div style="width:${Math.min(bcHmm1,bcWmm)}mm;height:${Math.min(bcHmm1,bcWmm)}mm;background:#eee;display:flex;align-items:center;justify-content:center;font-size:2mm;color:#999;">QR</div>`
-      : bcSvg(bcHmm1, digitFsMm);
-    return outer(`${content}${nameDiv(fsMm, 'margin-top:0.5mm;')}`, 'white');
+      : bcSvg(bcHmm1, bcTextFsMm, ts.barcodeText);
+    return outer(`${content}${nameDiv('margin-top:0.5mm;')}${descLine()}`, 'white');
   }
 
   if (tpl.type === 'barcode-detail') {
-    const bh2 = bcHmm * 0.78;
-    const digitFsMm = Math.max(MIN_BARCODE_FONT_MM, hMm * 0.09);
+    const skuRowHmm = ((ts.title.fontSize||10)/MM_TO_PX) * 0.9 * 1.25;
+    const bcMaxHmm2 = Math.max(4, availHmm - tsBlockHmm(ts.title) - skuRowHmm - 0.5);
+    const bh2 = Math.max(4, Math.min(bcWantHmm, bcMaxHmm2));
     const content = fmt === 'QR'
       ? `<div style="width:${Math.min(bh2,bcWmm*0.7)}mm;height:${Math.min(bh2,bcWmm*0.7)}mm;background:#eee;font-size:2mm;color:#999;display:flex;align-items:center;justify-content:center;">QR</div>`
-      : bcSvg(bh2, digitFsMm);
+      : bcSvg(bh2, bcTextFsMm, ts.barcodeText);
     return outer(`${content}
-      ${nameDiv(fsMm, 'font-weight:600;')}
-      <div style="display:flex;justify-content:center;gap:2mm;font-size:${fsMm*0.9}mm;">
+      ${nameDiv()}
+      <div style="display:flex;justify-content:center;gap:2mm;font-size:${((ts.title.fontSize||10)/MM_TO_PX)*0.9}mm;">
         <span style="color:#888;">${(prod.sku||'').replace(/</g,'&lt;')}</span>
         <span style="font-weight:700;">&#8361;${prod.price.toLocaleString()}</span>
       </div>`, 'white');
@@ -2984,11 +3201,12 @@ function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm, fontScale) {
   if (tpl.type === 'qr-name') {
     const sz = Math.min(availHmm * 0.62, availWmm * 0.72);
     return outer(`<div style="width:${sz}mm;height:${sz}mm;background:#eee;display:flex;align-items:center;justify-content:center;font-size:2mm;color:#999;flex-shrink:0;">QR</div>
-      ${nameDiv(fsMm, 'margin-top:0.5mm;')}
-      <div style="font-size:${fsMm*0.85}mm;color:#888;font-family:monospace;">${prod.barcode}</div>`, 'white');
+      ${nameDiv('margin-top:0.5mm;')}
+      ${descLine()}
+      <div style="${tsBoxStyle(ts.barcodeText, 'color:#888;font-family:monospace;')}">${prod.barcode}</div>`, 'white');
   }
 
-  return outer(nameDiv(fsMm), 'white');
+  return outer(nameDiv(), 'white');
 }
 
 function savePDF() {

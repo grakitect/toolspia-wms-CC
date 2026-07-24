@@ -950,6 +950,46 @@ tbody tr:last-child td { border-bottom: 0; }
   padding: 10px 0 4px;
   justify-content: flex-end;
 }
+.pv-item-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+/* ">"(직계 자식) 결합자 필수 — 서술형 결합자(.pv-item-table thead)를 쓰면 아코디언 안에
+   중첩된 .pv-history-table의 thead까지 "후손"으로 잡혀서 같이 sticky가 걸려버리는
+   문제가 있었다(2026-07-24, 스크린샷으로 겹침 확인 후 원인 파악). */
+.pv-item-table > thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #FAFBFC;
+}
+.pv-item-table > thead tr {
+  background: #FAFBFC;
+}
+.pv-item-table > thead th {
+  background: #FAFBFC;
+  box-shadow: 0 1px 0 var(--border);
+}
+.pv-item-table tbody tr.pv-item-row:hover td { background: #F5F8FF; }
+.pv-item-detail-row td { border-bottom: 1.5px solid var(--border); }
+.pv-cell-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pv-history-table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.pv-history-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.pv-history-table thead th {
+  background: #F1F4F8;
+  box-shadow: 0 1px 0 var(--border);
+}
 #stock-table { width: auto; white-space: nowrap; }
 #stock-table td { padding: 7px 14px; }
 #stock-table thead th {
