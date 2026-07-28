@@ -280,6 +280,8 @@ function normalizeDb(db) {
         p.deliveryVendorInfo = [{ vendor: "", code: legacyCode, itemName: legacyItemName, outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
       }
     }
+    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
+    p.infoVerified = Boolean(p.infoVerified);
     delete p.deliveryVendorCode;
     delete p.deliveryItemName;
     p.orderManagers = toTagList(p.orderManagers);
@@ -348,6 +350,12 @@ function normalizeDb(db) {
     db.outboundOrderUpload.lineOverrides = {};
   }
   if (!Array.isArray(db.outboundCodeMasters)) db.outboundCodeMasters = [];
+  if (!Array.isArray(db.salesUnregisteredProducts)) db.salesUnregisteredProducts = [];
+  for (const p of db.salesUnregisteredProducts) {
+    p.infoVerified = Boolean(p.infoVerified);
+    if (!Array.isArray(p.deliveryVendorInfo)) p.deliveryVendorInfo = [];
+    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
+  }
   if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
   for (const pt of ["emart", "daiso", "lotte"]) {
     if (!db.unshipCompare[pt] || typeof db.unshipCompare[pt] !== "object") {
@@ -414,6 +422,9 @@ function toDeliveryVendorInfoList(value) {
       code: String(row?.code || "").trim(),
       itemName: String(row?.itemName || "").trim(),
       outUnit: String(row?.outUnit || "").trim(),
+      status: String(row?.status || "").trim(),
+      deliveryMethod: String(row?.deliveryMethod || "").trim(),
+      logisticsAgent: String(row?.logisticsAgent || "").trim(),
       innEa: String(row?.innEa || "").trim(),
       innPerCtn: String(row?.innPerCtn || "").trim(),
       ctnEa: String(row?.ctnEa || "").trim(),
@@ -529,6 +540,7 @@ function upsertProduct(db, product) {
     name,
     ecountCode,
     ecountName: String(product.ecountName || name),
+    infoVerified: Boolean(product.infoVerified),
     barcode: String(product.barcode || ""),
     middleBarcode: String(product.middleBarcode || ""),
     logisticsBarcode: String(product.logisticsBarcode || ""),
@@ -3188,6 +3200,10 @@ async function handleApi(req, res, urlObj) {
     return sendJson(res, 200, { items: db.products });
   }
 
+  if (req.method === "GET" && pathname === "/api/products/sales-unregistered") {
+    return sendJson(res, 200, { items: db.salesUnregisteredProducts || [] });
+  }
+
   if (req.method === "GET" && pathname === "/api/product-options") {
     return sendJson(res, 200, { items: db.productOptions });
   }
@@ -3282,6 +3298,35 @@ async function handleApi(req, res, urlObj) {
       const codes = Array.isArray(body.codes) ? body.codes.map((x) => String(x || "").trim()).filter(Boolean) : [];
       if (!codes.length) throw new Error("삭제할 상품코드를 선택하세요.");
       db.products = db.products.filter((p) => !codes.includes(String(p.code)));
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PUT" && pathname === "/api/products/sales-unregistered") {
+    try {
+      const body = await parseBody(req);
+      const code = String(body.code || "").trim();
+      if (!code) throw new Error("품목코드는 필수입니다.");
+      const list = db.salesUnregisteredProducts || [];
+      const idx = list.findIndex((p) => String(p.code) === code);
+      if (idx < 0) throw new Error("대상을 찾을 수 없습니다.");
+      list[idx] = { ...list[idx], ...body, code, ecountCode: code, updatedAt: new Date().toISOString() };
+      writeDb(db);
+      return sendJson(res, 200, { ok: true });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "DELETE" && pathname === "/api/products/sales-unregistered") {
+    try {
+      const body = await parseBody(req);
+      const codes = Array.isArray(body.codes) ? body.codes.map((x) => String(x || "").trim()).filter(Boolean) : [];
+      if (!codes.length) throw new Error("삭제할 상품을 선택하세요.");
+      db.salesUnregisteredProducts = (db.salesUnregisteredProducts || []).filter((p) => !codes.includes(String(p.code)));
       writeDb(db);
       return sendJson(res, 200, { ok: true });
     } catch (e) {

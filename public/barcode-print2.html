@@ -904,7 +904,7 @@ function renderTextStyleControls() {
   const existingFmtEl = document.getElementById('barcodeFormat');
   const currentFmt = existingFmtEl ? existingFmtEl.value : 'CODE128';
   const existingPadEl = document.getElementById('labelPad');
-  const currentPad = existingPadEl ? existingPadEl.value : 1.5;
+  const currentPad = existingPadEl ? existingPadEl.value : 5;
 
   el.innerHTML = TEXT_STYLE_FIELDS.map(f => {
     const st = textStyle[f.key];
@@ -1249,7 +1249,7 @@ function applyPreset(id) {
     updateRollSizeHint();
   }
   document.getElementById('barcodeFormat').value = p.barcodeFormat || 'CODE128';
-  document.getElementById('labelPad').value = p.labelPad ?? 1.5;
+  document.getElementById('labelPad').value = p.labelPad ?? 5;
   textStyle = mergeTextStyle(p.textStyle);
   renderTextStyleControls();
 
@@ -2806,7 +2806,7 @@ function getPrintParams() {
       gapH: 0,
       gapV:     parseFloat(document.getElementById('rollGap').value) || 2,
       pad:      parseFloat(document.getElementById('rollPad').value)  || 2,
-      labelPad: parseFloat(document.getElementById('labelPad').value) ?? 1.5,
+      labelPad: parseFloat(document.getElementById('labelPad').value) ?? 5,
       textStyle: mergeTextStyle(textStyle),
     };
   }
@@ -2820,7 +2820,7 @@ function getPrintParams() {
     marginT:  parseFloat(document.getElementById('marginT').value)   || 0,
     gapH:     parseFloat(document.getElementById('gapH').value)      || 0,
     gapV:     parseFloat(document.getElementById('gapV').value)      || 0,
-    labelPad: parseFloat(document.getElementById('labelPad').value)  ?? 1.5,
+    labelPad: parseFloat(document.getElementById('labelPad').value)  ?? 5,
     textStyle: mergeTextStyle(textStyle),
     pad: 2,
   };
@@ -3097,7 +3097,7 @@ async function openPrintIframe(fullHtml) {
 }
 
 function buildLabelHTML(prod, tplId, fmt, wMm, hMm, padMm, fontScale, ts) {
-  const pad = (padMm != null ? padMm : 1.5);
+  const pad = (padMm != null ? padMm : 5);
   const fscale = fontScale || 1;
   ts = ts || textStyle;
   const tpl = [...templates, ...customTemplates].find(t => t.id === tplId) || templates[0];

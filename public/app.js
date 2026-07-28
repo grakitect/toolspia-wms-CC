@@ -43,9 +43,12 @@ const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
 const PPL_HIDDEN_COLS_KEY = "wms:pplHiddenCols";
 const STOCK_HIDDEN_COLS_KEY = "wms:stockHiddenCols";
 const TABLE_FILTER_MEMORY = {};
+const DELIVERY_METHOD_OPTIONS = ["", "택배", "용차", "화물", "직납", "위탁"];
+const LOGISTICS_AGENT_OPTIONS = ["", "운송대행", "3PL"];
 let productListPageIndex = 0;
 const state = {
   products: [],
+  salesUnregisteredProducts: [],
   stock: [],
   warehouses: [],
   locations: [],
@@ -75,6 +78,16 @@ const state = {
   devBoards: []
 };
 let masterActiveTab = "company";
+let productsActiveTab = "main";
+let salesNewPageIndex = 0;
+let salesNewOnlyActive = false;
+let salesNewExpandVendor = false;
+let salesNewExpandedCodes = new Set();
+let salesNewEditingCode = "";
+let salesNewEditVendorInfo = [];
+let salesNewSearchQuery = "";
+let salesNewPageSizeValue = "99999";
+const SALES_NEW_HIDDEN_COLS_KEY = "wms:salesNewProductHiddenCols";
 
 function qs(sel) {
   return document.querySelector(sel);
@@ -371,7 +384,12 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
     let selected = new Set(allValues);
     const saved = memory && Array.isArray(memory.filters) ? memory.filters[idx] : null;
     if (saved && Array.isArray(saved.selected)) {
-      const kept = saved.selected.filter((v) => allValues.includes(v));
+      // Values not previously seen for this column (e.g. per-vendor fields that only
+      // become visible after expanding a multi-vendor row) default to selected/visible.
+      // Only values that were already known before keep the user's saved choice.
+      const oldAllValues = new Set(Array.isArray(saved.allValues) ? saved.allValues : saved.selected);
+      const savedSelected = new Set(saved.selected);
+      const kept = allValues.filter((v) => (oldAllValues.has(v) ? savedSelected.has(v) : true));
       selected = new Set(kept.length ? kept : allValues);
     }
     return { allValues, selected };
@@ -426,7 +444,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
       rowsAreSorted = false;
     }
     TABLE_FILTER_MEMORY[tableSelector] = {
-      filters: filterState.map((st) => ({ selected: Array.from(st.selected) })),
+      filters: filterState.map((st) => ({ selected: Array.from(st.selected), allValues: st.allValues })),
       sort: { col: sortState.col, dir: sortState.dir }
     };
     if (typeof afterApply === "function") afterApply();
@@ -505,11 +523,26 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         closeMenu();
       };
 
+      const searchInput = document.createElement("input");
+      searchInput.type = "text";
+      searchInput.className = "excel-menu-search";
+      searchInput.placeholder = "검색";
+      searchInput.onclick = (evt) => evt.stopPropagation();
+      searchInput.onkeydown = (evt) => evt.stopPropagation();
+
       const valueWrap = document.createElement("div");
       valueWrap.className = "excel-menu-values";
       const st = filterState[colIdx];
       const values = [...st.allValues].sort((a, b) => a.localeCompare(b, "ko", { numeric: true }));
       const valueCheckboxes = [];
+
+      searchInput.oninput = () => {
+        const q = searchInput.value.trim().toLowerCase();
+        valueCheckboxes.forEach(({ value, item }) => {
+          const label = value === "" ? "(빈값)" : value;
+          item.style.display = !q || label.toLowerCase().includes(q) ? "" : "none";
+        });
+      };
 
       const allItem = document.createElement("label");
       allItem.className = "excel-menu-item excel-menu-item-all";
@@ -550,7 +583,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         item.appendChild(cb);
         item.appendChild(txt);
         valueWrap.appendChild(item);
-        valueCheckboxes.push({ value: v, cb });
+        valueCheckboxes.push({ value: v, cb, item });
       });
 
       const clearBtn = document.createElement("button");
@@ -589,10 +622,12 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
       menu.appendChild(sortAsc);
       menu.appendChild(sortDesc);
       menu.appendChild(resetSort);
+      menu.appendChild(searchInput);
       menu.appendChild(clearBtn);
       menu.appendChild(valueWrap);
 
       document.body.appendChild(menu);
+      searchInput.focus();
       const rect = trigger.getBoundingClientRect();
       menu.style.left = "0px";
       menu.style.top = "0px";
@@ -1214,9 +1249,91 @@ function normalizeProductRows(rows) {
 }
 
 /** 상품 1건을 판매처별 행으로 펼침. 판매처 정보가 없으면 판매처 빈 값으로 1행. */
+async function saveProductVerify(source, code, checked, checkboxEl) {
+  const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
+  const p = (list || []).find((x) => String(x.code) === String(code));
+  if (!p) return;
+  const prev = Boolean(p.infoVerified);
+  p.infoVerified = checked;
+  try {
+    if (source === "salesNew") {
+      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code, infoVerified: checked }) });
+    } else {
+      await api("/api/products", { method: "POST", body: JSON.stringify({ ...p }) });
+    }
+  } catch (err) {
+    p.infoVerified = prev;
+    if (checkboxEl) checkboxEl.checked = prev;
+    alert(err.message || "저장 실패");
+  }
+}
+
+async function saveVendorField(source, code, vendorIdx, field, value, controlEl) {
+  const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
+  const p = (list || []).find((x) => String(x.code) === String(code));
+  if (!p) return;
+  const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo.slice() : [];
+  const idx = Number(vendorIdx);
+  if (!info[idx]) return;
+  const prev = info[idx][field] || "";
+  info[idx] = { ...info[idx], [field]: value };
+  p.deliveryVendorInfo = info;
+  try {
+    if (source === "salesNew") {
+      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code, deliveryVendorInfo: info }) });
+    } else {
+      await api("/api/products", { method: "POST", body: JSON.stringify({ ...p }) });
+    }
+  } catch (err) {
+    info[idx] = { ...info[idx], [field]: prev };
+    p.deliveryVendorInfo = info;
+    if (controlEl) controlEl.value = prev;
+    alert(err.message || "저장 실패");
+  }
+}
+
+function wireVerifyAndVendorSelects(tableSelector, source) {
+  const table = qs(tableSelector);
+  if (!table) return;
+  table.addEventListener("change", (e) => {
+    const toggle = e.target.closest(".product-verify-toggle");
+    if (toggle) {
+      saveProductVerify(source, toggle.dataset.code, toggle.checked, toggle);
+      return;
+    }
+    const methodSel = e.target.closest(".vendor-delivery-method");
+    if (methodSel) {
+      saveVendorField(source, methodSel.dataset.code, methodSel.dataset.vendorIdx, "deliveryMethod", methodSel.value, methodSel);
+      return;
+    }
+    const agentSel = e.target.closest(".vendor-logistics-agent");
+    if (agentSel) {
+      saveVendorField(source, agentSel.dataset.code, agentSel.dataset.vendorIdx, "logisticsAgent", agentSel.value, agentSel);
+      return;
+    }
+    const statusSel = e.target.closest(".vendor-status");
+    if (statusSel) {
+      saveVendorField(source, statusSel.dataset.code, statusSel.dataset.vendorIdx, "status", statusSel.value, statusSel);
+    }
+  });
+}
+
+function renderSalesNewVendorChips() {
+  const wrap = qs("#sales-new-vendor-chips");
+  if (!wrap) return;
+  wrap.innerHTML = salesNewEditVendorInfo.length
+    ? salesNewEditVendorInfo
+        .map(
+          (v, i) =>
+            `<span class="tag" style="${vendorChipStyle(v.vendor)}display:inline-flex;align-items:center;gap:4px;">${esc(v.vendor)}<button type="button" class="sales-new-vendor-remove" data-idx="${i}" title="삭제" style="border:none;background:transparent;cursor:pointer;font-weight:700;padding:0;line-height:1;color:inherit;">×</button></span>`
+        )
+        .join(" ")
+    : "<span class='muted'>등록된 판매처가 없습니다</span>";
+}
+
 function getProductVendorRows(p) {
   const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
-  if (!info.length) return [{ vendor: "", code: "", itemName: "", outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
+  if (!info.length) return [{ vendor: "", code: "", itemName: "", outUnit: "", status: "", deliveryMethod: "", logisticsAgent: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
   return info;
 }
 
@@ -1240,6 +1357,7 @@ function buildProductSearchText(p) {
     p.purchaseItemCode || "",
     p.purchaseItemName || "",
     p.spec || "",
+    ...(p.deliveryVendors || []),
     ...vendorTokens
   ].join(" ").toLowerCase();
 }
@@ -1358,8 +1476,9 @@ function normalizeMovementRows(rows, type) {
 }
 
 async function refreshCommon() {
-  const [productsRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes, locRes, companySettingsRes] = await Promise.all([
+  const [productsRes, salesUnregRes, stockRes, partnersRes, managersRes, warehousesRes, optionRes, locRes, companySettingsRes] = await Promise.all([
     api("/api/products"),
+    api("/api/products/sales-unregistered"),
     api("/api/stock"),
     api("/api/partners"),
     api("/api/managers"),
@@ -1369,6 +1488,7 @@ async function refreshCommon() {
     api("/api/company-settings")
   ]);
   state.products = productsRes.items;
+  state.salesUnregisteredProducts = salesUnregRes.items || [];
   state.stock = stockRes.items;
   state.partners = partnersRes.items || { inbound: [], outbound: [], purchase: [] };
   state.managers = managersRes.items || [];
@@ -1909,7 +2029,33 @@ function renderMasterWarehouseTab(container) {
   });
 }
 
+const PRODUCTS_TABS = [
+  { key: "main", label: "기본상품정보" },
+  { key: "salesNew", label: "판매현황 미등록상품" }
+];
+
 function renderProducts() {
+  const salesNewCount = (state.salesUnregisteredProducts || []).length;
+  qs("#view-products").innerHTML = `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="ppl-tab-bar" id="products-tab-bar">
+        ${PRODUCTS_TABS.map((t) => `<button type="button" class="ppl-tab${productsActiveTab === t.key ? " active" : ""}" data-products-tab="${t.key}">${esc(t.label)}${t.key === "salesNew" ? ` <span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;">${salesNewCount}</span>` : ""}</button>`).join("")}
+      </div>
+    </div>
+    <div id="products-tab-body"></div>
+  `;
+  qs("#products-tab-bar").querySelectorAll("[data-products-tab]").forEach((btn) => {
+    btn.onclick = () => {
+      productsActiveTab = btn.dataset.productsTab;
+      renderProducts();
+    };
+  });
+  const body = qs("#products-tab-body");
+  if (productsActiveTab === "salesNew") renderProductsSalesNewTab(body);
+  else renderProductsMainTab(body);
+}
+
+function renderProductsMainTab(container) {
   productListPageIndex = 0;
   const opts = state.productOptions || {};
   const datalist = (id, arr) => `<datalist id="${id}">${(arr || []).map((v) => `<option value="${esc(v)}"></option>`).join("")}</datalist>`;
@@ -1929,25 +2075,45 @@ function renderProducts() {
     { key: "itemType", label: "구분" },
     { key: "categories", label: "카테고리" }
   ];
-  const rows = state.products
-    .map((p, pIdx) => {
-      const searchText = buildProductSearchText(p);
-      const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
-      const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
-      const vendorRows = getProductVendorRows(p);
-      const isMulti = vendorRows.length > 1;
-      const groupClass = pIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
+  // 다중상품 판정 기준: 바코드(SKU). 같은 바코드를 쓰는 서로 다른 이카운트코드 상품들을
+  // 한 그룹으로 묶어서, 그룹 전체 판매처 합이 2개 이상이면 "다중"으로 표시한다.
+  // 바코드가 없는 상품은 자기 자신(코드)만으로 단독 그룹이 된다.
+  const barcodeGroups = new Map();
+  state.products.forEach((p) => {
+    const key = p.barcode ? `bc:${p.barcode}` : `code:${p.code}`;
+    if (!barcodeGroups.has(key)) barcodeGroups.set(key, []);
+    barcodeGroups.get(key).push(p);
+  });
+
+  const rows = Array.from(barcodeGroups.values())
+    .map((group, groupIdx) => {
+      const flatItems = [];
+      group.forEach((prod) => {
+        getProductVendorRows(prod).forEach((v, localVIdx) => {
+          flatItems.push({ product: prod, vendor: v, localVIdx });
+        });
+      });
+      const isMulti = flatItems.length > 1;
+      const groupClass = groupIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
       const vendorMultiBadgeHtml = isMulti
-        ? `<span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;" title="${esc(vendorRows.map((v) => v.vendor).filter(Boolean).join(", "))}">다중 (${vendorRows.length})</span> ${VENDOR_ARROW_CHIP_HTML("vendor-multi-badge-btn", -90, "펼치기")}`
+        ? `<span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;" title="${esc(flatItems.map((i) => i.vendor.vendor).filter(Boolean).join(", "))}">다중 (${flatItems.length})</span> ${VENDOR_ARROW_CHIP_HTML("vendor-multi-badge-btn", -90, "펼치기")}`
         : "";
-      return vendorRows
+      return flatItems
         .map(
-          (v, vIdx) => {
+          (item, vIdx) => {
+            const p = item.product;
+            const v = item.vendor;
+            const searchText = group.length > 1
+              ? group.map((gp) => buildProductSearchText(gp)).join(" ")
+              : buildProductSearchText(p);
+            const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
+            const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
             const vendorExtraAttr = vIdx > 0 ? ` data-vendor-extra="1"` : "";
             const vendorBadgeAttr = vIdx === 0 && isMulti ? ` data-vendor-multi-badge="${encodeURIComponent(vendorMultiBadgeHtml)}"` : "";
-            const vendorGroupAttr = isMulti ? ` data-vendor-group="${pIdx}"` : "";
+            const vendorGroupAttr = isMulti ? ` data-vendor-group="${groupIdx}"` : "";
             return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}"${vendorExtraAttr}${vendorBadgeAttr}${vendorGroupAttr}>
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
+      <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
@@ -1957,7 +2123,10 @@ function renderProducts() {
       <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
       <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChip(v.vendor)}</td>
       <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
+      <td data-col-orig-idx="37"><select class="vendor-status" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${["", ...(opts.status || [])].map((o) => `<option value="${esc(o)}" ${String(v.status || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
       <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
+      <td data-col-orig-idx="35"><select class="vendor-delivery-method" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(v.deliveryMethod || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+      <td data-col-orig-idx="36"><select class="vendor-logistics-agent" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(v.logisticsAgent || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
       <td data-col-orig-idx="10">${esc(v.code || "")}</td>
       <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
       <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
@@ -1988,7 +2157,7 @@ function renderProducts() {
     })
     .join("");
 
-  qs("#view-products").innerHTML = `
+  container.innerHTML = `
     <div id="products-list-view" class="products-bh">
       <div class="card products-bh-card">
         <div class="products-bh-toolbar">
@@ -2014,7 +2183,7 @@ function renderProducts() {
         <div class="products-bh-search-row">
           <div class="products-bh-search-wrap">
             <span class="bh-search-icon" aria-hidden="true">🔍</span>
-            <input type="text" id="product-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처코드·품목명/구매처 검색" autocomplete="off" />
+            <input type="text" id="product-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처명/판매처코드·품목명/구매처 검색" autocomplete="off" />
             <button type="button" class="bh-search-go" id="product-search-btn">조회</button>
           </div>
           <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
@@ -2038,6 +2207,7 @@ function renderProducts() {
             <table id="products-table">
               <thead><tr>
                 <th data-col-orig-idx="0" data-col-label=""><input id="product-check-all" type="checkbox" /></th>
+                <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -2047,8 +2217,13 @@ function renderProducts() {
                 <th data-col-orig-idx="7" data-col-label="상태">상태</th>
                 <th data-col-orig-idx="8" data-col-label="판매처">판매처</th>
                 <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
+                <th data-col-orig-idx="37" data-col-label="판매처별 상태">판매처별
+상태</th>
                 <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
 출고단위</th>
+                <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
+납품방법</th>
+                <th data-col-orig-idx="36" data-col-label="물류대행">물류대행</th>
                 <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
                 <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
                 <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
@@ -2081,7 +2256,7 @@ INN(EA)</th>
         </div>
         <div class="products-bh-pagination">
           <label>보기
-            <select id="product-page-size">
+            <select id="product-page-size" disabled title="임시로 전체 고정">
               <option value="50">50</option>
               <option value="100">100</option>
               <option value="200">200</option>
@@ -2501,7 +2676,7 @@ INN(EA)</th>
     });
     qs("#products-table")?.addEventListener("click", (e) => {
       if (e.target.closest(".vendor-multi-badge-btn") || e.target.closest(".vendor-collapse-single-btn")) return;
-      if (e.target.closest(".product-row-check")) return;
+      if (e.target.closest(".product-row-check, .verify-toggle, .vendor-delivery-method, .vendor-logistics-agent, .vendor-status")) return;
       const tr = e.target.closest("tbody tr");
       if (!tr) return;
       const chk = tr.querySelector(".product-row-check");
@@ -2687,6 +2862,7 @@ INN(EA)</th>
     el.addEventListener("mousedown", (e) => e.preventDefault());
     el.onchange = () => el.closest("tr")?.classList.toggle("product-row-checked", el.checked);
   });
+  wireVerifyAndVendorSelects("#products-table", "main");
 
   const editSelectedBtn = qs("#product-edit-selected");
   if (editSelectedBtn) {
@@ -2838,11 +3014,15 @@ INN(EA)</th>
           "바코드(INN)": p.middleBarcode || "",
           "바코드(카톤)": p.logisticsBarcode || "",
           "품목명(이카운트)": p.ecountName || p.name || "",
+          "정보검수": p.infoVerified ? "Y" : "N",
           "상태": p.status || "",
           "판매처": v.vendor || "",
+          "판매처별 상태": v.status || "",
           "판매처관리코드": v.code || "",
           "판매처 품목명": v.itemName || "",
           "출고단위": v.outUnit || "",
+          "납품방법": v.deliveryMethod || "",
+          "물류대행": v.logisticsAgent || "",
           "출고적재사양 INN(EA)": v.innEa || "",
           "출고적재사양 INN/CTN": v.innPerCtn || "",
           "출고적재사양 CTN(EA)": v.ctnEa || "",
@@ -2878,6 +3058,573 @@ INN(EA)</th>
   };
   applyTableColumnConfig("#products-table", PRODUCT_HIDDEN_COLS_KEY, 2);
   applyExcelLikeFilter("#products-table", applyProductListFilters);
+}
+
+function renderProductsSalesNewTab(container) {
+  salesNewPageIndex = 0;
+  const list = state.salesUnregisteredProducts || [];
+  const opts = state.productOptions || {};
+  const selectItems = (arr) => (arr || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const selectOptions = (arr, current) =>
+    (arr || [])
+      .map((v) => `<option value="${esc(v)}" ${String(current || "") === String(v || "") ? "selected" : ""}>${esc(v)}</option>`)
+      .join("");
+
+  const rowHtml = (p, vendorIdx, isGlobalExpand) => {
+    const vendors = p.deliveryVendors || [];
+    const vInfo = (p.deliveryVendorInfo || [])[vendorIdx ?? 0] || {};
+    const isMulti = vendors.length > 1;
+    const vendorCell = vendorIdx === undefined
+      ? (isMulti
+          ? `<span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;" title="${esc(vendors.join(", "))}">다중 (${vendors.length})</span> ${VENDOR_ARROW_CHIP_HTML("sales-new-vendor-expand-btn", -90, "펼치기")}`
+          : (renderVendorChip(vendors[0]) || "<span class='muted'>-</span>"))
+      : vendorIdx === 0 && !isGlobalExpand
+        ? `${renderVendorChip(vendors[vendorIdx])} ${VENDOR_ARROW_CHIP_HTML("sales-new-vendor-collapse-btn", 180, "접기")}`
+        : renderVendorChip(vendors[vendorIdx]);
+    const searchText = [p.code, p.barcode, p.name, p.spec, vendors.join(" ")].join(" ").toLowerCase();
+    const effVendorIdx = vendorIdx ?? 0;
+    const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
+    const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
+    const individuallyExpanded = salesNewExpandedCodes.has(p.code);
+    const collapseMode = !salesNewExpandVendor;
+    const highlightOn = isMulti && collapseMode && individuallyExpanded;
+    const barOn = isMulti && (collapseMode ? individuallyExpanded : true);
+    const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : ""].filter(Boolean).join(" ");
+    return `
+      <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${extraClasses ? ` class="${extraClasses}"` : ""}>
+        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" /></td>
+        <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" data-source="salesNew" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
+        <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
+        <td data-col-orig-idx="2">${esc(p.barcode)}</td>
+        <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
+        <td data-col-orig-idx="4">${esc(p.logisticsBarcode || "")}</td>
+        <td data-col-orig-idx="5">${esc(p.ecountName || p.name)}</td>
+        <td data-col-orig-idx="6">${esc(p.spec || "")}</td>
+        <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
+        <td data-col-orig-idx="8" data-filter-multi="${esc(vendors.join('|'))}">${vendorCell}</td>
+        <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
+        <td data-col-orig-idx="37"><select class="vendor-status" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${["", ...(opts.status || [])].map((o) => `<option value="${esc(o)}" ${String(vInfo.status || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+        <td data-col-orig-idx="28">${esc(vInfo.outUnit || "")}</td>
+        <td data-col-orig-idx="35"><select class="vendor-delivery-method" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(vInfo.deliveryMethod || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+        <td data-col-orig-idx="36"><select class="vendor-logistics-agent" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(vInfo.logisticsAgent || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+        <td data-col-orig-idx="10">${esc(vInfo.code || "")}</td>
+        <td data-col-orig-idx="11">${esc(vInfo.itemName || "")}</td>
+        <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
+        <td data-col-orig-idx="14">${esc(p.orderDept || "")}</td>
+        <td data-col-orig-idx="15" data-filter-multi="${esc((p.orderManagers||[]).join('|'))}">${renderTagChips(p.orderManagers)}</td>
+        <td data-col-orig-idx="27" data-filter-multi="${esc((p.salesManagers||[]).join('|'))}">${renderTagChips(p.salesManagers)}</td>
+        <td data-col-orig-idx="12">${esc(p.purchaseVendor || "")}</td>
+        <td data-col-orig-idx="16">${esc(p.purchaseItemCode || "")}</td>
+        <td data-col-orig-idx="17">${esc(p.purchaseItemName || "")}</td>
+        <td data-col-orig-idx="18">${esc(p.warehouseGroup || "")}</td>
+        <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
+        <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
+        <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
+        <td data-col-orig-idx="22">${esc(p.innEa || "")}</td>
+        <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
+        <td data-col-orig-idx="24">${esc(p.ctnEa || "")}</td>
+        <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
+        <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
+        <td data-col-orig-idx="29">${esc(vInfo.innEa || "")}</td>
+        <td data-col-orig-idx="30">${esc(vInfo.innPerCtn || "")}</td>
+        <td data-col-orig-idx="31">${esc(vInfo.ctnEa || "")}</td>
+        <td data-col-orig-idx="32">${esc(vInfo.ctnPerPlt || "")}</td>
+        <td data-col-orig-idx="33">${esc(vInfo.pltEa || "")}</td>
+      </tr>`;
+  };
+
+  const rowsHtml = list
+    .map((p) => {
+      const vendors = p.deliveryVendors || [];
+      const rowExpand = salesNewExpandVendor || salesNewExpandedCodes.has(p.code);
+      if (rowExpand && vendors.length > 1) {
+        return vendors.map((_, i) => rowHtml(p, i, salesNewExpandVendor)).join("");
+      }
+      return rowHtml(p, undefined, salesNewExpandVendor);
+    })
+    .join("");
+
+  container.innerHTML = `
+    <div class="card products-bh-card">
+      <div class="products-bh-toolbar">
+        <h2 class="products-bh-title">판매현황 미등록상품</h2>
+        <div class="products-bh-actions">
+          <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-column-settings">컬럼 설정</button>
+          <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-export-all">엑셀 내보내기</button>
+        </div>
+      </div>
+      <p class="muted" style="margin-top:-4px;">
+        유통사업부 판매현황(2024~현재) 이력에 등장했지만 기본상품정보에 아직 등록되지 않은 상품입니다. 여기서 정보를 채우거나 목록에서 삭제할 수 있으며, 기본상품정보에는 자동 반영되지 않습니다.
+      </p>
+      <div class="products-bh-search-row">
+        <div class="products-bh-search-wrap">
+          <span class="bh-search-icon" aria-hidden="true">🔍</span>
+          <input type="text" id="sales-new-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/규격/판매처 검색" autocomplete="off" value="${esc(salesNewSearchQuery)}" />
+          <button type="button" class="bh-search-go" id="sales-new-search-btn">조회</button>
+        </div>
+        <label id="sales-new-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+          <input type="checkbox" id="sales-new-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+          단종품 포함
+        </label>
+        <label id="sales-new-expand-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+          <input type="checkbox" id="sales-new-expand-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+          다중판매처 보기
+        </label>
+        <span class="products-bh-search-actions">
+          <button type="button" id="sales-new-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
+          <button type="button" id="sales-new-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
+        </span>
+      </div>
+      <p id="sales-new-search-result" class="muted products-bh-result">전체 ${list.length}건</p>
+      <div class="products-bh-table-outer">
+        <div class="table-scroll-x products-bh-y-scroll">
+          <table id="sales-new-products-table">
+            <thead><tr>
+              <th data-col-orig-idx="0" data-col-label=""><input id="sales-new-check-all" type="checkbox" /></th>
+              <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
+              <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
+              <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
+              <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
+              <th data-col-orig-idx="4" data-col-label="바코드(CTN)">바코드(CTN)</th>
+              <th data-col-orig-idx="5" data-col-label="품목명(이카운트)">품목명(이카운트)</th>
+              <th data-col-orig-idx="6" data-col-label="규격">규격</th>
+              <th data-col-orig-idx="7" data-col-label="상태">상태</th>
+              <th data-col-orig-idx="8" data-col-label="판매처">판매처</th>
+              <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
+              <th data-col-orig-idx="37" data-col-label="판매처별 상태">판매처별
+상태</th>
+              <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
+출고단위</th>
+              <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
+납품방법</th>
+              <th data-col-orig-idx="36" data-col-label="물류대행">물류대행</th>
+              <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
+              <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
+              <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
+              <th data-col-orig-idx="14" data-col-label="발주부서">발주부서</th>
+              <th data-col-orig-idx="15" data-col-label="발주담당자">발주담당자</th>
+              <th data-col-orig-idx="27" data-col-label="영업담당자">영업담당자</th>
+              <th data-col-orig-idx="12" data-col-label="구매처">구매처</th>
+              <th data-col-orig-idx="16" data-col-label="구매처 품목코드">구매처 품목코드</th>
+              <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
+              <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
+              <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
+              <th data-col-orig-idx="20" data-col-label="구분">구분</th>
+              <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
+              <th data-col-orig-idx="22" data-col-label="입고적재사양 INN(EA)" class="col-group-cell col-group-start">입고적재사양
+INN(EA)</th>
+              <th data-col-orig-idx="23" data-col-label="INN/CTN" class="col-group-cell">INN/CTN</th>
+              <th data-col-orig-idx="24" data-col-label="CTN(EA)" class="col-group-cell">CTN(EA)</th>
+              <th data-col-orig-idx="25" data-col-label="CTN/PLT" class="col-group-cell">CTN/PLT</th>
+              <th data-col-orig-idx="26" data-col-label="PLT(EA)" class="col-group-cell">PLT(EA)</th>
+              <th data-col-orig-idx="29" data-col-label="출고적재사양 INN(EA)" class="col-group-cell2 col-group-start2">출고적재사양
+INN(EA)</th>
+              <th data-col-orig-idx="30" data-col-label="INN/CTN" class="col-group-cell2">INN/CTN</th>
+              <th data-col-orig-idx="31" data-col-label="CTN(EA)" class="col-group-cell2">CTN(EA)</th>
+              <th data-col-orig-idx="32" data-col-label="CTN/PLT" class="col-group-cell2">CTN/PLT</th>
+              <th data-col-orig-idx="33" data-col-label="PLT(EA)" class="col-group-cell2">PLT(EA)</th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="products-bh-pagination">
+        <label>보기
+          <select id="sales-new-page-size" disabled title="임시로 전체 고정">
+            <option value="50" ${salesNewPageSizeValue === "50" ? "selected" : ""}>50</option>
+            <option value="100" ${salesNewPageSizeValue === "100" ? "selected" : ""}>100</option>
+            <option value="200" ${salesNewPageSizeValue === "200" ? "selected" : ""}>200</option>
+            <option value="99999" ${salesNewPageSizeValue === "99999" ? "selected" : ""}>전체</option>
+          </select>
+        </label>
+        <span id="sales-new-page-info">0 - 0 / 0</span>
+        <button type="button" id="sales-new-page-prev" class="bh-btn bh-btn-sm" title="이전">‹</button>
+        <button type="button" id="sales-new-page-next" class="bh-btn bh-btn-sm" title="다음">›</button>
+      </div>
+    </div>
+
+    <div id="sales-new-columns-overlay" class="modal-overlay hidden">
+      <div class="modal" style="width: min(420px, calc(100vw - 24px));">
+        <div class="modal-header">
+          <h3>컬럼 설정</h3>
+          <button type="button" id="sales-new-columns-close" class="cancel-btn del-small">닫기</button>
+        </div>
+        <p class="muted" style="margin: 0 0 8px; font-size: 12px;">체크 해제 시 해당 열을 숨깁니다. (체크박스/품목코드는 항상 표시)</p>
+        <div id="sales-new-columns-body" class="column-settings-list"></div>
+        <button type="button" class="primary" id="sales-new-columns-save" style="width: auto;">적용</button>
+      </div>
+    </div>
+
+    <div id="sales-new-modal-overlay" class="modal-overlay hidden">
+      <div class="modal modal-product-full">
+        <div class="modal-header product-modal-header-row">
+          <h3>판매현황 미등록상품 수정</h3>
+          <div class="product-modal-header-actions">
+            <button id="sales-new-modal-close" class="bh-btn bh-btn-sm bh-btn-outline" type="button">닫기</button>
+          </div>
+        </div>
+        <form id="sales-new-popup-form" class="modal-form">
+          <div><label>품목코드(이카운트)</label><input name="ecountCode" readonly /></div>
+          <div><label>바코드(SKU)</label><input name="barcode" /></div>
+          <div><label>바코드(INN)</label><input name="middleBarcode" /></div>
+          <div><label>바코드(CTN)</label><input name="logisticsBarcode" /></div>
+          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
+          <div><label>규격</label><input name="spec" /></div>
+          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
+          <div style="grid-column: 1 / -1;">
+            <label>판매처</label>
+            <div id="sales-new-vendor-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:24px;"></div>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="sales-new-vendor-add-input" placeholder="판매처명 입력 후 추가" style="flex:1;" />
+              <button type="button" id="sales-new-vendor-add-btn" class="bh-btn bh-btn-sm bh-btn-outline">+ 추가</button>
+            </div>
+          </div>
+          <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType, "")}</select></div>
+          <div><label>발주부서</label><select name="orderDept"><option value=""></option>${selectOptions(opts.orderDept, "")}</select></div>
+          <div><label>발주담당자(쉼표로 구분)</label><input name="orderManagers" /></div>
+          <div><label>영업담당자(쉼표로 구분)</label><input name="salesManagers" /></div>
+          <div><label>구매처</label><input name="purchaseVendor" /></div>
+          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
+          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
+          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
+          <div><label>사용창고(쉼표로 구분)</label><input name="usedWarehouses" /></div>
+          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
+          <div><label>카테고리(쉼표로 구분)</label><input name="categories" /></div>
+          <div style="grid-column: 1 / -1; font-weight:600; color:#475569; margin-top:4px;">입고적재사양</div>
+          <div><label>INN(EA)</label><input name="innEa" type="number" /></div>
+          <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
+          <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
+          <div><label>CTN/PLT</label><input name="ctnPerPlt" type="number" /></div>
+          <div><label>PLT(EA)</label><input name="pltEa" type="number" /></div>
+          <div><button class="primary" type="submit">저장</button></div>
+        </form>
+      </div>
+    </div>
+  `;
+
+  // 검색 + 페이지네이션
+  const searchInput = qs("#sales-new-search-q");
+  const searchBtn = qs("#sales-new-search-btn");
+  const resultEl = qs("#sales-new-search-result");
+  const pageSizeEl = qs("#sales-new-page-size");
+  const pageInfoEl = qs("#sales-new-page-info");
+  const pagePrev = qs("#sales-new-page-prev");
+  const pageNext = qs("#sales-new-page-next");
+  const onlyActiveChk = qs("#sales-new-only-active");
+  const onlyActiveBtn = qs("#sales-new-only-active-btn");
+  const expandChk = qs("#sales-new-expand-vendor");
+  const expandBtn = qs("#sales-new-expand-vendor-btn");
+  if (onlyActiveChk) onlyActiveChk.checked = salesNewOnlyActive;
+  if (expandChk) expandChk.checked = salesNewExpandVendor;
+
+  const applyFilters = () => {
+    const q = (searchInput?.value || "").trim().toLowerCase();
+    const includeDiscontinued = onlyActiveChk?.checked ?? false;
+    const allRows = document.querySelectorAll("#sales-new-products-table tbody tr");
+    const passesFilter = (tr) => {
+      if (tr.dataset.wmsExcelVisible === "0") return false;
+      const st = tr.dataset.status || "";
+      if (!includeDiscontinued && st && st !== "판매중") return false;
+      return !q || String(tr.dataset.search || "").includes(q);
+    };
+    const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "100", 10) || 100));
+    let total = 0;
+    allRows.forEach((tr) => { if (passesFilter(tr)) total += 1; });
+    const pages = Math.max(1, Math.ceil(total / size));
+    if (salesNewPageIndex >= pages) salesNewPageIndex = pages - 1;
+    if (salesNewPageIndex < 0) salesNewPageIndex = 0;
+    const start = salesNewPageIndex * size;
+    let mi = 0;
+    allRows.forEach((tr) => {
+      let vis = false;
+      if (passesFilter(tr)) { vis = mi >= start && mi < start + size; mi += 1; }
+      const nd = vis ? "" : "none";
+      if (tr.style.display !== nd) tr.style.display = nd;
+    });
+    if (pageInfoEl) pageInfoEl.textContent = total === 0 ? "0 - 0 / 0" : `${start + 1} - ${Math.min(total, start + size)} / ${total}`;
+    if (resultEl) {
+      if (q) resultEl.textContent = `검색 결과: ${total}건`;
+      else if (total < allRows.length) resultEl.textContent = `필터 결과: ${total}건 (전체 ${allRows.length}건)`;
+      else resultEl.textContent = `전체 ${allRows.length}건`;
+    }
+  };
+
+  preventEnterSubmit(qs("#view-products .products-bh-search-wrap"));
+  searchBtn?.addEventListener("click", () => { salesNewPageIndex = 0; salesNewSearchQuery = searchInput?.value || ""; applyFilters(); });
+  searchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); salesNewPageIndex = 0; salesNewSearchQuery = searchInput?.value || ""; applyFilters(); }
+  });
+  pageSizeEl?.addEventListener("change", () => { salesNewPageIndex = 0; salesNewPageSizeValue = pageSizeEl.value; applyFilters(); });
+  pagePrev?.addEventListener("click", () => { salesNewPageIndex = Math.max(0, salesNewPageIndex - 1); applyFilters(); });
+  pageNext?.addEventListener("click", () => { salesNewPageIndex += 1; applyFilters(); });
+
+  const updateOnlyActiveStyle = () => {
+    if (!onlyActiveBtn) return;
+    if (onlyActiveChk?.checked) {
+      onlyActiveBtn.style.borderColor = "#3182F6";
+      onlyActiveBtn.style.background = "#EBF3FF";
+      onlyActiveBtn.style.color = "#1A6FDB";
+    } else {
+      onlyActiveBtn.style.borderColor = "#CBD5E1";
+      onlyActiveBtn.style.background = "#fff";
+      onlyActiveBtn.style.color = "#475569";
+    }
+  };
+  onlyActiveChk?.addEventListener("change", () => {
+    salesNewOnlyActive = onlyActiveChk.checked;
+    salesNewPageIndex = 0;
+    applyFilters();
+    updateOnlyActiveStyle();
+  });
+  updateOnlyActiveStyle();
+
+  const updateExpandVendorStyle = () => {
+    if (!expandBtn) return;
+    if (expandChk?.checked) {
+      expandBtn.style.borderColor = "#3182F6";
+      expandBtn.style.background = "#EBF3FF";
+      expandBtn.style.color = "#1A6FDB";
+    } else {
+      expandBtn.style.borderColor = "#CBD5E1";
+      expandBtn.style.background = "#fff";
+      expandBtn.style.color = "#475569";
+    }
+  };
+  expandChk?.addEventListener("change", () => {
+    salesNewExpandVendor = expandChk.checked;
+    const scrollBox = qs("#view-products .products-bh-table-outer .table-scroll-x");
+    const scrollTop = scrollBox?.scrollTop ?? 0;
+    const scrollLeft = scrollBox?.scrollLeft ?? 0;
+    renderProductsSalesNewTab(container);
+    const newScrollBox = qs("#view-products .products-bh-table-outer .table-scroll-x");
+    if (newScrollBox) {
+      newScrollBox.scrollTop = scrollTop;
+      newScrollBox.scrollLeft = scrollLeft;
+    }
+  });
+  updateExpandVendorStyle();
+
+  applyExcelLikeFilter("#sales-new-products-table", applyFilters);
+  applyTableColumnConfig("#sales-new-products-table", SALES_NEW_HIDDEN_COLS_KEY, 2);
+  applyFilters();
+
+  // 선택/체크박스
+  const getSelectedCodes = () =>
+    Array.from(new Set(Array.from(document.querySelectorAll(".sales-new-row-check:checked")).map((el) => String(el.dataset.code || ""))));
+  const checkAllEl = qs("#sales-new-check-all");
+  if (checkAllEl) {
+    checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
+    checkAllEl.onchange = () => {
+      document.querySelectorAll(".sales-new-row-check").forEach((el) => {
+        el.checked = checkAllEl.checked;
+        el.closest("tr")?.classList.toggle("product-row-checked", checkAllEl.checked);
+      });
+    };
+  }
+  document.querySelectorAll(".sales-new-row-check").forEach((el) => {
+    el.addEventListener("mousedown", (e) => e.preventDefault());
+    el.onchange = () => el.closest("tr")?.classList.toggle("product-row-checked", el.checked);
+  });
+  qs("#sales-new-products-table")?.addEventListener("click", (e) => {
+    const expandBtn = e.target.closest(".sales-new-vendor-expand-btn");
+    const collapseBtn = e.target.closest(".sales-new-vendor-collapse-btn");
+    if (expandBtn || collapseBtn) {
+      const tr = e.target.closest("tbody tr");
+      const code = tr?.querySelector(".sales-new-row-check")?.dataset.code;
+      if (code) {
+        if (expandBtn) salesNewExpandedCodes.add(code);
+        else salesNewExpandedCodes.delete(code);
+        const scrollBox = qs("#view-products .products-bh-table-outer .table-scroll-x");
+        const scrollTop = scrollBox?.scrollTop ?? 0;
+        const scrollLeft = scrollBox?.scrollLeft ?? 0;
+        renderProductsSalesNewTab(container);
+        const newScrollBox = qs("#view-products .products-bh-table-outer .table-scroll-x");
+        if (newScrollBox) {
+          newScrollBox.scrollTop = scrollTop;
+          newScrollBox.scrollLeft = scrollLeft;
+        }
+      }
+      return;
+    }
+    if (e.target.closest(".sales-new-row-check, .verify-toggle, .vendor-delivery-method, .vendor-logistics-agent, .vendor-status")) return;
+    const tr = e.target.closest("tbody tr");
+    if (!tr) return;
+    const chk = tr.querySelector(".sales-new-row-check");
+    if (!chk) return;
+    chk.checked = !chk.checked;
+    chk.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  wireVerifyAndVendorSelects("#sales-new-products-table", "salesNew");
+
+  // 컬럼 설정
+  const colOverlay = qs("#sales-new-columns-overlay");
+  qs("#sales-new-column-settings")?.addEventListener("click", () => {
+    openColumnSettingsUI(qs("#sales-new-columns-body"), "#sales-new-products-table", 2);
+    colOverlay?.classList.remove("hidden");
+  });
+  qs("#sales-new-columns-close")?.addEventListener("click", () => colOverlay?.classList.add("hidden"));
+  colOverlay?.addEventListener("click", (e) => { if (e.target === colOverlay) colOverlay.classList.add("hidden"); });
+  qs("#sales-new-columns-save")?.addEventListener("click", () => {
+    saveColumnSettingsUI(qs("#sales-new-columns-body"), SALES_NEW_HIDDEN_COLS_KEY);
+    applyTableColumnConfig("#sales-new-products-table", SALES_NEW_HIDDEN_COLS_KEY, 2);
+    colOverlay?.classList.add("hidden");
+  });
+
+  // 선택 수정 / 선택 삭제
+  const modalOverlay = qs("#sales-new-modal-overlay");
+  const form = qs("#sales-new-popup-form");
+  preventEnterSubmit(form);
+  renderSalesNewVendorChips();
+  qs("#sales-new-vendor-chips")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".sales-new-vendor-remove");
+    if (!btn) return;
+    const idx = Number(btn.dataset.idx);
+    salesNewEditVendorInfo.splice(idx, 1);
+    renderSalesNewVendorChips();
+  });
+  qs("#sales-new-vendor-add-btn")?.addEventListener("click", () => {
+    const input = qs("#sales-new-vendor-add-input");
+    const name = (input?.value || "").trim();
+    if (!name) return;
+    if (salesNewEditVendorInfo.some((v) => v.vendor === name)) {
+      if (input) input.value = "";
+      return;
+    }
+    salesNewEditVendorInfo.push({ vendor: name, code: "", itemName: "", outUnit: "", deliveryMethod: "", logisticsAgent: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" });
+    if (input) input.value = "";
+    renderSalesNewVendorChips();
+  });
+  qs("#sales-new-edit-selected")?.addEventListener("click", () => {
+    const codes = getSelectedCodes();
+    if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
+    const p = list.find((x) => String(x.code) === codes[0]);
+    if (!p || !form || !modalOverlay) return;
+    salesNewEditingCode = String(p.code || "");
+    const setVal = (name, val) => {
+      const el = form.querySelector(`[name="${name}"]`);
+      if (el) el.value = val ?? "";
+    };
+    setVal("ecountCode", p.ecountCode || p.code);
+    setVal("barcode", p.barcode);
+    setVal("middleBarcode", p.middleBarcode);
+    setVal("logisticsBarcode", p.logisticsBarcode);
+    setVal("ecountName", p.ecountName || p.name);
+    setVal("spec", p.spec);
+    setVal("status", p.status || "판매중");
+    salesNewEditVendorInfo = (p.deliveryVendorInfo || []).map((v) => ({ ...v }));
+    renderSalesNewVendorChips();
+    setVal("supplyType", p.supplyType);
+    setVal("orderDept", p.orderDept);
+    setVal("orderManagers", (p.orderManagers || []).join(", "));
+    setVal("salesManagers", (p.salesManagers || []).join(", "));
+    setVal("purchaseVendor", p.purchaseVendor);
+    setVal("purchaseItemCode", p.purchaseItemCode);
+    setVal("purchaseItemName", p.purchaseItemName);
+    setVal("warehouseGroup", p.warehouseGroup);
+    setVal("usedWarehouses", (p.usedWarehouses || []).join(", "));
+    setVal("itemType", p.itemType);
+    setVal("categories", (p.categories || []).join(", "));
+    setVal("innEa", p.innEa ?? "");
+    setVal("innPerCtn", p.innPerCtn ?? "");
+    setVal("ctnEa", p.ctnEa ?? "");
+    setVal("ctnPerPlt", p.ctnPerPlt ?? "");
+    setVal("pltEa", p.pltEa ?? "");
+    modalOverlay.classList.remove("hidden");
+  });
+  qs("#sales-new-modal-close")?.addEventListener("click", () => modalOverlay?.classList.add("hidden"));
+  modalOverlay?.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.add("hidden"); });
+
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target));
+    data.code = salesNewEditingCode;
+    data.ecountCode = salesNewEditingCode;
+    data.ecountName = String(data.ecountName || "").trim();
+    data.name = data.ecountName;
+    data.deliveryVendorInfo = salesNewEditVendorInfo.map((v) => ({ ...v }));
+    data.deliveryVendors = salesNewEditVendorInfo.map((v) => v.vendor);
+    data.salesVendor = data.deliveryVendors.join(", ");
+    data.orderManagers = toTagList(data.orderManagers);
+    data.salesManagers = toTagList(data.salesManagers);
+    data.usedWarehouses = toTagList(data.usedWarehouses);
+    data.categories = toTagList(data.categories);
+    try {
+      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify(data) });
+      const res = await api("/api/products/sales-unregistered");
+      state.salesUnregisteredProducts = res.items || [];
+      salesNewEditingCode = "";
+      modalOverlay?.classList.add("hidden");
+      renderProducts();
+      alert("저장되었습니다.");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  qs("#sales-new-delete-selected")?.addEventListener("click", async () => {
+    const codes = getSelectedCodes();
+    if (!codes.length) return alert("삭제할 상품을 선택하세요.");
+    if (!confirm(`선택한 ${codes.length}개 상품을 목록에서 삭제할까요? (기본상품정보에는 영향 없음)`)) return;
+    try {
+      await api("/api/products/sales-unregistered", { method: "DELETE", body: JSON.stringify({ codes }) });
+      const res = await api("/api/products/sales-unregistered");
+      state.salesUnregisteredProducts = res.items || [];
+      renderProducts();
+      alert("선택 상품 삭제 완료");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  // 엑셀 내보내기
+  qs("#sales-new-export-all")?.addEventListener("click", () => {
+    try {
+      const rowsForExport = list.map((p) => ({
+        "품목코드(이카운트)": p.ecountCode || p.code || "",
+        "바코드(SKU)": p.barcode || "",
+        "바코드(INN)": p.middleBarcode || "",
+        "바코드(CTN)": p.logisticsBarcode || "",
+        "품목명(이카운트)": p.ecountName || p.name || "",
+        "정보검수": p.infoVerified ? "Y" : "N",
+        "규격": p.spec || "",
+        "상태": p.status || "",
+        "판매처": (p.deliveryVendors || []).join(", "),
+        "판매처구분": (p.deliveryVendors || []).length > 1 ? "다중" : "단일",
+        "판매처별 상태": (p.deliveryVendorInfo || [])[0]?.status || "",
+        "납품방법": (p.deliveryVendorInfo || [])[0]?.deliveryMethod || "",
+        "물류대행": (p.deliveryVendorInfo || [])[0]?.logisticsAgent || "",
+        "수급형태": p.supplyType || "",
+        "발주부서": p.orderDept || "",
+        "발주담당자": (p.orderManagers || []).join(", "),
+        "영업담당자": (p.salesManagers || []).join(", "),
+        "구매처": p.purchaseVendor || "",
+        "구매처 품목코드": p.purchaseItemCode || "",
+        "구매처 품목명": p.purchaseItemName || "",
+        "창고그룹(이카운트)": p.warehouseGroup || "",
+        "사용창고": (p.usedWarehouses || []).join(", "),
+        "구분": p.itemType || "",
+        "카테고리": (p.categories || []).join(", "),
+        "INN(EA)": p.innEa || "",
+        "INN/CTN": p.innPerCtn || "",
+        "CTN(EA)": p.ctnEa || "",
+        "CTN/PLT": p.ctnPerPlt || "",
+        "PLT(EA)": p.pltEa || ""
+      }));
+      const ws = XLSX.utils.json_to_sheet(rowsForExport);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "sales-unregistered");
+      XLSX.writeFile(wb, `판매현황-미등록상품-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      alert(err.message || "엑셀 내보내기 실패");
+    }
+  });
+
+  const scrollX = qs("#view-products .products-bh-table-outer .table-scroll-x");
+  if (scrollX) {
+    const toggleScrolledClass = () => scrollX.classList.toggle("is-scrolled-x", scrollX.scrollLeft > 0);
+    scrollX.addEventListener("scroll", toggleScrolledClass);
+    toggleScrolledClass();
+  }
 }
 
 function renderStock() {
