@@ -697,13 +697,16 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-x { width: 100%; overflow-x: auto; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
-#products-table { width: 6195px; table-layout: fixed; }
+#products-table { width: 6325px; table-layout: fixed; }
 #products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
 #products-table thead th { white-space: normal; overflow-wrap: anywhere; }
 #products-table thead th[data-col-orig-idx="0"],
 #sales-new-products-table thead th[data-col-orig-idx="0"] { width: 41px; }
+#products-table thead th[data-col-orig-idx="38"],
+#sales-new-products-table thead th[data-col-orig-idx="38"],
+#ppl-table thead th[data-col-orig-idx="38"] { width: 130px; }
 #products-table thead th[data-col-orig-idx="34"],
 #sales-new-products-table thead th[data-col-orig-idx="34"] { width: 64px; }
 #products-table thead th[data-col-orig-idx="35"],
@@ -882,6 +885,10 @@ tbody tr:last-child td { border-bottom: 0; }
   accent-color: #3182F6;
   cursor: pointer;
 }
+#products-table .product-row-check:disabled {
+  cursor: not-allowed;
+  opacity: .35;
+}
 #products-table thead th:nth-child(3) {
   position: sticky;
   left: 41px;
@@ -932,7 +939,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
 
 /* ── 판매현황 미등록상품 테이블: 기본상품정보와 동일한 컬럼 너비/동작, 초록 계열 헤더로만 구분 ── */
-#sales-new-products-table { width: 6195px; table-layout: fixed; }
+#sales-new-products-table { width: 6325px; table-layout: fixed; }
 #sales-new-products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #sales-new-products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #sales-new-products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -1190,7 +1197,7 @@ tbody tr:last-child td { border-bottom: 0; }
 #stock-table tr.stock-row-low td { background: #FFF5F5; }
 #stock-table tr.stock-row-over td { background: #FFFBEB; }
 
-#ppl-table { table-layout: fixed; width: 5695px; }
+#ppl-table { table-layout: fixed; width: 5825px; }
 #ppl-table tr.product-group-odd td { background: #FAFBFC; }
 #ppl-table tr.product-group-odd td:first-child { background: #FAFBFC; }
 #ppl-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
@@ -1371,7 +1378,19 @@ tbody tr:last-child td { border-bottom: 0; }
 #product-popup-form .vendor-info-field { grid-column: 1 / -1; }
 #preview-orderManagers,
 #preview-categories,
+#preview-salesManagers,
+#preview-usedWarehouses,
 #product-popup-form > div:last-child { grid-column: 1 / -1; }
+#product-popup-form .form-section-title {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1D6FA5;
+  padding-bottom: 6px;
+  margin-top: 10px;
+  border-bottom: 2px solid #DBEAFE;
+}
+#product-popup-form .form-section-title:first-child { margin-top: 0; }
 
 .vendor-info-table {
   width: 100%;

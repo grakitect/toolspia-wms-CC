@@ -265,6 +265,7 @@ function normalizeDb(db) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
   for (const p of db.products || []) {
+    if (!p.managementCode) p.managementCode = nextManagementCode(db);
     p.deliveryVendors = toTagList(p.deliveryVendors || p.salesVendor);
     if (!Array.isArray(p.deliveryVendorInfo)) {
       const legacyCode = String(p.deliveryVendorCode || "").trim();
@@ -352,6 +353,7 @@ function normalizeDb(db) {
   if (!Array.isArray(db.outboundCodeMasters)) db.outboundCodeMasters = [];
   if (!Array.isArray(db.salesUnregisteredProducts)) db.salesUnregisteredProducts = [];
   for (const p of db.salesUnregisteredProducts) {
+    if (!p.managementCode) p.managementCode = nextManagementCode(db);
     p.infoVerified = Boolean(p.infoVerified);
     if (!Array.isArray(p.deliveryVendorInfo)) p.deliveryVendorInfo = [];
     p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
@@ -524,6 +526,12 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// 이카운트코드/바코드 등 외부에서 들어오는 코드는 소스 실수로 중복될 수 있어 상품 식별 기준으로
+// 100% 신뢰할 수 없다. WMS가 상품 생성 시 스스로 발급하는 불변 내부 관리코드.
+function nextManagementCode(db) {
+  return `WMS-${String(db.seq++).padStart(5, "0")}`;
+}
+
 function upsertProduct(db, product) {
   const ecountCode = String(product.ecountCode || product.code || "").trim();
   const code = String(product.code || ecountCode).trim();
@@ -596,6 +604,7 @@ function upsertProduct(db, product) {
   } else {
     db.products.push({
       code,
+      managementCode: nextManagementCode(db),
       ...updated,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -1438,19 +1447,37 @@ function syncPartnerCustCodeToSettings(db, type, name, custCode) {
   if (pt && db.partnerSettings?.[pt]) db.partnerSettings[pt].custCode = custCode;
 }
 
-function buildProductBarcodeMap(db) {
+function buildProductBarcodeMap(db, vendorLabel) {
   const map = new Map();
-  for (const p of db.products || []) {
+  const setEntry = (bc, code) => {
+    if (!bc) return;
+    if (!map.has(bc)) map.set(bc, code);
+    const loose = normalizeInputLoose(bc);
+    if (loose && !map.has(loose)) map.set(loose, code);
+    const num = bc.replace(/,/g, "").trim().replace(/\.0+$/, "");
+    if (num !== bc && !map.has(num)) map.set(num, code);
+  };
+  const vendorMatches = (p) =>
+    (Array.isArray(p.deliveryVendors) && p.deliveryVendors.includes(vendorLabel)) ||
+    (Array.isArray(p.deliveryVendorInfo) && p.deliveryVendorInfo.some((v) => v.vendor === vendorLabel));
+  const products = db.products || [];
+  // 같은 바코드를 여러 판매처 상품이 공유할 수 있으므로, 해당 판매처로 등록된 상품을 먼저 채우고
+  // (판매처 불명 등으로) 못 채운 바코드만 전체 상품 기준으로 보충한다.
+  if (vendorLabel) {
+    for (const p of products) {
+      if (!vendorMatches(p)) continue;
+      const code = String(p.code || "").trim();
+      if (!code) continue;
+      for (const field of ["barcode", "logisticsBarcode", "middleBarcode"]) {
+        setEntry(String(p[field] || "").trim(), code);
+      }
+    }
+  }
+  for (const p of products) {
     const code = String(p.code || "").trim();
     if (!code) continue;
     for (const field of ["barcode", "logisticsBarcode", "middleBarcode"]) {
-      const bc = String(p[field] || "").trim();
-      if (!bc) continue;
-      if (!map.has(bc)) map.set(bc, code);
-      const loose = normalizeInputLoose(bc);
-      if (loose && !map.has(loose)) map.set(loose, code);
-      const num = bc.replace(/,/g, "").trim().replace(/\.0+$/, "");
-      if (num !== bc && !map.has(num)) map.set(num, code);
+      setEntry(String(p[field] || "").trim(), code);
     }
   }
   return map;
@@ -1599,7 +1626,7 @@ function parseOutboundOrderRowsByPartner(matrix, partnerType, uploadBatchId, sou
   const errorRows = [];
   const partner = partnerLabelFromType(partnerType);
   const masterMap = getOutboundCodeMasterMap(db || {}, partnerType);
-  const productBarcodeMap = partnerType === "lotte" ? buildProductBarcodeMap(db || {}) : null;
+  const productBarcodeMap = partnerType === "lotte" ? buildProductBarcodeMap(db || {}, partnerLabelFromType(partnerType)) : null;
   const startRow = headerRow + 1;
   for (let r = startRow; r < rows.length; r++) {
     const row = rows[r] || [];

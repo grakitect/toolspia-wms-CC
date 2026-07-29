@@ -39,8 +39,8 @@ const MANAGER_PERMISSION_LABELS = [
   { key: "barcode", label: "바코드 인쇄" }
 ];
 const LAST_VIEW_KEY = "wms:lastView";
-const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols";
-const PPL_HIDDEN_COLS_KEY = "wms:pplHiddenCols";
+const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols:v2";
+const PPL_HIDDEN_COLS_KEY = "wms:pplHiddenCols:v2";
 const STOCK_HIDDEN_COLS_KEY = "wms:stockHiddenCols";
 const TABLE_FILTER_MEMORY = {};
 const DELIVERY_METHOD_OPTIONS = ["", "택배", "용차", "화물", "직납", "위탁"];
@@ -87,7 +87,7 @@ let salesNewEditingCode = "";
 let salesNewEditVendorInfo = [];
 let salesNewSearchQuery = "";
 let salesNewPageSizeValue = "99999";
-const SALES_NEW_HIDDEN_COLS_KEY = "wms:salesNewProductHiddenCols";
+const SALES_NEW_HIDDEN_COLS_KEY = "wms:salesNewProductHiddenCols:v2";
 
 function qs(sel) {
   return document.querySelector(sel);
@@ -1346,6 +1346,7 @@ function buildProductSearchText(p) {
   if (!p) return "";
   const vendorTokens = getProductVendorRows(p).flatMap((v) => [v.code || "", v.itemName || ""]);
   return [
+    p.managementCode || "",
     p.code || "",
     p.ecountCode || "",
     p.name || "",
@@ -1363,11 +1364,12 @@ function buildProductSearchText(p) {
 }
 
 /** 판매처별 코드/상품명 입력 테이블 컨트롤러. bodyId(tbody)/addBtnId 요소를 채우고 행 CRUD 제공. */
-function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
+function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions) {
   const body = qs(`#${bodyId}`);
   const addBtn = qs(`#${addBtnId}`);
   if (!body || !addBtn) return { setValues: () => {}, getValues: () => [] };
   const vendorOptionsHtml = `<option value=""></option>${(vendorOptions || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
+  const statusOptionsHtml = `<option value=""></option>${(statusOptions || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
   const addRow = (row = {}) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -1375,6 +1377,9 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
       <td><input class="vi-code" value="${esc(row.code || "")}" /></td>
       <td><input class="vi-itemname" value="${esc(row.itemName || "")}" /></td>
       <td><select class="vi-outunit">${["", "EA", "INN", "CTN", "PLT"].map((u) => `<option value="${u}" ${row.outUnit === u ? "selected" : ""}>${u}</option>`).join("")}</select></td>
+      <td><select class="vi-status">${statusOptionsHtml}</select></td>
+      <td><select class="vi-deliverymethod">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${row.deliveryMethod === o ? "selected" : ""}>${o || ""}</option>`).join("")}</select></td>
+      <td><select class="vi-logisticsagent">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${row.logisticsAgent === o ? "selected" : ""}>${o || ""}</option>`).join("")}</select></td>
       <td><input class="vi-innea" value="${esc(row.innEa || "")}" placeholder="예: 10" /></td>
       <td><input class="vi-innperctn" value="${esc(row.innPerCtn || "")}" /></td>
       <td><input class="vi-ctnea" value="${esc(row.ctnEa || "")}" placeholder="예: 12" /></td>
@@ -1382,6 +1387,7 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
       <td><input class="vi-pltea" value="${esc(row.pltEa || "")}" /></td>
       <td><button type="button" class="vi-remove" title="삭제">&times;</button></td>`;
     tr.querySelector(".vi-vendor").value = row.vendor || "";
+    tr.querySelector(".vi-status").value = row.status || "";
     body.appendChild(tr);
   };
   addBtn.onclick = () => addRow();
@@ -1403,6 +1409,9 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions) {
           code: tr.querySelector(".vi-code").value.trim(),
           itemName: tr.querySelector(".vi-itemname").value.trim(),
           outUnit: tr.querySelector(".vi-outunit").value.trim(),
+          status: tr.querySelector(".vi-status").value.trim(),
+          deliveryMethod: tr.querySelector(".vi-deliverymethod").value.trim(),
+          logisticsAgent: tr.querySelector(".vi-logisticsagent").value.trim(),
           innEa: tr.querySelector(".vi-innea").value.trim(),
           innPerCtn: tr.querySelector(".vi-innperctn").value.trim(),
           ctnEa: tr.querySelector(".vi-ctnea").value.trim(),
@@ -2089,8 +2098,9 @@ function renderProductsMainTab(container) {
     .map((group, groupIdx) => {
       const flatItems = [];
       group.forEach((prod) => {
+        const hasRealInfo = Array.isArray(prod.deliveryVendorInfo) && prod.deliveryVendorInfo.length > 0;
         getProductVendorRows(prod).forEach((v, localVIdx) => {
-          flatItems.push({ product: prod, vendor: v, localVIdx });
+          flatItems.push({ product: prod, vendor: v, localVIdx, hasRealInfo });
         });
       });
       const isMulti = flatItems.length > 1;
@@ -2112,8 +2122,9 @@ function renderProductsMainTab(container) {
             const vendorBadgeAttr = vIdx === 0 && isMulti ? ` data-vendor-multi-badge="${encodeURIComponent(vendorMultiBadgeHtml)}"` : "";
             const vendorGroupAttr = isMulti ? ` data-vendor-group="${groupIdx}"` : "";
             return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}"${vendorExtraAttr}${vendorBadgeAttr}${vendorGroupAttr}>
-      <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" /></td>
+      <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" data-vendor-idx="${item.hasRealInfo ? item.localVIdx : -1}" /></td>
       <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
+      <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
@@ -2208,6 +2219,7 @@ function renderProductsMainTab(container) {
               <thead><tr>
                 <th data-col-orig-idx="0" data-col-label=""><input id="product-check-all" type="checkbox" /></th>
                 <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
+                <th data-col-orig-idx="38" data-col-label="관리코드">관리코드</th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -2280,12 +2292,25 @@ INN(EA)</th>
           </div>
         </div>
         <form id="product-popup-form" class="modal-form">
+          <div class="form-section-title">기본정보</div>
+          <div><label>관리코드</label><input id="product-form-management-code" value="" readonly disabled /></div>
+          <div><label>정보검수</label><label class="verify-toggle"><input type="checkbox" name="infoVerified" /><span class="verify-toggle-slider"></span></label></div>
           <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
+          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
+          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
           <div><label>바코드(INN)</label><input name="middleBarcode" /></div>
           <div><label>바코드(CTN)</label><input name="logisticsBarcode" /></div>
-          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
-          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
+          <div><label>규격</label><input name="spec" /></div>
+
+          <div class="form-section-title">입고적재사양</div>
+          <div><label>INN(EA)</label><input name="innEa" type="number" /></div>
+          <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
+          <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
+          <div><label>CTN/PLT</label><input name="ctnPerPlt" type="number" /></div>
+          <div><label>PLT(EA)</label><input name="pltEa" type="number" /></div>
+
+          <div class="form-section-title">판매처 정보 (판매처별 출고적재사양 포함)</div>
           <div class="multi-select-field vendor-info-field">
             <label>판매처 (판매처별 코드/상품명)</label>
             <table class="vendor-info-table">
@@ -2295,6 +2320,9 @@ INN(EA)</th>
                 <th rowspan="2">판매처관리코드</th>
                 <th rowspan="2">판매처 품목명</th>
                 <th rowspan="2">판매처별<br>출고단위</th>
+                <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">납품방법</th>
+                <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
                 <th rowspan="2"></th>
               </tr>
@@ -2310,10 +2338,13 @@ INN(EA)</th>
             </table>
             <button type="button" id="add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
           </div>
-          <div><label>규격</label><input name="spec" /></div>
+
+          <div class="form-section-title">구매 / 발주 정보</div>
           <div><label>구매처</label><input name="purchaseVendor" /></div>
           <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType, "")}</select></div>
           <div><label>발주부서</label><select name="orderDept"><option value=""></option>${selectOptions(opts.orderDept, "")}</select></div>
+          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
+          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
           <div class="multi-select-field">
             <label>발주담당자</label>
             <div class="row product-search-row multi-select-row">
@@ -2323,28 +2354,6 @@ INN(EA)</th>
             <input type="hidden" name="orderManagers" />
           </div>
           <div id="preview-orderManagers" class="tagline multi-tags"></div>
-          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
-          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
-          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
-          <div class="multi-select-field">
-            <label>사용창고</label>
-            <div class="row product-search-row multi-select-row">
-              <select id="select-usedWarehouses"><option value="">옵션 선택</option>${selectItems(state.warehouses || [])}</select>
-              <button type="button" id="add-usedWarehouses">추가</button>
-            </div>
-            <input type="hidden" name="usedWarehouses" />
-          </div>
-          <div id="preview-usedWarehouses" class="tagline multi-tags"></div>
-          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
-          <div class="multi-select-field">
-            <label>카테고리</label>
-            <div class="row product-search-row multi-select-row">
-              <select id="select-categories"><option value="">옵션 선택</option>${selectItems(opts.categories)}</select>
-              <button type="button" id="add-categories">추가</button>
-            </div>
-            <input type="hidden" name="categories" />
-          </div>
-          <div id="preview-categories" class="tagline multi-tags"></div>
           <div class="multi-select-field">
             <label>영업담당자</label>
             <div class="row product-search-row multi-select-row">
@@ -2354,14 +2363,31 @@ INN(EA)</th>
             <input type="hidden" name="salesManagers" />
           </div>
           <div id="preview-salesManagers" class="tagline multi-tags"></div>
-          <div style="grid-column: 1 / -1; font-weight:600; color:#475569; margin-top:4px;">입고적재사양</div>
-          <div><label>INN(EA)</label><input name="innEa" type="number" /></div>
-          <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
-          <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
-          <div><label>CTN/PLT</label><input name="ctnPerPlt" type="number" /></div>
-          <div><label>PLT(EA)</label><input name="pltEa" type="number" /></div>
+          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
+          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
+          <div class="multi-select-field">
+            <label>사용창고</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="select-usedWarehouses"><option value="">옵션 선택</option>${selectItems(state.warehouses || [])}</select>
+              <button type="button" id="add-usedWarehouses">추가</button>
+            </div>
+            <input type="hidden" name="usedWarehouses" />
+          </div>
+          <div id="preview-usedWarehouses" class="tagline multi-tags"></div>
+          <div class="multi-select-field">
+            <label>카테고리</label>
+            <div class="row product-search-row multi-select-row">
+              <select id="select-categories"><option value="">옵션 선택</option>${selectItems(opts.categories)}</select>
+              <button type="button" id="add-categories">추가</button>
+            </div>
+            <input type="hidden" name="categories" />
+          </div>
+          <div id="preview-categories" class="tagline multi-tags"></div>
+
+          <div class="form-section-title">재고 설정</div>
           <div><label>안전재고(선택)</label><input name="safetyStock" type="number" value="0" /></div>
           <div><label>적정재고(선택)</label><input name="optimalStock" type="number" value="0" /></div>
+
           <div><button class="primary" type="submit">입력 완료</button></div>
         </form>
       </div>
@@ -2627,6 +2653,18 @@ INN(EA)</th>
       const barOn = collapse ? expanded : true;
       repRow.classList.toggle("product-vendor-expanded-highlight", highlightOn);
       repRow.classList.toggle("vendor-bar-row", barOn);
+      // 접힌 대표 행의 체크박스는 실제로는 그룹 내 여러 상품/판매처 중 하나만 가리키므로,
+      // 어떤 걸 고르는지 모른 채 잘못된 상품이 선택되는 걸 막기 위해 펼치기 전에는 선택을 막는다.
+      const repCheckbox = repRow.querySelector(".product-row-check");
+      if (repCheckbox) {
+        const shouldDisable = collapse && !expanded;
+        repCheckbox.disabled = shouldDisable;
+        repCheckbox.title = shouldDisable ? "여러 상품/판매처가 묶여 있습니다. 펼치기를 눌러 개별로 선택하세요." : "";
+        if (shouldDisable && repCheckbox.checked) {
+          repCheckbox.checked = false;
+          repCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
       if (collapse && !expanded) {
         vendorCell.innerHTML = decodeURIComponent(repRow.dataset.vendorMultiBadge);
         dashCells.forEach((cell) => { cell.innerHTML = "-"; });
@@ -2680,7 +2718,7 @@ INN(EA)</th>
       const tr = e.target.closest("tbody tr");
       if (!tr) return;
       const chk = tr.querySelector(".product-row-check");
-      if (!chk) return;
+      if (!chk || chk.disabled) return;
       chk.checked = !chk.checked;
       chk.dispatchEvent(new Event("change", { bubbles: true }));
     });
@@ -2809,7 +2847,7 @@ INN(EA)</th>
       }
     };
   };
-  multiControllers.deliveryVendors = setupVendorInfoTable("vendor-info-rows", "add-vendor-info-row", opts.deliveryVendors);
+  multiControllers.deliveryVendors = setupVendorInfoTable("vendor-info-rows", "add-vendor-info-row", opts.deliveryVendors, opts.status);
   multiControllers.orderManagers = setupMultiSelect("orderManagers", "select-orderManagers", "add-orderManagers", "preview-orderManagers");
   multiControllers.salesManagers = setupMultiSelect("salesManagers", "select-salesManagers", "add-salesManagers", "preview-salesManagers");
   multiControllers.categories = setupMultiSelect("categories", "select-categories", "add-categories", "preview-categories");
@@ -2848,11 +2886,25 @@ INN(EA)</th>
 
   const getSelectedCodes = () =>
     Array.from(new Set(Array.from(document.querySelectorAll(".product-row-check:checked")).map((el) => String(el.dataset.code || ""))));
+  const getSelectedRowsDetailed = () => {
+    const seen = new Set();
+    const rows = [];
+    document.querySelectorAll(".product-row-check:checked").forEach((el) => {
+      const code = String(el.dataset.code || "");
+      const vendorIdx = Number(el.dataset.vendorIdx ?? -1);
+      const key = `${code}::${vendorIdx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ code, vendorIdx });
+    });
+    return rows;
+  };
   const checkAllEl = qs("#product-check-all");
   if (checkAllEl) {
     checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
     checkAllEl.onchange = () => {
       document.querySelectorAll(".product-row-check").forEach((el) => {
+        if (el.disabled) return;
         el.checked = checkAllEl.checked;
         el.closest("tr")?.classList.toggle("product-row-checked", checkAllEl.checked);
       });
@@ -2868,7 +2920,16 @@ INN(EA)</th>
   if (editSelectedBtn) {
     editSelectedBtn.onclick = () => {
       const codes = getSelectedCodes();
-      if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
+      if (codes.length > 1) {
+        const names = codes
+          .map((c) => state.products.find((x) => String(x.code) === String(c)))
+          .filter(Boolean)
+          .map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
+        return alert(
+          `선택한 행이 서로 다른 상품코드 ${codes.length}건입니다. 같은 바코드를 여러 판매처(이마트/롯데마트 등)가 공유하는 "다중" 그룹이라도, 판매처별로 품목코드가 다르면 별개 상품이라 한 번에 수정할 수 없습니다.\n\n${names.join("\n")}\n\n하나만 체크해서 수정해주세요.`
+        );
+      }
+      if (codes.length < 1) return alert("수정할 상품을 선택하세요.");
       const p = state.products.find((x) => String(x.code) === String(codes[0]));
       if (!p || !productForm || !modalOverlay) return;
       editingCode = String(p.code || "");
@@ -2877,6 +2938,10 @@ INN(EA)</th>
         const el = productForm.querySelector(`[name="${name}"]`);
         if (el) el.value = val ?? "";
       };
+      const mgmtCodeEl = qs("#product-form-management-code");
+      if (mgmtCodeEl) mgmtCodeEl.value = p.managementCode || "";
+      const infoVerifiedEl = productForm.querySelector('[name="infoVerified"]');
+      if (infoVerifiedEl) infoVerifiedEl.checked = Boolean(p.infoVerified);
       setVal("ecountCode", p.ecountCode || p.code);
       setVal("barcode", p.barcode);
       setVal("middleBarcode", p.middleBarcode);
@@ -2910,18 +2975,48 @@ INN(EA)</th>
   const deleteSelectedBtn = qs("#product-delete-selected");
   if (deleteSelectedBtn) {
     deleteSelectedBtn.onclick = async () => {
-      const codes = getSelectedCodes();
-      if (!codes.length) return alert("삭제할 상품을 선택하세요.");
-      if (!confirm(`선택한 ${codes.length}개 상품을 삭제할까요?`)) return;
+      const rows = getSelectedRowsDetailed();
+      if (!rows.length) return alert("삭제할 상품을 선택하세요.");
+      const byCode = new Map();
+      rows.forEach(({ code, vendorIdx }) => {
+        if (!byCode.has(code)) byCode.set(code, new Set());
+        byCode.get(code).add(vendorIdx);
+      });
+      const fullDeleteCodes = [];
+      const partialUpdates = [];
+      byCode.forEach((idxSet, code) => {
+        const p = state.products.find((x) => String(x.code) === String(code));
+        if (!p) return;
+        const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
+        const total = info.length;
+        const realSelected = [...idxSet].filter((i) => i >= 0);
+        if (idxSet.has(-1) || total === 0 || realSelected.length >= total) {
+          fullDeleteCodes.push(code);
+        } else if (realSelected.length > 0) {
+          const remaining = info.filter((_, i) => !idxSet.has(i));
+          const remainingVendors = [...new Set(remaining.map((v) => v.vendor).filter(Boolean))];
+          partialUpdates.push({ product: p, deliveryVendorInfo: remaining, deliveryVendors: remainingVendors });
+        }
+      });
+      if (!fullDeleteCodes.length && !partialUpdates.length) return;
+      const msgParts = [];
+      if (fullDeleteCodes.length) msgParts.push(`상품 ${fullDeleteCodes.length}개 완전 삭제`);
+      if (partialUpdates.length) msgParts.push(`판매처 정보 ${partialUpdates.length}건만 삭제(상품은 유지)`);
+      if (!confirm(`${msgParts.join(", ")}. 진행할까요?`)) return;
       try {
-        await api("/api/products", { method: "DELETE", body: JSON.stringify({ codes }) });
+        if (fullDeleteCodes.length) {
+          await api("/api/products", { method: "DELETE", body: JSON.stringify({ codes: fullDeleteCodes }) });
+        }
+        for (const { product, deliveryVendorInfo, deliveryVendors } of partialUpdates) {
+          await api("/api/products", { method: "POST", body: JSON.stringify({ ...product, deliveryVendorInfo, deliveryVendors }) });
+        }
         await refreshCommon();
         renderProducts();
         renderStock();
         renderMaster();
         renderPartners();
         await renderDashboard();
-        alert("선택 상품 삭제 완료");
+        alert("삭제 완료");
       } catch (err) {
         alert(err.message);
       }
@@ -3009,6 +3104,7 @@ INN(EA)</th>
         const vendorRows = getProductVendorRows(p);
         const multi = vendorRows.length > 1 ? "다중" : "단일";
         return vendorRows.map((v) => ({
+          "관리코드": p.managementCode || "",
           "품목코드(이카운트)": p.ecountCode || p.code || "",
           "바코드(SKU)": p.barcode || "",
           "바코드(INN)": p.middleBarcode || "",
@@ -3081,7 +3177,7 @@ function renderProductsSalesNewTab(container) {
       : vendorIdx === 0 && !isGlobalExpand
         ? `${renderVendorChip(vendors[vendorIdx])} ${VENDOR_ARROW_CHIP_HTML("sales-new-vendor-collapse-btn", 180, "접기")}`
         : renderVendorChip(vendors[vendorIdx]);
-    const searchText = [p.code, p.barcode, p.name, p.spec, vendors.join(" ")].join(" ").toLowerCase();
+    const searchText = [p.managementCode, p.code, p.barcode, p.name, p.spec, vendors.join(" ")].join(" ").toLowerCase();
     const effVendorIdx = vendorIdx ?? 0;
     const rowClass = p.status === "단종" ? "product-row-discontinued" : p.status === "판매중단" ? "product-row-suspended" : "";
     const statusStyle = p.status === "단종" ? ' style="color:#E07000;font-weight:600;"' : p.status === "판매중단" ? ' style="color:#6B7280;font-weight:600;"' : "";
@@ -3092,8 +3188,9 @@ function renderProductsSalesNewTab(container) {
     const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : ""].filter(Boolean).join(" ");
     return `
       <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${extraClasses ? ` class="${extraClasses}"` : ""}>
-        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" /></td>
+        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" /></td>
         <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" data-source="salesNew" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
+        <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
         <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
         <td data-col-orig-idx="2">${esc(p.barcode)}</td>
         <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
@@ -3182,6 +3279,7 @@ function renderProductsSalesNewTab(container) {
             <thead><tr>
               <th data-col-orig-idx="0" data-col-label=""><input id="sales-new-check-all" type="checkbox" /></th>
               <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
+              <th data-col-orig-idx="38" data-col-label="관리코드">관리코드</th>
               <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
               <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
               <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -3411,6 +3509,19 @@ INN(EA)</th>
   // 선택/체크박스
   const getSelectedCodes = () =>
     Array.from(new Set(Array.from(document.querySelectorAll(".sales-new-row-check:checked")).map((el) => String(el.dataset.code || ""))));
+  const getSelectedRowsDetailed = () => {
+    const seen = new Set();
+    const rows = [];
+    document.querySelectorAll(".sales-new-row-check:checked").forEach((el) => {
+      const code = String(el.dataset.code || "");
+      const vendorIdx = Number(el.dataset.vendorIdx ?? -1);
+      const key = `${code}::${vendorIdx}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push({ code, vendorIdx });
+    });
+    return rows;
+  };
   const checkAllEl = qs("#sales-new-check-all");
   if (checkAllEl) {
     checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
@@ -3562,15 +3673,45 @@ INN(EA)</th>
   });
 
   qs("#sales-new-delete-selected")?.addEventListener("click", async () => {
-    const codes = getSelectedCodes();
-    if (!codes.length) return alert("삭제할 상품을 선택하세요.");
-    if (!confirm(`선택한 ${codes.length}개 상품을 목록에서 삭제할까요? (기본상품정보에는 영향 없음)`)) return;
+    const rows = getSelectedRowsDetailed();
+    if (!rows.length) return alert("삭제할 상품을 선택하세요.");
+    const byCode = new Map();
+    rows.forEach(({ code, vendorIdx }) => {
+      if (!byCode.has(code)) byCode.set(code, new Set());
+      byCode.get(code).add(vendorIdx);
+    });
+    const fullDeleteCodes = [];
+    const partialUpdates = [];
+    byCode.forEach((idxSet, code) => {
+      const p = list.find((x) => String(x.code) === String(code));
+      if (!p) return;
+      const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
+      const total = info.length;
+      const realSelected = [...idxSet].filter((i) => i >= 0);
+      if (idxSet.has(-1) || total === 0 || realSelected.length >= total) {
+        fullDeleteCodes.push(code);
+      } else if (realSelected.length > 0) {
+        const remaining = info.filter((_, i) => !idxSet.has(i));
+        const remainingVendors = [...new Set(remaining.map((v) => v.vendor).filter(Boolean))];
+        partialUpdates.push({ code, deliveryVendorInfo: remaining, deliveryVendors: remainingVendors });
+      }
+    });
+    if (!fullDeleteCodes.length && !partialUpdates.length) return;
+    const msgParts = [];
+    if (fullDeleteCodes.length) msgParts.push(`상품 ${fullDeleteCodes.length}개 완전 삭제`);
+    if (partialUpdates.length) msgParts.push(`판매처 정보 ${partialUpdates.length}건만 삭제(상품은 유지)`);
+    if (!confirm(`${msgParts.join(", ")}. 진행할까요? (기본상품정보에는 영향 없음)`)) return;
     try {
-      await api("/api/products/sales-unregistered", { method: "DELETE", body: JSON.stringify({ codes }) });
+      if (fullDeleteCodes.length) {
+        await api("/api/products/sales-unregistered", { method: "DELETE", body: JSON.stringify({ codes: fullDeleteCodes }) });
+      }
+      for (const u of partialUpdates) {
+        await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify(u) });
+      }
       const res = await api("/api/products/sales-unregistered");
       state.salesUnregisteredProducts = res.items || [];
       renderProducts();
-      alert("선택 상품 삭제 완료");
+      alert("삭제 완료");
     } catch (err) {
       alert(err.message);
     }
@@ -3580,6 +3721,7 @@ INN(EA)</th>
   qs("#sales-new-export-all")?.addEventListener("click", () => {
     try {
       const rowsForExport = list.map((p) => ({
+        "관리코드": p.managementCode || "",
         "품목코드(이카운트)": p.ecountCode || p.code || "",
         "바코드(SKU)": p.barcode || "",
         "바코드(INN)": p.middleBarcode || "",
@@ -9571,6 +9713,7 @@ function renderPurchaseProductsList() {
     const groupClass = pIdx % 2 === 0 ? "product-group-even" : "product-group-odd";
     return vendorRows.map((v) => `<tr data-code="${esc(p.code)}" data-search="${esc(st)}" data-status="${esc(p.status||"")}" data-supply="${esc(p.supplyType||"")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}">
       <td data-col-orig-idx="0"><input type="checkbox" class="ppl-row-check" data-code="${esc(p.code)}" /></td>
+      <td data-col-orig-idx="38">${esc(p.managementCode||"")}</td>
       <td data-col-orig-idx="1">${esc(p.ecountCode||p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode||"")}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode||"")}</td>
@@ -9638,6 +9781,7 @@ function renderPurchaseProductsList() {
             <table id="ppl-table">
               <thead><tr>
                 <th data-col-orig-idx="0" data-col-label=""><input id="ppl-check-all" type="checkbox" /></th>
+                <th data-col-orig-idx="38" data-col-label="관리코드">관리코드</th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -9718,6 +9862,9 @@ INN(EA)</th>
                 <th rowspan="2">판매처관리코드</th>
                 <th rowspan="2">판매처 품목명</th>
                 <th rowspan="2">판매처별<br>출고단위</th>
+                <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">납품방법</th>
+                <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
                 <th rowspan="2"></th>
               </tr>
@@ -9893,6 +10040,7 @@ INN(EA)</th>
         const vendorRows = getProductVendorRows(p);
         const multi = vendorRows.length > 1 ? "다중" : "단일";
         return vendorRows.map((v) => ({
+          "관리코드": p.managementCode||"",
           "품목코드(이카운트)": p.ecountCode||p.code,
           "바코드(SKU)": p.barcode||"",
           "바코드(INN)": p.middleBarcode||"",
@@ -9965,7 +10113,7 @@ INN(EA)</th>
     draw();
     return { setValues(vals) { selected = toTagList(vals); draw(); } };
   };
-  pplMultiControllers.deliveryVendors  = setupVendorInfoTable("ppl-vendor-info-rows", "ppl-add-vendor-info-row", opts.deliveryVendors);
+  pplMultiControllers.deliveryVendors  = setupVendorInfoTable("ppl-vendor-info-rows", "ppl-add-vendor-info-row", opts.deliveryVendors, opts.status);
   pplMultiControllers.orderManagers    = setupPplMulti("orderManagers",    "ppl-select-orderManagers",    "ppl-add-orderManagers",    "ppl-preview-orderManagers");
   pplMultiControllers.usedWarehouses   = setupPplMulti("usedWarehouses",   "ppl-select-usedWarehouses",   "ppl-add-usedWarehouses",   "ppl-preview-usedWarehouses");
   pplMultiControllers.categories       = setupPplMulti("categories",       "ppl-select-categories",       "ppl-add-categories",       "ppl-preview-categories");
