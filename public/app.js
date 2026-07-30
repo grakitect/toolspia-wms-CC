@@ -43,6 +43,20 @@ const PRODUCT_HIDDEN_COLS_KEY = "wms:productHiddenCols:v2";
 const PPL_HIDDEN_COLS_KEY = "wms:pplHiddenCols:v2";
 const STOCK_HIDDEN_COLS_KEY = "wms:stockHiddenCols";
 const TABLE_FILTER_MEMORY = {};
+// Shared across all applyExcelLikeFilter() calls/tables so the outside-click-to-close
+// listener is bound to document exactly once per page load, not once per re-render (the
+// table element itself is recreated on every render via innerHTML, so a per-table dataset
+// flag never actually prevents rebinding and was silently stacking one permanent document
+// click listener — plus its whole closure, including the old table's detached rows — on
+// every single tab switch/search/expand).
+let activeExcelFilterMenu = null;
+function closeActiveExcelFilterMenu() {
+  if (activeExcelFilterMenu) {
+    activeExcelFilterMenu.remove();
+    activeExcelFilterMenu = null;
+  }
+}
+document.addEventListener("click", closeActiveExcelFilterMenu);
 const DELIVERY_METHOD_OPTIONS = ["", "택배", "용차", "화물", "직납", "위탁"];
 const LOGISTICS_AGENT_OPTIONS = ["", "운송대행", "3PL"];
 let productListPageIndex = 0;
@@ -350,31 +364,47 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
   const colCount = headRow.cells.length;
   if (!rows.length || !colCount) return;
 
-  function readCellFilterValue(cell) {
+  // Every row shares the same column template (only the values differ), so which columns
+  // hold a <select>/<input> is fixed — probe once instead of calling querySelector on every
+  // cell of every row. At 1000+ rows that repeated querySelector scan was the main cost.
+  const colControlKind = new Array(colCount).fill("text");
+  const probeRow = rows[0];
+  for (let i = 0; i < colCount; i += 1) {
+    const cell = probeRow.cells[i];
+    if (!cell) continue;
+    if (cell.querySelector("select")) colControlKind[i] = "select";
+    else if (cell.querySelector("input")) colControlKind[i] = "input";
+  }
+
+  function readCellFilterValue(cell, colIdx) {
     if (!cell) return "";
-    const sel = cell.querySelector("select");
-    if (sel) {
-      const opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
-      return String(opt ? opt.textContent : sel.value || "").trim();
+    const kind = colControlKind[colIdx];
+    if (kind === "select") {
+      const sel = cell.querySelector("select");
+      if (sel) {
+        const opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex] : null;
+        return String(opt ? opt.textContent : sel.value || "").trim();
+      }
+    } else if (kind === "input") {
+      const input = cell.querySelector("input");
+      if (input) return String(input.value || "").trim();
     }
-    const input = cell.querySelector("input");
-    if (input) return String(input.value || "").trim();
     return String(cell.textContent || "").trim();
   }
 
-  function readCellFilterValues(cell) {
+  function readCellFilterValues(cell, colIdx) {
     if (!cell) return [""];
     if (cell.dataset.filterMulti !== undefined) {
       const vals = (cell.dataset.filterMulti || "").split("|").map((v) => v.trim()).filter(Boolean);
       return vals.length ? vals : [""];
     }
-    return [readCellFilterValue(cell)];
+    return [readCellFilterValue(cell, colIdx)];
   }
 
   const colValues = Array.from({ length: colCount }, () => new Set());
   rows.forEach((row) => {
     for (let i = 0; i < colCount; i += 1) {
-      readCellFilterValues(row.cells[i]).forEach((v) => colValues[i].add(v));
+      readCellFilterValues(row.cells[i], i).forEach((v) => colValues[i].add(v));
     }
   });
 
@@ -397,11 +427,10 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
   const sortState = memory?.sort ? { col: Number(memory.sort.col), dir: String(memory.sort.dir || "") } : { col: -1, dir: "" };
   if (!Number.isInteger(sortState.col) || sortState.col < 0 || sortState.col >= colCount) sortState.col = -1;
   if (!["asc", "desc", ""].includes(sortState.dir)) sortState.dir = "";
-  let openedMenu = null;
   let rowsAreSorted = false;
 
   function cellValue(row, col) {
-    return readCellFilterValue(row.cells[col]);
+    return readCellFilterValue(row.cells[col], col);
   }
 
   function compareValue(a, b, dir) {
@@ -422,7 +451,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
       for (let i = 0; i < colCount; i += 1) {
         const st = filterState[i];
         if (st.selected.size !== st.allValues.length) {
-          const vals = readCellFilterValues(row.cells[i]);
+          const vals = readCellFilterValues(row.cells[i], i);
           if (!vals.some((v) => st.selected.has(v))) {
             visible = false;
             break;
@@ -450,13 +479,6 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
     if (typeof afterApply === "function") afterApply();
   }
 
-  function closeMenu() {
-    if (openedMenu) {
-      openedMenu.remove();
-      openedMenu = null;
-    }
-  }
-
   Array.from(headRow.cells).forEach((th, colIdx) => {
     // Keep checkbox header cell intact (e.g., product select-all column).
     if (th.querySelector('input[type="checkbox"]')) return;
@@ -478,7 +500,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
 
     trigger.onclick = (e) => {
       e.stopPropagation();
-      closeMenu();
+      closeActiveExcelFilterMenu();
 
       const menu = document.createElement("div");
       menu.className = "excel-menu";
@@ -494,7 +516,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         sortState.col = colIdx;
         sortState.dir = "asc";
         apply();
-        closeMenu();
+        closeActiveExcelFilterMenu();
       };
 
       const sortDesc = document.createElement("button");
@@ -507,7 +529,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         sortState.col = colIdx;
         sortState.dir = "desc";
         apply();
-        closeMenu();
+        closeActiveExcelFilterMenu();
       };
 
       const resetSort = document.createElement("button");
@@ -520,7 +542,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         sortState.col = -1;
         sortState.dir = "";
         apply();
-        closeMenu();
+        closeActiveExcelFilterMenu();
       };
 
       const searchInput = document.createElement("input");
@@ -599,7 +621,7 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
         });
         refreshAllCheckboxState();
         apply();
-        closeMenu();
+        closeActiveExcelFilterMenu();
       };
 
       allCb.onclick = (evt) => evt.stopPropagation();
@@ -640,19 +662,12 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
       const top = Math.min(Math.max(margin, rect.bottom + 6), Math.max(margin, maxTop));
       menu.style.left = `${left}px`;
       menu.style.top = `${top}px`;
-      openedMenu = menu;
+      activeExcelFilterMenu = menu;
     };
 
     th.appendChild(label);
     th.appendChild(trigger);
   });
-
-  if (!table.dataset.filterOutsideBound) {
-    document.addEventListener("click", () => {
-      closeMenu();
-    });
-    table.dataset.filterOutsideBound = "1";
-  }
 
   apply();
 }
@@ -1292,6 +1307,25 @@ async function saveVendorField(source, code, vendorIdx, field, value, controlEl)
   }
 }
 
+async function saveProductField(source, code, field, value, controlEl) {
+  const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
+  const p = (list || []).find((x) => String(x.code) === String(code));
+  if (!p) return;
+  const prev = p[field] || "";
+  p[field] = value;
+  try {
+    if (source === "salesNew") {
+      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code, [field]: value }) });
+    } else {
+      await api("/api/products", { method: "POST", body: JSON.stringify({ ...p }) });
+    }
+  } catch (err) {
+    p[field] = prev;
+    if (controlEl) controlEl.value = prev;
+    alert(err.message || "저장 실패");
+  }
+}
+
 function wireVerifyAndVendorSelects(tableSelector, source) {
   const table = qs(tableSelector);
   if (!table) return;
@@ -1315,6 +1349,50 @@ function wireVerifyAndVendorSelects(tableSelector, source) {
     if (statusSel) {
       saveVendorField(source, statusSel.dataset.code, statusSel.dataset.vendorIdx, "status", statusSel.value, statusSel);
     }
+  });
+  table.addEventListener("dblclick", (e) => {
+    const td = e.target.closest("td.spec-editable-cell");
+    if (!td || td.querySelector("input")) return;
+    const original = td.textContent.trim();
+    const field = td.dataset.field;
+    const code = td.dataset.code;
+    const scope = td.dataset.scope;
+    const vendorIdx = td.dataset.vendorIdx;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.className = "spec-cell-input";
+    input.value = original;
+    td.textContent = "";
+    td.appendChild(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const finish = (commit) => {
+      if (done) return;
+      done = true;
+      const newVal = input.value.trim();
+      if (commit && newVal !== original) {
+        td.textContent = newVal;
+        const fakeControl = { set value(v) { td.textContent = v; } };
+        if (scope === "vendor") {
+          saveVendorField(source, code, vendorIdx, field, newVal, fakeControl);
+        } else {
+          saveProductField(source, code, field, newVal, fakeControl);
+        }
+      } else {
+        td.textContent = original;
+      }
+    };
+    input.addEventListener("blur", () => finish(true));
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        input.blur();
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        finish(false);
+      }
+    });
   });
 }
 
@@ -2134,10 +2212,10 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
       <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChip(v.vendor)}</td>
       <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
-      <td data-col-orig-idx="37"><select class="vendor-status" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${["", ...(opts.status || [])].map((o) => `<option value="${esc(o)}" ${String(v.status || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+      <td data-col-orig-idx="37">${esc(v.status || "")}</td>
       <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
-      <td data-col-orig-idx="35"><select class="vendor-delivery-method" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(v.deliveryMethod || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
-      <td data-col-orig-idx="36"><select class="vendor-logistics-agent" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(v.logisticsAgent || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+      <td data-col-orig-idx="35">${esc(v.deliveryMethod || "")}</td>
+      <td data-col-orig-idx="36">${esc(v.logisticsAgent || "")}</td>
       <td data-col-orig-idx="10">${esc(v.code || "")}</td>
       <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
       <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
@@ -2151,16 +2229,16 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
       <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
-      <td data-col-orig-idx="22">${esc(p.innEa || "")}</td>
-      <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
-      <td data-col-orig-idx="24">${esc(p.ctnEa || "")}</td>
-      <td data-col-orig-idx="25">${esc(p.ctnPerPlt || "")}</td>
-      <td data-col-orig-idx="26">${esc(p.pltEa || "")}</td>
-      <td data-col-orig-idx="29">${esc(v.innEa || "")}</td>
-      <td data-col-orig-idx="30">${esc(v.innPerCtn || "")}</td>
-      <td data-col-orig-idx="31">${esc(v.ctnEa || "")}</td>
-      <td data-col-orig-idx="32">${esc(v.ctnPerPlt || "")}</td>
-      <td data-col-orig-idx="33">${esc(v.pltEa || "")}</td>
+      <td data-col-orig-idx="22" class="spec-editable-cell" data-scope="product" data-field="innEa" data-code="${esc(p.code)}">${esc(p.innEa || "")}</td>
+      <td data-col-orig-idx="23" class="spec-editable-cell" data-scope="product" data-field="innPerCtn" data-code="${esc(p.code)}">${esc(p.innPerCtn || "")}</td>
+      <td data-col-orig-idx="24" class="spec-editable-cell" data-scope="product" data-field="ctnEa" data-code="${esc(p.code)}">${esc(p.ctnEa || "")}</td>
+      <td data-col-orig-idx="25" class="spec-editable-cell" data-scope="product" data-field="ctnPerPlt" data-code="${esc(p.code)}">${esc(p.ctnPerPlt || "")}</td>
+      <td data-col-orig-idx="26" class="spec-editable-cell" data-scope="product" data-field="pltEa" data-code="${esc(p.code)}">${esc(p.pltEa || "")}</td>
+      <td data-col-orig-idx="29" class="${item.hasRealInfo ? "spec-editable-cell" : ""}" data-scope="vendor" data-field="innEa" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${esc(v.innEa || "")}</td>
+      <td data-col-orig-idx="30" class="${item.hasRealInfo ? "spec-editable-cell" : ""}" data-scope="vendor" data-field="innPerCtn" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${esc(v.innPerCtn || "")}</td>
+      <td data-col-orig-idx="31" class="${item.hasRealInfo ? "spec-editable-cell" : ""}" data-scope="vendor" data-field="ctnEa" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${esc(v.ctnEa || "")}</td>
+      <td data-col-orig-idx="32" class="${item.hasRealInfo ? "spec-editable-cell" : ""}" data-scope="vendor" data-field="ctnPerPlt" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${esc(v.ctnPerPlt || "")}</td>
+      <td data-col-orig-idx="33" class="${item.hasRealInfo ? "spec-editable-cell" : ""}" data-scope="vendor" data-field="pltEa" data-code="${esc(p.code)}" data-vendor-idx="${item.localVIdx}">${esc(v.pltEa || "")}</td>
     </tr>`;
           }
         )
@@ -2714,7 +2792,7 @@ INN(EA)</th>
     });
     qs("#products-table")?.addEventListener("click", (e) => {
       if (e.target.closest(".vendor-multi-badge-btn") || e.target.closest(".vendor-collapse-single-btn")) return;
-      if (e.target.closest(".product-row-check, .verify-toggle, .vendor-delivery-method, .vendor-logistics-agent, .vendor-status")) return;
+      if (e.target.closest(".product-row-check, .verify-toggle, .spec-editable-cell")) return;
       const tr = e.target.closest("tbody tr");
       if (!tr) return;
       const chk = tr.querySelector(".product-row-check");
@@ -3200,10 +3278,10 @@ function renderProductsSalesNewTab(container) {
         <td data-col-orig-idx="7"${statusStyle}>${esc(p.status || "")}</td>
         <td data-col-orig-idx="8" data-filter-multi="${esc(vendors.join('|'))}">${vendorCell}</td>
         <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
-        <td data-col-orig-idx="37"><select class="vendor-status" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${["", ...(opts.status || [])].map((o) => `<option value="${esc(o)}" ${String(vInfo.status || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+        <td data-col-orig-idx="37">${esc(vInfo.status || "")}</td>
         <td data-col-orig-idx="28">${esc(vInfo.outUnit || "")}</td>
-        <td data-col-orig-idx="35"><select class="vendor-delivery-method" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(vInfo.deliveryMethod || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
-        <td data-col-orig-idx="36"><select class="vendor-logistics-agent" data-code="${esc(p.code)}" data-vendor-idx="${effVendorIdx}" data-source="salesNew">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${String(vInfo.logisticsAgent || "") === o ? "selected" : ""}>${o ? esc(o) : "-"}</option>`).join("")}</select></td>
+        <td data-col-orig-idx="35">${esc(vInfo.deliveryMethod || "")}</td>
+        <td data-col-orig-idx="36">${esc(vInfo.logisticsAgent || "")}</td>
         <td data-col-orig-idx="10">${esc(vInfo.code || "")}</td>
         <td data-col-orig-idx="11">${esc(vInfo.itemName || "")}</td>
         <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
@@ -3557,7 +3635,7 @@ INN(EA)</th>
       }
       return;
     }
-    if (e.target.closest(".sales-new-row-check, .verify-toggle, .vendor-delivery-method, .vendor-logistics-agent, .vendor-status")) return;
+    if (e.target.closest(".sales-new-row-check, .verify-toggle")) return;
     const tr = e.target.closest("tbody tr");
     if (!tr) return;
     const chk = tr.querySelector(".sales-new-row-check");

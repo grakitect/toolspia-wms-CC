@@ -801,6 +801,14 @@ tbody tr:last-child td { border-bottom: 0; }
   width: 100%; font-size: 12.5px; padding: 4px 6px; border: 1px solid #CBD5E1; border-radius: 6px; background: #fff; color: #334155;
 }
 
+/* 입고/출고적재사양 셀: 더블클릭으로 즉시 수정 */
+td.spec-editable-cell { cursor: cell; }
+td.spec-editable-cell:hover { background: #EFF6FF; }
+.spec-cell-input {
+  width: 100%; box-sizing: border-box; font-size: 12.5px; padding: 2px 4px;
+  border: 1.5px solid #3182F6; border-radius: 4px; background: #fff; color: #0F172A;
+}
+
 /* 입고적재사양(INN(EA)~PLT(EA)) 컬럼 그룹 시각 구분. 헤더 텍스트는 excel-th-label(줄바꿈 허용)로 실제 렌더링됨 */
 #products-table thead th,
 #ppl-table thead th { vertical-align: bottom; }
