@@ -98,7 +98,6 @@ let salesNewOnlyActive = false;
 let salesNewExpandVendor = false;
 let salesNewExpandedCodes = new Set();
 let salesNewEditingCode = "";
-let salesNewEditVendorInfo = [];
 let salesNewSearchQuery = "";
 let salesNewPageSizeValue = "99999";
 const SALES_NEW_HIDDEN_COLS_KEY = "wms:salesNewProductHiddenCols:v2";
@@ -1359,7 +1358,7 @@ function wireVerifyAndVendorSelects(tableSelector, source) {
     const scope = td.dataset.scope;
     const vendorIdx = td.dataset.vendorIdx;
     const input = document.createElement("input");
-    input.type = "number";
+    input.type = td.dataset.inputType === "text" ? "text" : "number";
     input.className = "spec-cell-input";
     input.value = original;
     td.textContent = "";
@@ -1394,19 +1393,6 @@ function wireVerifyAndVendorSelects(tableSelector, source) {
       }
     });
   });
-}
-
-function renderSalesNewVendorChips() {
-  const wrap = qs("#sales-new-vendor-chips");
-  if (!wrap) return;
-  wrap.innerHTML = salesNewEditVendorInfo.length
-    ? salesNewEditVendorInfo
-        .map(
-          (v, i) =>
-            `<span class="tag" style="${vendorChipStyle(v.vendor)}display:inline-flex;align-items:center;gap:4px;">${esc(v.vendor)}<button type="button" class="sales-new-vendor-remove" data-idx="${i}" title="삭제" style="border:none;background:transparent;cursor:pointer;font-weight:700;padding:0;line-height:1;color:inherit;">×</button></span>`
-        )
-        .join(" ")
-    : "<span class='muted'>등록된 판매처가 없습니다</span>";
 }
 
 function getProductVendorRows(p) {
@@ -2797,8 +2783,7 @@ INN(EA)</th>
       if (!tr) return;
       const chk = tr.querySelector(".product-row-check");
       if (!chk || chk.disabled) return;
-      chk.checked = !chk.checked;
-      chk.dispatchEvent(new Event("change", { bubbles: true }));
+      tr.classList.toggle("product-row-checked");
     });
     pagePrev?.addEventListener("click", () => {
       productListPageIndex = Math.max(0, productListPageIndex - 1);
@@ -3266,9 +3251,10 @@ function renderProductsSalesNewTab(container) {
     const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : ""].filter(Boolean).join(" ");
     return `
       <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${extraClasses ? ` class="${extraClasses}"` : ""}>
-        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" /></td>
+        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" ${vendorIdx === undefined && isMulti ? `disabled title="여러 상품/판매처가 묶여 있습니다. 펼치기를 눌러 개별로 선택하세요."` : ""} /></td>
         <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" data-source="salesNew" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
         <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
+        <td data-col-orig-idx="39" class="spec-editable-cell" data-scope="product" data-field="memo" data-input-type="text" data-code="${esc(p.code)}">${esc(p.memo || "")}</td>
         <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
         <td data-col-orig-idx="2">${esc(p.barcode)}</td>
         <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
@@ -3358,6 +3344,7 @@ function renderProductsSalesNewTab(container) {
               <th data-col-orig-idx="0" data-col-label=""><input id="sales-new-check-all" type="checkbox" /></th>
               <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
               <th data-col-orig-idx="38" data-col-label="관리코드">관리코드</th>
+              <th data-col-orig-idx="39" data-col-label="메모">메모</th>
               <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
               <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
               <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -3440,38 +3427,64 @@ INN(EA)</th>
           </div>
         </div>
         <form id="sales-new-popup-form" class="modal-form">
+          <div class="form-section-title">기본정보</div>
           <div><label>품목코드(이카운트)</label><input name="ecountCode" readonly /></div>
+          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
+          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
           <div><label>바코드(INN)</label><input name="middleBarcode" /></div>
           <div><label>바코드(CTN)</label><input name="logisticsBarcode" /></div>
-          <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>규격</label><input name="spec" /></div>
-          <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
-          <div style="grid-column: 1 / -1;">
-            <label>판매처</label>
-            <div id="sales-new-vendor-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:24px;"></div>
-            <div style="display:flex;gap:6px;">
-              <input type="text" id="sales-new-vendor-add-input" placeholder="판매처명 입력 후 추가" style="flex:1;" />
-              <button type="button" id="sales-new-vendor-add-btn" class="bh-btn bh-btn-sm bh-btn-outline">+ 추가</button>
-            </div>
-          </div>
-          <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType, "")}</select></div>
-          <div><label>발주부서</label><select name="orderDept"><option value=""></option>${selectOptions(opts.orderDept, "")}</select></div>
-          <div><label>발주담당자(쉼표로 구분)</label><input name="orderManagers" /></div>
-          <div><label>영업담당자(쉼표로 구분)</label><input name="salesManagers" /></div>
-          <div><label>구매처</label><input name="purchaseVendor" /></div>
-          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
-          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
-          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
-          <div><label>사용창고(쉼표로 구분)</label><input name="usedWarehouses" /></div>
-          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
-          <div><label>카테고리(쉼표로 구분)</label><input name="categories" /></div>
-          <div style="grid-column: 1 / -1; font-weight:600; color:#475569; margin-top:4px;">입고적재사양</div>
+
+          <div class="form-section-title">입고적재사양</div>
           <div><label>INN(EA)</label><input name="innEa" type="number" /></div>
           <div><label>INN/CTN</label><input name="innPerCtn" type="number" /></div>
           <div><label>CTN(EA)</label><input name="ctnEa" type="number" /></div>
           <div><label>CTN/PLT</label><input name="ctnPerPlt" type="number" /></div>
           <div><label>PLT(EA)</label><input name="pltEa" type="number" /></div>
+
+          <div class="form-section-title">판매처 정보 (판매처별 출고적재사양 포함)</div>
+          <div class="multi-select-field vendor-info-field" style="grid-column: 1 / -1;">
+            <label>판매처 (판매처별 코드/상품명)</label>
+            <table class="vendor-info-table">
+              <thead>
+              <tr>
+                <th rowspan="2">판매처</th>
+                <th rowspan="2">판매처관리코드</th>
+                <th rowspan="2">판매처 품목명</th>
+                <th rowspan="2">판매처별<br>출고단위</th>
+                <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">납품방법</th>
+                <th rowspan="2">물류대행</th>
+                <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2"></th>
+              </tr>
+              <tr>
+                <th style="background:#EFF6FF;">INN(EA)</th>
+                <th style="background:#EFF6FF;">INN/CTN</th>
+                <th style="background:#EFF6FF;">CTN(EA)</th>
+                <th style="background:#EFF6FF;">CTN/PLT</th>
+                <th style="background:#EFF6FF;">PLT(EA)</th>
+              </tr>
+              </thead>
+              <tbody id="sales-new-vendor-info-rows"></tbody>
+            </table>
+            <button type="button" id="sales-new-add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
+          </div>
+
+          <div class="form-section-title">구매 / 발주 정보</div>
+          <div><label>구매처</label><input name="purchaseVendor" /></div>
+          <div><label>수급형태</label><select name="supplyType"><option value=""></option>${selectOptions(opts.supplyType, "")}</select></div>
+          <div><label>발주부서</label><select name="orderDept"><option value=""></option>${selectOptions(opts.orderDept, "")}</select></div>
+          <div><label>구매처 품목코드</label><input name="purchaseItemCode" /></div>
+          <div><label>구매처 품목명</label><input name="purchaseItemName" /></div>
+          <div><label>발주담당자(쉼표로 구분)</label><input name="orderManagers" /></div>
+          <div><label>영업담당자(쉼표로 구분)</label><input name="salesManagers" /></div>
+          <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
+          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
+          <div><label>사용창고(쉼표로 구분)</label><input name="usedWarehouses" /></div>
+          <div><label>카테고리(쉼표로 구분)</label><input name="categories" /></div>
+
           <div><button class="primary" type="submit">저장</button></div>
         </form>
       </div>
@@ -3605,6 +3618,7 @@ INN(EA)</th>
     checkAllEl.addEventListener("mousedown", (e) => e.preventDefault());
     checkAllEl.onchange = () => {
       document.querySelectorAll(".sales-new-row-check").forEach((el) => {
+        if (el.disabled) return;
         el.checked = checkAllEl.checked;
         el.closest("tr")?.classList.toggle("product-row-checked", checkAllEl.checked);
       });
@@ -3639,9 +3653,8 @@ INN(EA)</th>
     const tr = e.target.closest("tbody tr");
     if (!tr) return;
     const chk = tr.querySelector(".sales-new-row-check");
-    if (!chk) return;
-    chk.checked = !chk.checked;
-    chk.dispatchEvent(new Event("change", { bubbles: true }));
+    if (!chk || chk.disabled) return;
+    tr.classList.toggle("product-row-checked");
   });
   wireVerifyAndVendorSelects("#sales-new-products-table", "salesNew");
 
@@ -3663,26 +3676,7 @@ INN(EA)</th>
   const modalOverlay = qs("#sales-new-modal-overlay");
   const form = qs("#sales-new-popup-form");
   preventEnterSubmit(form);
-  renderSalesNewVendorChips();
-  qs("#sales-new-vendor-chips")?.addEventListener("click", (e) => {
-    const btn = e.target.closest(".sales-new-vendor-remove");
-    if (!btn) return;
-    const idx = Number(btn.dataset.idx);
-    salesNewEditVendorInfo.splice(idx, 1);
-    renderSalesNewVendorChips();
-  });
-  qs("#sales-new-vendor-add-btn")?.addEventListener("click", () => {
-    const input = qs("#sales-new-vendor-add-input");
-    const name = (input?.value || "").trim();
-    if (!name) return;
-    if (salesNewEditVendorInfo.some((v) => v.vendor === name)) {
-      if (input) input.value = "";
-      return;
-    }
-    salesNewEditVendorInfo.push({ vendor: name, code: "", itemName: "", outUnit: "", deliveryMethod: "", logisticsAgent: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" });
-    if (input) input.value = "";
-    renderSalesNewVendorChips();
-  });
+  const salesNewVendorInfoController = setupVendorInfoTable("sales-new-vendor-info-rows", "sales-new-add-vendor-info-row", opts.deliveryVendors, opts.status);
   qs("#sales-new-edit-selected")?.addEventListener("click", () => {
     const codes = getSelectedCodes();
     if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
@@ -3700,8 +3694,7 @@ INN(EA)</th>
     setVal("ecountName", p.ecountName || p.name);
     setVal("spec", p.spec);
     setVal("status", p.status || "판매중");
-    salesNewEditVendorInfo = (p.deliveryVendorInfo || []).map((v) => ({ ...v }));
-    renderSalesNewVendorChips();
+    salesNewVendorInfoController.setValues(p.deliveryVendorInfo);
     setVal("supplyType", p.supplyType);
     setVal("orderDept", p.orderDept);
     setVal("orderManagers", (p.orderManagers || []).join(", "));
@@ -3730,8 +3723,9 @@ INN(EA)</th>
     data.ecountCode = salesNewEditingCode;
     data.ecountName = String(data.ecountName || "").trim();
     data.name = data.ecountName;
-    data.deliveryVendorInfo = salesNewEditVendorInfo.map((v) => ({ ...v }));
-    data.deliveryVendors = salesNewEditVendorInfo.map((v) => v.vendor);
+    const vendorInfoRows = salesNewVendorInfoController.getValues();
+    data.deliveryVendorInfo = vendorInfoRows;
+    data.deliveryVendors = vendorInfoRows.map((v) => v.vendor);
     data.salesVendor = data.deliveryVendors.join(", ");
     data.orderManagers = toTagList(data.orderManagers);
     data.salesManagers = toTagList(data.salesManagers);
@@ -3828,7 +3822,8 @@ INN(EA)</th>
         "INN/CTN": p.innPerCtn || "",
         "CTN(EA)": p.ctnEa || "",
         "CTN/PLT": p.ctnPerPlt || "",
-        "PLT(EA)": p.pltEa || ""
+        "PLT(EA)": p.pltEa || "",
+        "메모": p.memo || ""
       }));
       const ws = XLSX.utils.json_to_sheet(rowsForExport);
       const wb = XLSX.utils.book_new();

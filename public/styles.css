@@ -781,6 +781,7 @@ tbody tr:last-child td { border-bottom: 0; }
 #sales-new-products-table thead th[data-col-orig-idx="32"] { width: 121px; }
 #products-table thead th[data-col-orig-idx="33"],
 #sales-new-products-table thead th[data-col-orig-idx="33"] { width: 121px; }
+#sales-new-products-table thead th[data-col-orig-idx="39"] { width: 330px; }
 
 /* 정보검수(품목코드 앞 토글) / 판매처별 납품방법·물류대행 */
 #products-table td[data-col-orig-idx="34"],
@@ -947,7 +948,7 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 .column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
 
 /* ── 판매현황 미등록상품 테이블: 기본상품정보와 동일한 컬럼 너비/동작, 초록 계열 헤더로만 구분 ── */
-#sales-new-products-table { width: 6325px; table-layout: fixed; }
+#sales-new-products-table { width: 6655px; table-layout: fixed; }
 #sales-new-products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #sales-new-products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #sales-new-products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -1399,6 +1400,27 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
   border-bottom: 2px solid #DBEAFE;
 }
 #product-popup-form .form-section-title:first-child { margin-top: 0; }
+
+/* ── 판매현황 미등록상품 수정 폼: 기본상품정보 폼과 동일한 그리드 레이아웃 ── */
+#sales-new-popup-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+#sales-new-popup-form > div { min-width: 0; }
+#sales-new-popup-form .vendor-info-field { grid-column: 1 / -1; }
+#sales-new-popup-form > div:last-child { grid-column: 1 / -1; }
+#sales-new-popup-form .form-section-title {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  font-weight: 700;
+  color: #1D6FA5;
+  padding-bottom: 6px;
+  margin-top: 10px;
+  border-bottom: 2px solid #DBEAFE;
+}
+#sales-new-popup-form .form-section-title:first-child { margin-top: 0; }
 
 .vendor-info-table {
   width: 100%;

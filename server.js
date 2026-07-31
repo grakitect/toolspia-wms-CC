@@ -98,6 +98,7 @@ const PRODUCT_OPTION_KEYS = [
   "itemType",
   "categories"
 ];
+const DEFAULT_ITEM_TYPES = ["반제품", "상품", "제품", "원자재", "부자재"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const LOGO_DIR = path.join(__dirname, "로고");
 const DATA_DIR = path.join(__dirname, "data");
@@ -297,7 +298,7 @@ function normalizeDb(db) {
     p.supplyType = firstToken(p.supplyType, "");
     p.orderDept = firstToken(p.orderDept, "");
     p.warehouseGroup = firstToken(p.warehouseGroup, "");
-    p.itemType = firstToken(p.itemType, "");
+    p.itemType = cleanItemTypeValue(firstToken(p.itemType, ""));
     db.productOptions.status.push(String(p.status || "").trim());
     db.productOptions.deliveryVendors.push(...toTagList(p.deliveryVendors));
     db.productOptions.orderDept.push(String(p.orderDept || "").trim());
@@ -311,6 +312,11 @@ function normalizeDb(db) {
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
+  db.productOptions.itemType = Array.from(new Set(
+    normalizeOptionValues([...DEFAULT_ITEM_TYPES, ...db.productOptions.itemType])
+      .map(cleanItemTypeValue)
+      .filter(Boolean)
+  ));
   for (const m of db.movements) {
     if (!m.warehouse) m.warehouse = "유통사업부(W)";
   }
@@ -357,6 +363,7 @@ function normalizeDb(db) {
     p.infoVerified = Boolean(p.infoVerified);
     if (!Array.isArray(p.deliveryVendorInfo)) p.deliveryVendorInfo = [];
     p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
+    if (p.itemType) p.itemType = cleanItemTypeValue(p.itemType);
   }
   if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
   for (const pt of ["emart", "daiso", "lotte"]) {
@@ -477,6 +484,15 @@ function normalizeOptionValues(value) {
 
 function firstToken(value, fallback = "") {
   return toTagList(value)[0] || fallback;
+}
+
+// 이카운트 등에서 끌어온 값이 "[상품]"처럼 대괄호로 감싸진 경우가 있어, 대괄호 없는 값과
+// 같은 의미로 취급되도록 벗겨낸다. 인코딩 손상(대체 문자)이 섞인 값은 복구 불가하므로 버린다.
+function cleanItemTypeValue(value) {
+  let s = String(value || "").trim();
+  s = s.replace(/^\[+\s*|\s*\]+$/g, "").trim();
+  if (!s || s.includes("�")) return "";
+  return s;
 }
 
 function parseBody(req) {
