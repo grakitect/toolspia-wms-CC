@@ -175,13 +175,36 @@ function isFsLockLikeError(err) {
   return /EBUSY|EPERM|EACCES|resource busy|another process|사용 중|잠금|locked/i.test(msg);
 }
 
+// 매 요청마다 db.json 전체를 디스크에서 읽고 파싱하는 비용을 줄이기 위한 메모리 캐시.
+// mtime이 캐시 시점과 같으면(=우리가 마지막으로 쓴 상태 그대로) 디스크 재접근 없이 캐시를 복제해 반환.
+// 외부에서 파일이 바뀌면(수동 편집, 백업 복원 등) mtime이 달라져 자동으로 다시 읽는다.
+// 복제본을 반환하는 이유: 호출부가 반환된 객체를 자유롭게 변형하다 writeDb를 호출하지 않고
+// 끝내는 경로가 있을 수 있어(예: 검증 실패), 캐시 원본을 직접 내주면 커밋되지 않은 변경이
+// 다른 요청에 새어나갈 수 있다.
+let _dbCache = null;
+let _dbCacheMtimeMs = 0;
+
 function readDb() {
   ensureDb();
+  try {
+    const st = fs.statSync(DB_PATH);
+    if (_dbCache && st.mtimeMs === _dbCacheMtimeMs) {
+      return structuredClone(_dbCache);
+    }
+  } catch {}
   let lastErr;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const raw = fs.readFileSync(DB_PATH, "utf-8");
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      // normalizeDb는 products/movements 전체를 훑는 O(전체 데이터) 작업이라, 예전처럼
+      // 매 요청마다 다시 돌리면 요청마다 그 비용을 반복 지불하게 된다. 디스크에서 새로
+      // 읽었을 때(캐시가 없거나 외부에서 파일이 바뀌었을 때) 한 번만 정규화해서 캐시에
+      // 저장해두면, 캐시가 유효한 동안의 나머지 요청은 이미 정규화된 상태를 복제만 하면 된다.
+      normalizeDb(parsed);
+      _dbCache = parsed;
+      try { _dbCacheMtimeMs = fs.statSync(DB_PATH).mtimeMs; } catch { _dbCacheMtimeMs = 0; }
+      return structuredClone(parsed);
     } catch (e) {
       lastErr = e;
       if (e instanceof SyntaxError) throw e;
@@ -196,12 +219,18 @@ function readDb() {
 }
 
 function writeDb(db) {
+  // 이 요청이 만든/수정한 내용도 캐시에 남기 전에 정규화해서, 이후 캐시-히트로 읽는 요청들이
+  // 항상 정규화된 데이터를 보게 한다(정규화를 readDb 콜드 패스에서만 하면 이 요청 자체의
+  // 변경분은 정규화를 안 거치고 캐시/디스크에 남을 수 있음).
+  normalizeDb(db);
   const payload = JSON.stringify(db, null, 2);
   maybeBackupBeforeWrite(payload);
   let lastErr;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       fs.writeFileSync(DB_PATH, payload, "utf-8");
+      _dbCache = structuredClone(db);
+      try { _dbCacheMtimeMs = fs.statSync(DB_PATH).mtimeMs; } catch { _dbCacheMtimeMs = 0; }
       return;
     } catch (e) {
       lastErr = e;
@@ -432,6 +461,7 @@ function toDeliveryVendorInfoList(value) {
       itemName: String(row?.itemName || "").trim(),
       outUnit: String(row?.outUnit || "").trim(),
       status: String(row?.status || "").trim(),
+      tradeType: String(row?.tradeType || "").trim(),
       deliveryMethod: String(row?.deliveryMethod || "").trim(),
       logisticsAgent: String(row?.logisticsAgent || "").trim(),
       innEa: String(row?.innEa || "").trim(),
@@ -629,22 +659,32 @@ function upsertProduct(db, product) {
 }
 
 function calculateStock(db, warehouseFilter) {
-  const items = [];
   const warehouses = warehouseFilter ? [warehouseFilter] : db.warehouses;
-  for (const w of warehouses) {
-    const stockMap = {};
-    for (const p of db.products) stockMap[p.code] = 0;
-    for (const m of db.movements) {
-      const qty = Number(m.qty || 0);
-      if (m.type === "LOC_TRANSFER") continue;
-      if (m.type === "TRANSFER") {
-        if (m.warehouse === w) stockMap[m.productCode] = (stockMap[m.productCode] || 0) - Math.abs(qty);
-        if (m.toWarehouse === w) stockMap[m.productCode] = (stockMap[m.productCode] || 0) + Math.abs(qty);
-        continue;
+  const warehouseSet = new Set(warehouses);
+  // 창고별로 movements 전체를 매번 다시 훑으면 O(창고 수 × 이력 건수)라 창고가 늘수록
+  // 비례해서 느려진다. movements를 한 번만 순회하며 관련 있는 창고의 stockMap만 갱신한다.
+  const stockByWarehouse = new Map(warehouses.map((w) => [w, {}]));
+  for (const m of db.movements) {
+    if (m.type === "LOC_TRANSFER") continue;
+    const qty = Number(m.qty || 0);
+    if (m.type === "TRANSFER") {
+      if (warehouseSet.has(m.warehouse)) {
+        const sm = stockByWarehouse.get(m.warehouse);
+        sm[m.productCode] = (sm[m.productCode] || 0) - Math.abs(qty);
       }
-      if (m.warehouse !== w) continue;
-      stockMap[m.productCode] = (stockMap[m.productCode] || 0) + qty;
+      if (warehouseSet.has(m.toWarehouse)) {
+        const sm = stockByWarehouse.get(m.toWarehouse);
+        sm[m.productCode] = (sm[m.productCode] || 0) + Math.abs(qty);
+      }
+      continue;
     }
+    if (!warehouseSet.has(m.warehouse)) continue;
+    const sm = stockByWarehouse.get(m.warehouse);
+    sm[m.productCode] = (sm[m.productCode] || 0) + qty;
+  }
+  const items = [];
+  for (const w of warehouses) {
+    const stockMap = stockByWarehouse.get(w);
     for (const p of db.products) {
       items.push({
         ...p,
@@ -836,6 +876,21 @@ function computeStockAfterEachMovement(db) {
     }
   }
   return afterMap;
+}
+
+// computeStockAfterEachMovement는 전체 movements를 정렬·순회하는 O(전체 이력 건수) 연산인데,
+// /api/history·/api/recent가 매 요청(페이지네이션 limit과 무관하게)마다 이걸 처음부터 다시 계산해서
+// 이력 화면을 열 때마다 느려짐. db.json이 안 바뀐 동안(=readDb 캐시가 유효한 동안)은 같은 결과이므로
+// _dbCacheMtimeMs를 기준으로 재사용한다.
+let _stockAfterCache = null;
+let _stockAfterCacheMtimeMs = -1;
+function getCachedStockAfterEachMovement(db) {
+  if (_stockAfterCache && _stockAfterCacheMtimeMs === _dbCacheMtimeMs) {
+    return _stockAfterCache;
+  }
+  _stockAfterCache = computeStockAfterEachMovement(db);
+  _stockAfterCacheMtimeMs = _dbCacheMtimeMs;
+  return _stockAfterCache;
 }
 
 let ecountSessionCache = { value: "", expiresAt: 0 };
@@ -3236,8 +3291,10 @@ async function fetchEcountPurchaseOrderMatchedLines(slipNo, from, to) {
 
 async function handleApi(req, res, urlObj) {
   const pathname = urlObj.pathname;
+  // normalizeDb는 이제 readDb()의 콜드 패스(디스크에서 새로 읽었을 때)와 writeDb() 안에서
+  // 이미 실행되므로(캐시/디스크에 남는 데이터는 항상 정규화됨), 매 요청마다 여기서 전체
+  // 데이터를 다시 정규화할 필요가 없다.
   const db = readDb();
-  normalizeDb(db);
 
   if (req.method === "GET" && pathname === "/api/products") {
     return sendJson(res, 200, { items: db.products });
@@ -3684,7 +3741,32 @@ async function handleApi(req, res, urlObj) {
 
   if (req.method === "GET" && pathname === "/api/history") {
     const q = String(urlObj.searchParams.get("q") || "").toLowerCase();
-    const stockAfter = computeStockAfterEachMovement(db);
+    const typeFilter = String(urlObj.searchParams.get("type") || "").trim();
+    const warehouseFilter = String(urlObj.searchParams.get("warehouse") || "").trim();
+    const managerFilter = String(urlObj.searchParams.get("manager") || "").trim();
+    const dateFrom = String(urlObj.searchParams.get("dateFrom") || "").trim();
+    const dateTo = String(urlObj.searchParams.get("dateTo") || "").trim();
+    // stockAfter(시점재고)는 전체 이력 순서를 알아야 계산되는 값이라 필터와 무관하게 전체 기준으로
+    // 구해야 하지만, getCachedStockAfterEachMovement 자체는 데이터가 안 바뀌는 한 캐시돼서 재사용된다.
+    const stockAfter = getCachedStockAfterEachMovement(db);
+    // 화면 필터(구분/창고/담당자/날짜)를 이제 여기서 먼저 적용해 이력 전체가 아니라 필터에
+    // 해당하는 건만 아래의 무거운 가공(상품 조회, searchBlob 조합)을 거치게 한다. 화면 기본값이
+    // "오늘"이라 대부분의 조회는 이걸로 처리량이 크게 줄어든다(예전엔 항상 전체를 응답한 뒤
+    // 프런트에서 걸러냈음).
+    const filteredMovements = db.movements.filter((m) => {
+      if (typeFilter && typeFilter !== "ALL" && m.type !== typeFilter) return false;
+      if (warehouseFilter && m.warehouse !== warehouseFilter && m.toWarehouse !== warehouseFilter) return false;
+      if (managerFilter && m.user !== managerFilter) return false;
+      if (dateFrom || dateTo) {
+        const d = String(m.createdAt || "").slice(0, 10);
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+      }
+      return true;
+    });
+    // db.products.find()를 movements 건수만큼 반복하면 O(movements×products)라 이력이 쌓일수록
+    // 급격히 느려진다. code -> product Map을 한 번만 만들어 O(1) 조회로 바꾼다.
+    const productByCode = new Map(db.products.map((p) => [p.code, p]));
     const sourceToCenterMergedSlipMap = new Map();
     const confirmedLists = db.outboundOrderUpload && db.outboundOrderUpload.confirmedLists;
     if (confirmedLists && typeof confirmedLists === "object") {
@@ -3703,9 +3785,9 @@ async function handleApi(req, res, urlObj) {
         }
       }
     }
-    const joined = db.movements
+    const joined = filteredMovements
       .map((m) => {
-        const p = db.products.find((x) => x.code === m.productCode);
+        const p = productByCode.get(m.productCode);
         const rawSlipNo = String(m.slipNo || "").trim();
         const mappedCenterSlip = sourceToCenterMergedSlipMap.get(normalizeSlipNoText(rawSlipNo)) || "";
         const slipNoDisplay = mappedCenterSlip || rawSlipNo;
@@ -3768,7 +3850,7 @@ async function handleApi(req, res, urlObj) {
     if (!["IN", "OUT"].includes(type)) {
       return sendJson(res, 400, { error: "유효하지 않은 조회 타입입니다." });
     }
-    const stockAfter = computeStockAfterEachMovement(db);
+    const stockAfter = getCachedStockAfterEachMovement(db);
     if (type === "IN") {
       const cancelledSlipSet = new Set(
         db.movements
@@ -5415,8 +5497,8 @@ async function handleApi(req, res, urlObj) {
       const _runCollect = async (s, b, p) => {
         const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
         const code = fs.readFileSync(path.join(__dirname, "ecvan-collect.js"), "utf8");
-        const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb", code);
-        return fn(s, b, p, path, fs, __dirname, readDb, writeDb);
+        const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb","queuedDbWrite", code);
+        return fn(s, b, p, path, fs, __dirname, readDb, writeDb, queuedDbWrite);
       };
 
       session.collect = async () => {
@@ -6181,8 +6263,8 @@ async function handleApi(req, res, urlObj) {
         try {
           const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
           const code = fs.readFileSync(path.join(__dirname, "ecvan-collect.js"), "utf8");
-          const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb", code);
-          await fn(session, b, p, path, fs, __dirname, readDb, writeDb);
+          const fn = new AsyncFunction("session","browser","page","path","fs","__dirname","readDb","writeDb","queuedDbWrite", code);
+          await fn(session, b, p, path, fs, __dirname, readDb, writeDb, queuedDbWrite);
         } catch (e) {
           session.status = "error";
           session.error = e.message;
@@ -6822,6 +6904,21 @@ function runSerializedApi(handler) {
     () => undefined
   );
   return next;
+}
+
+/**
+ * eCvan 수집처럼 handleApi 밖(detached async)에서 db.json에 쓰는 백그라운드 작업용.
+ * runSerializedApi와 같은 큐에 합류시켜, 몇 분씩 걸리는 백그라운드 작업 도중 다른 요청의
+ * writeDb가 이 작업의 변경을 덮어쓰거나 반대로 이 작업이 다른 요청의 변경을 덮어쓰는 것을 막는다.
+ * mutatorFn은 매번 새로 읽은 최신 db를 받아 그 자리에서 필요한 필드만 수정해야 한다.
+ */
+function queuedDbWrite(mutatorFn) {
+  return runSerializedApi(() => {
+    const db = readDb();
+    mutatorFn(db);
+    writeDb(db);
+    return db;
+  });
 }
 
 const server = http.createServer(async (req, res) => {

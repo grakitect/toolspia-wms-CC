@@ -1,5 +1,7 @@
 // eCvan collect 로직 — server.js 재시작 없이 이 파일만 수정하면 즉시 반영됨
-// 함수 파라미터: session, browser, page, path, fs, __dirname, readDb, writeDb
+// 함수 파라미터: session, browser, page, path, fs, __dirname, readDb, writeDb, queuedDbWrite
+// 주의: db.json에 최종 반영할 때는 writeDb(스냅샷 통째 덮어쓰기) 대신 queuedDbWrite(mutatorFn)를
+// 써서 다른 API 요청과의 동시 쓰기 충돌을 피할 것 (readDb는 여기서도 조회용으로는 자유롭게 사용 가능)
 
 const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const snapDir = path.join(__dirname, "ecvan-debug");
@@ -692,11 +694,16 @@ if (allRows.length === 0) {
   }
 
   session.data = officialRows;
-  db2.unshipCompare = db2.unshipCompare || {};
-  db2.unshipCompare.emart = db2.unshipCompare.emart || {};
-  db2.unshipCompare.emart.officialRows = officialRows;
-  db2.unshipCompare.emart.uploadedAt = nowStr;
-  writeDb(db2);
+  // 이 수집은 몇 분씩 걸리는 백그라운드 작업이라, 시작 시점에 읽은 db2 스냅샷으로 통째로
+  // writeDb하면 그 사이 다른 요청이 저장한 변경을 덮어쓸 위험이 있다. queuedDbWrite는 쓰기
+  // 시점에 최신 db를 다시 읽어 unshipCompare.emart 필드만 병합하고, 다른 API 요청들과
+  // 같은 큐로 직렬화해 안전하게 반영한다.
+  await queuedDbWrite((freshDb) => {
+    freshDb.unshipCompare = freshDb.unshipCompare || {};
+    freshDb.unshipCompare.emart = freshDb.unshipCompare.emart || {};
+    freshDb.unshipCompare.emart.officialRows = officialRows;
+    freshDb.unshipCompare.emart.uploadedAt = nowStr;
+  });
   session.status = "done";
   session.progress = `수집 완료: ${officialRows.length}건`;
 }

@@ -697,7 +697,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-x { width: 100%; overflow-x: auto; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
-#products-table { width: 6325px; table-layout: fixed; }
+#products-table { width: 6425px; table-layout: fixed; }
 #products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -715,6 +715,8 @@ tbody tr:last-child td { border-bottom: 0; }
 #sales-new-products-table thead th[data-col-orig-idx="36"] { width: 110px; }
 #products-table thead th[data-col-orig-idx="37"],
 #sales-new-products-table thead th[data-col-orig-idx="37"] { width: 100px; }
+#products-table thead th[data-col-orig-idx="40"],
+#sales-new-products-table thead th[data-col-orig-idx="40"] { width: 100px; }
 #products-table thead th[data-col-orig-idx="1"],
 #sales-new-products-table thead th[data-col-orig-idx="1"] { width: 154px; }
 #products-table thead th[data-col-orig-idx="2"],
@@ -948,7 +950,7 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 .column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
 
 /* ── 판매현황 미등록상품 테이블: 기본상품정보와 동일한 컬럼 너비/동작, 초록 계열 헤더로만 구분 ── */
-#sales-new-products-table { width: 6655px; table-layout: fixed; }
+#sales-new-products-table { width: 6755px; table-layout: fixed; }
 #sales-new-products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #sales-new-products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #sales-new-products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -1317,12 +1319,12 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 }
 
 #product-modal-overlay .modal {
-  width: min(900px, calc(100vw - 24px));
+  width: min(1360px, calc(100vw - 24px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
 }
 .modal-product-full {
-  width: min(980px, calc(100vw - 24px));
+  width: min(1360px, calc(100vw - 24px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
 }
@@ -1422,11 +1424,18 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 }
 #sales-new-popup-form .form-section-title:first-child { margin-top: 0; }
 
-.vendor-info-table {
-  width: 100%;
-  border-collapse: collapse;
+.vendor-info-table-scroll {
+  overflow-x: auto;
   margin-bottom: 6px;
 }
+.vendor-info-table {
+  width: 100%;
+  min-width: 1340px;
+  border-collapse: collapse;
+  margin-bottom: 0;
+}
+.vendor-info-table .vi-record-id-col { min-width: 92px; }
+.vendor-info-table .vi-vendor { min-width: 132px; }
 .vendor-info-table th {
   font-size: 11px;
   font-weight: 600;

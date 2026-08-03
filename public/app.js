@@ -59,6 +59,7 @@ function closeActiveExcelFilterMenu() {
 document.addEventListener("click", closeActiveExcelFilterMenu);
 const DELIVERY_METHOD_OPTIONS = ["", "택배", "용차", "화물", "직납", "위탁"];
 const LOGISTICS_AGENT_OPTIONS = ["", "운송대행", "3PL"];
+const TRADE_TYPE_OPTIONS = ["", "내수", "수출"];
 let productListPageIndex = 0;
 const state = {
   products: [],
@@ -1395,9 +1396,22 @@ function wireVerifyAndVendorSelects(tableSelector, source) {
   });
 }
 
+// 바코드가 같으면(판매처마다 이카운트코드가 달라도) 한 다중판매처 그룹으로 본다.
+// 기본상품정보/판매현황 미등록상품 두 탭 모두에서 같은 기준으로 그룹을 묶어야 한다.
+function productBarcodeGroupKey(p) {
+  return p.barcode ? `bc:${p.barcode}` : `code:${p.code}`;
+}
+
+// 판매처 입력 검색창(datalist)에 쓸 등록된 판매처(거래처 정보 > 판매처) 이름 목록.
+function getRegisteredOutboundVendorNames() {
+  return (state.partners?.outbound || [])
+    .map((v) => (typeof v === "object" ? v.name : v))
+    .filter(Boolean);
+}
+
 function getProductVendorRows(p) {
   const info = Array.isArray(p.deliveryVendorInfo) ? p.deliveryVendorInfo : [];
-  if (!info.length) return [{ vendor: "", code: "", itemName: "", outUnit: "", status: "", deliveryMethod: "", logisticsAgent: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
+  if (!info.length) return [{ vendor: "", code: "", itemName: "", outUnit: "", status: "", tradeType: "", deliveryMethod: "", logisticsAgent: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
   return info;
 }
 
@@ -1428,20 +1442,40 @@ function buildProductSearchText(p) {
 }
 
 /** 판매처별 코드/상품명 입력 테이블 컨트롤러. bodyId(tbody)/addBtnId 요소를 채우고 행 CRUD 제공. */
-function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions) {
+function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { withIdentity = false } = {}) {
   const body = qs(`#${bodyId}`);
   const addBtn = qs(`#${addBtnId}`);
   if (!body || !addBtn) return { setValues: () => {}, getValues: () => [] };
-  const vendorOptionsHtml = `<option value=""></option>${(vendorOptions || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
+  // 판매처는 등록된 거래처(판매처) 목록이 많아질 수 있어 <select>가 아니라 검색(datalist) 가능한
+  // 텍스트 입력으로 둔다. datalist는 힌트일 뿐이라 목록에 없는 값을 입력해도 그대로 저장된다.
+  const vendorListId = `${bodyId}-vendor-datalist`;
+  let vendorDatalistEl = document.getElementById(vendorListId);
+  if (!vendorDatalistEl) {
+    vendorDatalistEl = document.createElement("datalist");
+    vendorDatalistEl.id = vendorListId;
+    document.body.appendChild(vendorDatalistEl);
+  }
+  vendorDatalistEl.innerHTML = (vendorOptions || []).map((v) => `<option value="${esc(v)}"></option>`).join("");
   const statusOptionsHtml = `<option value=""></option>${(statusOptions || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}`;
+  // withIdentity: 다중판매처 그룹(바코드는 같지만 판매처마다 이카운트코드가 다른 경우)을 한 모달에서
+  // 같이 수정할 때, 이 행이 어느 실제 상품 레코드(관리코드/이카운트코드) 소속인지 표시·관리하기 위한 컬럼.
+  // 기존 레코드는 코드가 이미 다른 곳(입출고 이력 등)에서 참조되므로 여기서 바꾸지 못하게 비활성화하고,
+  // "+ 판매처 추가"로 새로 만든 행만 새 이카운트코드를 입력해 새 레코드를 만들 수 있게 한다.
   const addRow = (row = {}) => {
     const tr = document.createElement("tr");
+    const isExistingRecord = withIdentity && Boolean(row.recordManagementCode || row.recordEcountCode);
+    const identityHtml = withIdentity
+      ? `<td class="vi-record-id-col"><input class="vi-record-mgmt-code" value="${esc(row.recordManagementCode || "")}" placeholder="(신규)" readonly disabled /></td>
+      <td class="vi-record-id-col"><input class="vi-record-ecount-code" value="${esc(row.recordEcountCode || "")}" placeholder="신규 품목코드 입력" ${isExistingRecord ? "readonly disabled" : ""} /></td>`
+      : "";
     tr.innerHTML = `
-      <td><select class="vi-vendor">${vendorOptionsHtml}</select></td>
+      ${identityHtml}
+      <td><input class="vi-vendor" list="${vendorListId}" placeholder="판매처 검색" value="${esc(row.vendor || "")}" /></td>
       <td><input class="vi-code" value="${esc(row.code || "")}" /></td>
       <td><input class="vi-itemname" value="${esc(row.itemName || "")}" /></td>
       <td><select class="vi-outunit">${["", "EA", "INN", "CTN", "PLT"].map((u) => `<option value="${u}" ${row.outUnit === u ? "selected" : ""}>${u}</option>`).join("")}</select></td>
       <td><select class="vi-status">${statusOptionsHtml}</select></td>
+      <td><select class="vi-tradetype">${TRADE_TYPE_OPTIONS.map((o) => `<option value="${esc(o)}" ${row.tradeType === o ? "selected" : ""}>${o || ""}</option>`).join("")}</select></td>
       <td><select class="vi-deliverymethod">${DELIVERY_METHOD_OPTIONS.map((o) => `<option value="${esc(o)}" ${row.deliveryMethod === o ? "selected" : ""}>${o || ""}</option>`).join("")}</select></td>
       <td><select class="vi-logisticsagent">${LOGISTICS_AGENT_OPTIONS.map((o) => `<option value="${esc(o)}" ${row.logisticsAgent === o ? "selected" : ""}>${o || ""}</option>`).join("")}</select></td>
       <td><input class="vi-innea" value="${esc(row.innEa || "")}" placeholder="예: 10" /></td>
@@ -1450,8 +1484,18 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions) {
       <td><input class="vi-ctnperplt" value="${esc(row.ctnPerPlt || "")}" /></td>
       <td><input class="vi-pltea" value="${esc(row.pltEa || "")}" /></td>
       <td><button type="button" class="vi-remove" title="삭제">&times;</button></td>`;
-    tr.querySelector(".vi-vendor").value = row.vendor || "";
-    tr.querySelector(".vi-status").value = row.status || "";
+    // 상태 옵션(opts.status)에 없는 값을 <select>에 그냥 대입하면 매칭되는 <option>이 없어
+    // 조용히 빈 값으로 바뀌어 버린다. 목록에 없는 값이면 그 값을 담은 옵션을 즉석에서 추가해 보존한다.
+    const statusEl = tr.querySelector(".vi-status");
+    const statusVal = row.status || "";
+    statusEl.value = statusVal;
+    if (statusEl.value !== statusVal) {
+      const opt = document.createElement("option");
+      opt.value = statusVal;
+      opt.textContent = statusVal;
+      statusEl.appendChild(opt);
+      statusEl.value = statusVal;
+    }
     body.appendChild(tr);
   };
   addBtn.onclick = () => addRow();
@@ -1469,11 +1513,14 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions) {
     getValues() {
       return Array.from(body.querySelectorAll("tr"))
         .map((tr) => ({
+          recordManagementCode: withIdentity ? tr.querySelector(".vi-record-mgmt-code")?.value.trim() || "" : "",
+          recordEcountCode: withIdentity ? tr.querySelector(".vi-record-ecount-code")?.value.trim() || "" : "",
           vendor: tr.querySelector(".vi-vendor").value.trim(),
           code: tr.querySelector(".vi-code").value.trim(),
           itemName: tr.querySelector(".vi-itemname").value.trim(),
           outUnit: tr.querySelector(".vi-outunit").value.trim(),
           status: tr.querySelector(".vi-status").value.trim(),
+          tradeType: tr.querySelector(".vi-tradetype").value.trim(),
           deliveryMethod: tr.querySelector(".vi-deliverymethod").value.trim(),
           logisticsAgent: tr.querySelector(".vi-logisticsagent").value.trim(),
           innEa: tr.querySelector(".vi-innea").value.trim(),
@@ -2153,7 +2200,7 @@ function renderProductsMainTab(container) {
   // 바코드가 없는 상품은 자기 자신(코드)만으로 단독 그룹이 된다.
   const barcodeGroups = new Map();
   state.products.forEach((p) => {
-    const key = p.barcode ? `bc:${p.barcode}` : `code:${p.code}`;
+    const key = productBarcodeGroupKey(p);
     if (!barcodeGroups.has(key)) barcodeGroups.set(key, []);
     barcodeGroups.get(key).push(p);
   });
@@ -2199,6 +2246,7 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="8" data-filter-multi="${esc((p.deliveryVendors||[]).join('|'))}">${renderVendorChip(v.vendor)}</td>
       <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
       <td data-col-orig-idx="37">${esc(v.status || "")}</td>
+      <td data-col-orig-idx="40">${esc(v.tradeType || "")}</td>
       <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
       <td data-col-orig-idx="35">${esc(v.deliveryMethod || "")}</td>
       <td data-col-orig-idx="36">${esc(v.logisticsAgent || "")}</td>
@@ -2295,6 +2343,8 @@ function renderProductsMainTab(container) {
                 <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
                 <th data-col-orig-idx="37" data-col-label="판매처별 상태">판매처별
 상태</th>
+                <th data-col-orig-idx="40" data-col-label="판매처별 거래유형">판매처별
+거래유형</th>
                 <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
 출고단위</th>
                 <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
@@ -2357,9 +2407,14 @@ INN(EA)</th>
         </div>
         <form id="product-popup-form" class="modal-form">
           <div class="form-section-title">기본정보</div>
-          <div><label>관리코드</label><input id="product-form-management-code" value="" readonly disabled /></div>
+          <div id="product-form-group-note" class="muted" style="display:none; grid-column:1/-1; font-size:12px; background:#F1F5F9; border-radius:8px; padding:8px 10px;">
+            다중판매처 그룹 수정입니다. 이 정보는 아래 선택된 모든 상품코드(판매처)에 동일하게 저장됩니다. 관리코드/품목코드(이카운트)는 판매처 목록 표에서 각각 확인·관리하세요.
+          </div>
+          <div id="product-form-single-code-fields" style="display:contents;">
+            <div><label>관리코드</label><input id="product-form-management-code" value="" readonly disabled /></div>
+            <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
+          </div>
           <div><label>정보검수</label><label class="verify-toggle"><input type="checkbox" name="infoVerified" /><span class="verify-toggle-slider"></span></label></div>
-          <div><label>품목코드(이카운트)</label><input name="ecountCode" required /></div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
@@ -2376,15 +2431,19 @@ INN(EA)</th>
 
           <div class="form-section-title">판매처 정보 (판매처별 출고적재사양 포함)</div>
           <div class="multi-select-field vendor-info-field">
-            <label>판매처 (판매처별 코드/상품명)</label>
+            <label>판매처 (WMS코드/이카운트코드/판매처별 코드·상품명) — 여기서 판매처별 상품코드를 추가·수정합니다</label>
+            <div class="vendor-info-table-scroll">
             <table class="vendor-info-table">
               <thead>
               <tr>
+                <th rowspan="2" class="vi-record-id-col">관리코드(WMS)</th>
+                <th rowspan="2" class="vi-record-id-col">품목코드(이카운트)</th>
                 <th rowspan="2">판매처</th>
                 <th rowspan="2">판매처관리코드</th>
                 <th rowspan="2">판매처 품목명</th>
                 <th rowspan="2">판매처별<br>출고단위</th>
                 <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">판매처별<br>거래유형</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
@@ -2400,6 +2459,7 @@ INN(EA)</th>
               </thead>
               <tbody id="vendor-info-rows"></tbody>
             </table>
+            </div>
             <button type="button" id="add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
           </div>
 
@@ -2448,9 +2508,14 @@ INN(EA)</th>
           </div>
           <div id="preview-categories" class="tagline multi-tags"></div>
 
-          <div class="form-section-title">재고 설정</div>
-          <div><label>안전재고(선택)</label><input name="safetyStock" type="number" value="0" /></div>
-          <div><label>적정재고(선택)</label><input name="optimalStock" type="number" value="0" /></div>
+          <div id="product-form-stock-fields" style="display:contents;">
+            <div class="form-section-title">재고 설정</div>
+            <div><label>안전재고(선택)</label><input name="safetyStock" type="number" value="0" /></div>
+            <div><label>적정재고(선택)</label><input name="optimalStock" type="number" value="0" /></div>
+          </div>
+          <div id="product-form-group-stock-note" class="muted" style="display:none; grid-column:1/-1; font-size:12px;">
+            안전재고/적정재고는 상품코드(판매처)마다 다를 수 있어 그룹 일괄수정에서 제외됩니다. 재고현황 화면에서 개별로 변경해주세요.
+          </div>
 
           <div><button class="primary" type="submit">입력 완료</button></div>
         </form>
@@ -2523,11 +2588,26 @@ INN(EA)</th>
   const optionOpenBtn = qs("#open-option-popup");
   const optionCloseBtn = qs("#option-modal-close");
   let editingCode = "";
+  let editingGroupCodes = [];
+  const setProductModalGroupMode = (isGroup) => {
+    const singleFieldsWrap = qs("#product-form-single-code-fields");
+    const groupNoteEl = qs("#product-form-group-note");
+    const stockFieldsWrap = qs("#product-form-stock-fields");
+    const groupStockNoteEl = qs("#product-form-group-stock-note");
+    const ecountCodeInput = qs("#product-popup-form")?.querySelector('[name="ecountCode"]');
+    if (singleFieldsWrap) singleFieldsWrap.style.display = isGroup ? "none" : "contents";
+    if (groupNoteEl) groupNoteEl.style.display = isGroup ? "" : "none";
+    if (stockFieldsWrap) stockFieldsWrap.style.display = isGroup ? "none" : "contents";
+    if (groupStockNoteEl) groupStockNoteEl.style.display = isGroup ? "" : "none";
+    if (ecountCodeInput) ecountCodeInput.required = !isGroup;
+  };
   if (openBtn && modalOverlay) {
     openBtn.onclick = () => {
       editingCode = "";
+      editingGroupCodes = [];
       qs("#product-popup-form")?.reset();
       if (productModalTitle) productModalTitle.textContent = "개별상품등록";
+      setProductModalGroupMode(false);
       multiControllers.deliveryVendors?.setValues([]);
       multiControllers.orderManagers?.setValues([]);
       multiControllers.categories?.setValues([]);
@@ -2717,17 +2797,13 @@ INN(EA)</th>
       const barOn = collapse ? expanded : true;
       repRow.classList.toggle("product-vendor-expanded-highlight", highlightOn);
       repRow.classList.toggle("vendor-bar-row", barOn);
-      // 접힌 대표 행의 체크박스는 실제로는 그룹 내 여러 상품/판매처 중 하나만 가리키므로,
-      // 어떤 걸 고르는지 모른 채 잘못된 상품이 선택되는 걸 막기 위해 펼치기 전에는 선택을 막는다.
+      // 접힌 대표 행의 체크박스도 "선택 수정"이 바코드 기준으로 그룹 전체를 마스터에서
+      // 수정하므로, 펼치지 않고 체크해도 그룹 전체가 올바르게 선택된다. 그래서 더 이상
+      // 펼치기 전 선택을 막을 필요가 없다.
       const repCheckbox = repRow.querySelector(".product-row-check");
       if (repCheckbox) {
-        const shouldDisable = collapse && !expanded;
-        repCheckbox.disabled = shouldDisable;
-        repCheckbox.title = shouldDisable ? "여러 상품/판매처가 묶여 있습니다. 펼치기를 눌러 개별로 선택하세요." : "";
-        if (shouldDisable && repCheckbox.checked) {
-          repCheckbox.checked = false;
-          repCheckbox.dispatchEvent(new Event("change", { bubbles: true }));
-        }
+        repCheckbox.disabled = false;
+        repCheckbox.title = "";
       }
       if (collapse && !expanded) {
         vendorCell.innerHTML = decodeURIComponent(repRow.dataset.vendorMultiBadge);
@@ -2910,7 +2986,7 @@ INN(EA)</th>
       }
     };
   };
-  multiControllers.deliveryVendors = setupVendorInfoTable("vendor-info-rows", "add-vendor-info-row", opts.deliveryVendors, opts.status);
+  multiControllers.deliveryVendors = setupVendorInfoTable("vendor-info-rows", "add-vendor-info-row", getRegisteredOutboundVendorNames(), opts.status, { withIdentity: true });
   multiControllers.orderManagers = setupMultiSelect("orderManagers", "select-orderManagers", "add-orderManagers", "preview-orderManagers");
   multiControllers.salesManagers = setupMultiSelect("salesManagers", "select-salesManagers", "add-salesManagers", "preview-salesManagers");
   multiControllers.categories = setupMultiSelect("categories", "select-categories", "add-categories", "preview-categories");
@@ -2979,59 +3055,80 @@ INN(EA)</th>
   });
   wireVerifyAndVendorSelects("#products-table", "main");
 
+  const openProductEditModal = (groupMembers) => {
+    if (!groupMembers.length || !productForm || !modalOverlay) return;
+    const isGroup = groupMembers.length > 1;
+    const rep = groupMembers[0];
+    editingCode = isGroup ? "" : String(rep.code || "");
+    editingGroupCodes = groupMembers.map((p) => String(p.code || ""));
+    if (productModalTitle) {
+      productModalTitle.textContent = isGroup
+        ? `다중판매처 그룹 수정 (상품코드 ${groupMembers.length}건)`
+        : "상품등록정보 수정";
+    }
+    setProductModalGroupMode(isGroup);
+    const setVal = (name, val) => {
+      const el = productForm.querySelector(`[name="${name}"]`);
+      if (el) el.value = val ?? "";
+    };
+    if (!isGroup) {
+      const mgmtCodeEl = qs("#product-form-management-code");
+      if (mgmtCodeEl) mgmtCodeEl.value = rep.managementCode || "";
+      setVal("ecountCode", rep.ecountCode || rep.code);
+    }
+    const infoVerifiedEl = productForm.querySelector('[name="infoVerified"]');
+    if (infoVerifiedEl) infoVerifiedEl.checked = groupMembers.every((p) => p.infoVerified);
+    setVal("barcode", rep.barcode);
+    setVal("middleBarcode", rep.middleBarcode);
+    setVal("logisticsBarcode", rep.logisticsBarcode);
+    setVal("ecountName", rep.ecountName || rep.name);
+    setVal("status", rep.status);
+    const flatVendorRows = groupMembers.flatMap((p) =>
+      getProductVendorRows(p).map((v) => ({
+        ...v,
+        recordManagementCode: p.managementCode || "",
+        recordEcountCode: p.ecountCode || p.code || ""
+      }))
+    );
+    multiControllers.deliveryVendors?.setValues(flatVendorRows);
+    setVal("spec", rep.spec);
+    setVal("purchaseVendor", rep.purchaseVendor);
+    setVal("supplyType", rep.supplyType);
+    setVal("orderDept", rep.orderDept);
+    multiControllers.orderManagers?.setValues(rep.orderManagers);
+    setVal("purchaseItemCode", rep.purchaseItemCode);
+    setVal("purchaseItemName", rep.purchaseItemName);
+    setVal("warehouseGroup", rep.warehouseGroup);
+    multiControllers.usedWarehouses?.setValues(rep.usedWarehouses);
+    setVal("itemType", rep.itemType);
+    multiControllers.categories?.setValues(rep.categories);
+    multiControllers.salesManagers?.setValues(rep.salesManagers);
+    setVal("ctnEa", rep.ctnEa ?? "");
+    setVal("innPerCtn", rep.innPerCtn ?? "");
+    setVal("innEa", rep.innEa ?? "");
+    setVal("ctnPerPlt", rep.ctnPerPlt ?? "");
+    setVal("pltEa", rep.pltEa ?? "");
+    setVal("safetyStock", rep.safetyStock ?? 0);
+    setVal("optimalStock", rep.optimalStock ?? 0);
+    modalOverlay.classList.remove("hidden");
+  };
+
   const editSelectedBtn = qs("#product-edit-selected");
   if (editSelectedBtn) {
     editSelectedBtn.onclick = () => {
       const codes = getSelectedCodes();
-      if (codes.length > 1) {
-        const names = codes
-          .map((c) => state.products.find((x) => String(x.code) === String(c)))
-          .filter(Boolean)
-          .map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
+      if (codes.length < 1) return alert("수정할 상품을 선택하세요.");
+      const selectedProducts = codes.map((c) => state.products.find((x) => String(x.code) === String(c))).filter(Boolean);
+      const groupKeys = new Set(selectedProducts.map(productBarcodeGroupKey));
+      if (groupKeys.size > 1) {
+        const names = selectedProducts.map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
         return alert(
-          `선택한 행이 서로 다른 상품코드 ${codes.length}건입니다. 같은 바코드를 여러 판매처(이마트/롯데마트 등)가 공유하는 "다중" 그룹이라도, 판매처별로 품목코드가 다르면 별개 상품이라 한 번에 수정할 수 없습니다.\n\n${names.join("\n")}\n\n하나만 체크해서 수정해주세요.`
+          `선택한 상품이 서로 다른 그룹(바코드가 다름) ${groupKeys.size}개에 걸쳐 있습니다. 한 번에 수정하려면 같은 다중판매처 그룹(같은 바코드) 안에서만 선택하세요.\n\n${names.join("\n")}`
         );
       }
-      if (codes.length < 1) return alert("수정할 상품을 선택하세요.");
-      const p = state.products.find((x) => String(x.code) === String(codes[0]));
-      if (!p || !productForm || !modalOverlay) return;
-      editingCode = String(p.code || "");
-      if (productModalTitle) productModalTitle.textContent = "상품등록정보 수정";
-      const setVal = (name, val) => {
-        const el = productForm.querySelector(`[name="${name}"]`);
-        if (el) el.value = val ?? "";
-      };
-      const mgmtCodeEl = qs("#product-form-management-code");
-      if (mgmtCodeEl) mgmtCodeEl.value = p.managementCode || "";
-      const infoVerifiedEl = productForm.querySelector('[name="infoVerified"]');
-      if (infoVerifiedEl) infoVerifiedEl.checked = Boolean(p.infoVerified);
-      setVal("ecountCode", p.ecountCode || p.code);
-      setVal("barcode", p.barcode);
-      setVal("middleBarcode", p.middleBarcode);
-      setVal("logisticsBarcode", p.logisticsBarcode);
-      setVal("ecountName", p.ecountName || p.name);
-      setVal("status", p.status);
-      multiControllers.deliveryVendors?.setValues(p.deliveryVendorInfo);
-      setVal("spec", p.spec);
-      setVal("purchaseVendor", p.purchaseVendor);
-      setVal("supplyType", p.supplyType);
-      setVal("orderDept", p.orderDept);
-      multiControllers.orderManagers?.setValues(p.orderManagers);
-      setVal("purchaseItemCode", p.purchaseItemCode);
-      setVal("purchaseItemName", p.purchaseItemName);
-      setVal("warehouseGroup", p.warehouseGroup);
-      multiControllers.usedWarehouses?.setValues(p.usedWarehouses);
-      setVal("itemType", p.itemType);
-      multiControllers.categories?.setValues(p.categories);
-      multiControllers.salesManagers?.setValues(p.salesManagers);
-      setVal("ctnEa", p.ctnEa ?? "");
-      setVal("innPerCtn", p.innPerCtn ?? "");
-      setVal("innEa", p.innEa ?? "");
-      setVal("ctnPerPlt", p.ctnPerPlt ?? "");
-      setVal("pltEa", p.pltEa ?? "");
-      setVal("safetyStock", p.safetyStock ?? 0);
-      setVal("optimalStock", p.optimalStock ?? 0);
-      modalOverlay.classList.remove("hidden");
+      const gk = [...groupKeys][0];
+      const groupMembers = state.products.filter((p) => productBarcodeGroupKey(p) === gk);
+      openProductEditModal(groupMembers);
     };
   }
 
@@ -3086,28 +3183,149 @@ INN(EA)</th>
     };
   }
 
+  // 다중판매처 그룹 일괄수정 시 "이 필드는 그룹 전체에 동일하게 적용"으로 취급할 필드 목록.
+  // (재고 설정/관리코드/이카운트코드는 판매처마다 다를 수 있어 제외 — 서버는 presentFields에
+  // 없는 필드는 기존 값을 그대로 유지한다.)
+  const GROUP_SHARED_PRESENT_FIELDS = [
+    "infoVerified", "status", "barcode", "middleBarcode", "logisticsBarcode",
+    "spec", "innEa", "innPerCtn", "ctnEa", "ctnPerPlt", "pltEa",
+    "purchaseVendor", "supplyType", "orderDept", "orderManagers",
+    "purchaseItemCode", "purchaseItemName", "warehouseGroup", "usedWarehouses",
+    "itemType", "categories", "salesManagers", "deliveryVendors"
+  ];
+
   qs("#product-popup-form").onsubmit = async (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
-    data.ecountCode = String(data.ecountCode || "").trim();
-    data.ecountName = String(data.ecountName || "").trim();
-    data.status = toTagList(data.status)[0] || "판매중";
-    data.supplyType = toTagList(data.supplyType)[0] || "";
-    data.orderDept = toTagList(data.orderDept)[0] || "";
-    data.warehouseGroup = toTagList(data.warehouseGroup)[0] || "";
-    data.itemType = toTagList(data.itemType)[0] || "";
-    data.code = editingCode || data.ecountCode;
-    data.name = data.ecountName;
-    const vendorInfoRows = multiControllers.deliveryVendors?.getValues() || [];
-    data.deliveryVendorInfo = vendorInfoRows;
-    data.deliveryVendors = vendorInfoRows.map((r) => r.vendor);
-    data.orderManagers = toTagList(data.orderManagers);
-    data.salesManagers = toTagList(data.salesManagers);
-    data.categories = toTagList(data.categories);
-    data.usedWarehouses = toTagList(data.usedWarehouses);
-    await api("/api/products", { method: "POST", body: JSON.stringify(data) });
+    const formData = Object.fromEntries(new FormData(e.target));
+    const isGroup = editingGroupCodes.length > 1;
+
+    const shared = {
+      ecountName: String(formData.ecountName || "").trim(),
+      status: toTagList(formData.status)[0] || "판매중",
+      barcode: formData.barcode,
+      middleBarcode: formData.middleBarcode,
+      logisticsBarcode: formData.logisticsBarcode,
+      spec: formData.spec,
+      innEa: formData.innEa,
+      innPerCtn: formData.innPerCtn,
+      ctnEa: formData.ctnEa,
+      ctnPerPlt: formData.ctnPerPlt,
+      pltEa: formData.pltEa,
+      purchaseVendor: formData.purchaseVendor,
+      supplyType: toTagList(formData.supplyType)[0] || "",
+      orderDept: toTagList(formData.orderDept)[0] || "",
+      orderManagers: toTagList(formData.orderManagers),
+      purchaseItemCode: formData.purchaseItemCode,
+      purchaseItemName: formData.purchaseItemName,
+      warehouseGroup: toTagList(formData.warehouseGroup)[0] || "",
+      usedWarehouses: toTagList(formData.usedWarehouses),
+      itemType: toTagList(formData.itemType)[0] || "",
+      categories: toTagList(formData.categories),
+      salesManagers: toTagList(formData.salesManagers),
+      infoVerified: Boolean(e.target.querySelector('[name="infoVerified"]')?.checked)
+    };
+    shared.name = shared.ecountName;
+
+    const vendorRows = multiControllers.deliveryVendors?.getValues() || [];
+
+    if (!isGroup) {
+      const data = { ...shared };
+      data.ecountCode = String(formData.ecountCode || "").trim();
+      data.code = editingCode || data.ecountCode;
+      data.deliveryVendorInfo = vendorRows.map(({ recordManagementCode, recordEcountCode, ...rest }) => rest);
+      data.deliveryVendors = vendorRows.map((r) => r.vendor);
+      data.safetyStock = formData.safetyStock;
+      data.optimalStock = formData.optimalStock;
+      try {
+        await api("/api/products", { method: "POST", body: JSON.stringify(data) });
+      } catch (err) {
+        return alert(err.message);
+      }
+    } else {
+      // 판매처 목록 표의 행을 원래 소속 레코드(이카운트코드)별로 묶는다. recordManagementCode가
+      // 있으면 기존 레코드(코드는 표에서 수정 불가), 없으면 "+ 판매처 추가"로 새로 만든 행이다.
+      const existingGroups = new Map();
+      const newRows = [];
+      vendorRows.forEach((r) => {
+        if (r.recordManagementCode) {
+          const key = r.recordEcountCode;
+          if (!existingGroups.has(key)) existingGroups.set(key, []);
+          existingGroups.get(key).push(r);
+        } else {
+          newRows.push(r);
+        }
+      });
+
+      const newCodesSeen = new Set();
+      for (const r of newRows) {
+        const code = String(r.recordEcountCode || "").trim();
+        if (!code) return alert("판매처 목록에 새로 추가한 행은 품목코드(이카운트)를 입력해야 합니다.");
+        if (!r.vendor) return alert(`품목코드 "${code}" 행에 판매처를 선택해야 합니다.`);
+        if (newCodesSeen.has(code)) return alert(`품목코드 "${code}"가 새 판매처 행에 중복 입력되었습니다.`);
+        newCodesSeen.add(code);
+        const collide = state.products.find((p) => (p.ecountCode || p.code) === code || p.code === code);
+        if (collide) return alert(`품목코드 "${code}"는 이미 다른 상품(${collide.ecountName || collide.name})에서 사용 중입니다. 다른 코드를 입력하세요.`);
+      }
+
+      const originalMembers = editingGroupCodes
+        .map((c) => state.products.find((p) => String(p.code) === c))
+        .filter(Boolean);
+
+      const survivingCodes = new Set();
+      const updateCalls = [];
+      for (const p of originalMembers) {
+        const key = p.ecountCode || p.code;
+        const rows = existingGroups.get(key) || [];
+        if (!rows.length) continue;
+        survivingCodes.add(p.code);
+        updateCalls.push({
+          ...shared,
+          code: p.code,
+          ecountCode: p.ecountCode || p.code,
+          deliveryVendorInfo: rows.map(({ recordManagementCode, recordEcountCode, ...rest }) => rest),
+          deliveryVendors: rows.map((r) => r.vendor),
+          presentFields: GROUP_SHARED_PRESENT_FIELDS
+        });
+      }
+
+      const codesToDelete = originalMembers.map((p) => p.code).filter((c) => !survivingCodes.has(c));
+      if (codesToDelete.length) {
+        const names = originalMembers.filter((p) => codesToDelete.includes(p.code)).map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
+        if (!confirm(`판매처 목록에서 아래 ${codesToDelete.length}개 상품코드가 제거되어 완전히 삭제됩니다. 계속할까요?\n\n${names.join("\n")}`)) return;
+      }
+
+      try {
+        for (const data of updateCalls) {
+          await api("/api/products", { method: "POST", body: JSON.stringify(data) });
+        }
+        for (const r of newRows) {
+          const { recordManagementCode, recordEcountCode, ...vendorFields } = r;
+          await api("/api/products", {
+            method: "POST",
+            body: JSON.stringify({
+              ...shared,
+              code: recordEcountCode,
+              ecountCode: recordEcountCode,
+              deliveryVendorInfo: [vendorFields],
+              deliveryVendors: [r.vendor],
+              safetyStock: 0,
+              optimalStock: 0
+            })
+          });
+        }
+        if (codesToDelete.length) {
+          await api("/api/products", { method: "DELETE", body: JSON.stringify({ codes: codesToDelete }) });
+        }
+      } catch (err) {
+        await refreshCommon();
+        renderProducts();
+        return alert(err.message);
+      }
+    }
+
     await refreshCommon();
     editingCode = "";
+    editingGroupCodes = [];
     if (modalOverlay) modalOverlay.classList.add("hidden");
     renderProducts();
     renderStock();
@@ -3177,6 +3395,7 @@ INN(EA)</th>
           "상태": p.status || "",
           "판매처": v.vendor || "",
           "판매처별 상태": v.status || "",
+          "판매처별 거래유형": v.tradeType || "",
           "판매처관리코드": v.code || "",
           "판매처 품목명": v.itemName || "",
           "출고단위": v.outUnit || "",
@@ -3251,7 +3470,7 @@ function renderProductsSalesNewTab(container) {
     const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : ""].filter(Boolean).join(" ");
     return `
       <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${extraClasses ? ` class="${extraClasses}"` : ""}>
-        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" ${vendorIdx === undefined && isMulti ? `disabled title="여러 상품/판매처가 묶여 있습니다. 펼치기를 눌러 개별로 선택하세요."` : ""} /></td>
+        <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" /></td>
         <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" data-source="salesNew" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
         <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
         <td data-col-orig-idx="39" class="spec-editable-cell" data-scope="product" data-field="memo" data-input-type="text" data-code="${esc(p.code)}">${esc(p.memo || "")}</td>
@@ -3265,6 +3484,7 @@ function renderProductsSalesNewTab(container) {
         <td data-col-orig-idx="8" data-filter-multi="${esc(vendors.join('|'))}">${vendorCell}</td>
         <td data-col-orig-idx="9">${isMulti ? "다중" : "단일"}</td>
         <td data-col-orig-idx="37">${esc(vInfo.status || "")}</td>
+        <td data-col-orig-idx="40">${esc(vInfo.tradeType || "")}</td>
         <td data-col-orig-idx="28">${esc(vInfo.outUnit || "")}</td>
         <td data-col-orig-idx="35">${esc(vInfo.deliveryMethod || "")}</td>
         <td data-col-orig-idx="36">${esc(vInfo.logisticsAgent || "")}</td>
@@ -3356,6 +3576,8 @@ function renderProductsSalesNewTab(container) {
               <th data-col-orig-idx="9" data-col-label="판매처구분">판매처구분</th>
               <th data-col-orig-idx="37" data-col-label="판매처별 상태">판매처별
 상태</th>
+              <th data-col-orig-idx="40" data-col-label="판매처별 거래유형">판매처별
+거래유형</th>
               <th data-col-orig-idx="28" data-col-label="판매처별 출고단위">판매처별
 출고단위</th>
               <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
@@ -3428,7 +3650,12 @@ INN(EA)</th>
         </div>
         <form id="sales-new-popup-form" class="modal-form">
           <div class="form-section-title">기본정보</div>
-          <div><label>품목코드(이카운트)</label><input name="ecountCode" readonly /></div>
+          <div id="sales-new-form-group-note" class="muted" style="display:none; grid-column:1/-1; font-size:12px; background:#F1F5F9; border-radius:8px; padding:8px 10px;">
+            다중판매처 그룹 수정입니다. 이 정보는 아래 선택된 모든 상품코드(판매처)에 동일하게 저장됩니다. 관리코드/품목코드(이카운트)는 판매처 목록 표에서 각각 확인하세요. (이 화면에서는 새 판매처 코드를 새로 만들 수는 없습니다.)
+          </div>
+          <div id="sales-new-form-single-code-fields" style="display:contents;">
+            <div><label>품목코드(이카운트)</label><input name="ecountCode" readonly /></div>
+          </div>
           <div><label>품목명(이카운트)</label><input name="ecountName" required /></div>
           <div><label>상태</label><select name="status">${selectOptions(opts.status, "판매중")}</select></div>
           <div><label>바코드(SKU)</label><input name="barcode" /></div>
@@ -3445,15 +3672,19 @@ INN(EA)</th>
 
           <div class="form-section-title">판매처 정보 (판매처별 출고적재사양 포함)</div>
           <div class="multi-select-field vendor-info-field" style="grid-column: 1 / -1;">
-            <label>판매처 (판매처별 코드/상품명)</label>
+            <label>판매처 (WMS코드/이카운트코드/판매처별 코드·상품명)</label>
+            <div class="vendor-info-table-scroll">
             <table class="vendor-info-table">
               <thead>
               <tr>
+                <th rowspan="2" class="vi-record-id-col">관리코드(WMS)</th>
+                <th rowspan="2" class="vi-record-id-col">품목코드(이카운트)</th>
                 <th rowspan="2">판매처</th>
                 <th rowspan="2">판매처관리코드</th>
                 <th rowspan="2">판매처 품목명</th>
                 <th rowspan="2">판매처별<br>출고단위</th>
                 <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">판매처별<br>거래유형</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
@@ -3469,6 +3700,7 @@ INN(EA)</th>
               </thead>
               <tbody id="sales-new-vendor-info-rows"></tbody>
             </table>
+            </div>
             <button type="button" id="sales-new-add-vendor-info-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 판매처 추가</button>
           </div>
 
@@ -3676,66 +3908,164 @@ INN(EA)</th>
   const modalOverlay = qs("#sales-new-modal-overlay");
   const form = qs("#sales-new-popup-form");
   preventEnterSubmit(form);
-  const salesNewVendorInfoController = setupVendorInfoTable("sales-new-vendor-info-rows", "sales-new-add-vendor-info-row", opts.deliveryVendors, opts.status);
-  qs("#sales-new-edit-selected")?.addEventListener("click", () => {
-    const codes = getSelectedCodes();
-    if (codes.length !== 1) return alert("수정은 1개만 선택하세요.");
-    const p = list.find((x) => String(x.code) === codes[0]);
-    if (!p || !form || !modalOverlay) return;
-    salesNewEditingCode = String(p.code || "");
+  const salesNewVendorInfoController = setupVendorInfoTable("sales-new-vendor-info-rows", "sales-new-add-vendor-info-row", getRegisteredOutboundVendorNames(), opts.status, { withIdentity: true });
+  let salesNewEditingGroupCodes = [];
+  const salesNewAddVendorBtn = qs("#sales-new-add-vendor-info-row");
+  const setSalesNewModalGroupMode = (isGroup) => {
+    const singleFieldsWrap = qs("#sales-new-form-single-code-fields");
+    const groupNoteEl = qs("#sales-new-form-group-note");
+    if (singleFieldsWrap) singleFieldsWrap.style.display = isGroup ? "none" : "contents";
+    if (groupNoteEl) groupNoteEl.style.display = isGroup ? "" : "none";
+    if (salesNewAddVendorBtn) {
+      salesNewAddVendorBtn.disabled = isGroup;
+      salesNewAddVendorBtn.title = isGroup ? "다중판매처 그룹 수정 화면에서는 새 판매처 코드를 만들 수 없습니다." : "";
+    }
+  };
+  const openSalesNewEditModal = (groupMembers) => {
+    if (!groupMembers.length || !form || !modalOverlay) return;
+    const isGroup = groupMembers.length > 1;
+    const rep = groupMembers[0];
+    salesNewEditingCode = isGroup ? "" : String(rep.code || "");
+    salesNewEditingGroupCodes = groupMembers.map((p) => String(p.code || ""));
+    setSalesNewModalGroupMode(isGroup);
     const setVal = (name, val) => {
       const el = form.querySelector(`[name="${name}"]`);
       if (el) el.value = val ?? "";
     };
-    setVal("ecountCode", p.ecountCode || p.code);
-    setVal("barcode", p.barcode);
-    setVal("middleBarcode", p.middleBarcode);
-    setVal("logisticsBarcode", p.logisticsBarcode);
-    setVal("ecountName", p.ecountName || p.name);
-    setVal("spec", p.spec);
-    setVal("status", p.status || "판매중");
-    salesNewVendorInfoController.setValues(p.deliveryVendorInfo);
-    setVal("supplyType", p.supplyType);
-    setVal("orderDept", p.orderDept);
-    setVal("orderManagers", (p.orderManagers || []).join(", "));
-    setVal("salesManagers", (p.salesManagers || []).join(", "));
-    setVal("purchaseVendor", p.purchaseVendor);
-    setVal("purchaseItemCode", p.purchaseItemCode);
-    setVal("purchaseItemName", p.purchaseItemName);
-    setVal("warehouseGroup", p.warehouseGroup);
-    setVal("usedWarehouses", (p.usedWarehouses || []).join(", "));
-    setVal("itemType", p.itemType);
-    setVal("categories", (p.categories || []).join(", "));
-    setVal("innEa", p.innEa ?? "");
-    setVal("innPerCtn", p.innPerCtn ?? "");
-    setVal("ctnEa", p.ctnEa ?? "");
-    setVal("ctnPerPlt", p.ctnPerPlt ?? "");
-    setVal("pltEa", p.pltEa ?? "");
+    if (!isGroup) setVal("ecountCode", rep.ecountCode || rep.code);
+    setVal("barcode", rep.barcode);
+    setVal("middleBarcode", rep.middleBarcode);
+    setVal("logisticsBarcode", rep.logisticsBarcode);
+    setVal("ecountName", rep.ecountName || rep.name);
+    setVal("spec", rep.spec);
+    setVal("status", rep.status || "판매중");
+    const flatVendorRows = groupMembers.flatMap((p) =>
+      getProductVendorRows(p).map((v) => ({
+        ...v,
+        recordManagementCode: p.managementCode || "",
+        recordEcountCode: p.ecountCode || p.code || ""
+      }))
+    );
+    salesNewVendorInfoController.setValues(flatVendorRows);
+    setVal("supplyType", rep.supplyType);
+    setVal("orderDept", rep.orderDept);
+    setVal("orderManagers", (rep.orderManagers || []).join(", "));
+    setVal("salesManagers", (rep.salesManagers || []).join(", "));
+    setVal("purchaseVendor", rep.purchaseVendor);
+    setVal("purchaseItemCode", rep.purchaseItemCode);
+    setVal("purchaseItemName", rep.purchaseItemName);
+    setVal("warehouseGroup", rep.warehouseGroup);
+    setVal("usedWarehouses", (rep.usedWarehouses || []).join(", "));
+    setVal("itemType", rep.itemType);
+    setVal("categories", (rep.categories || []).join(", "));
+    setVal("innEa", rep.innEa ?? "");
+    setVal("innPerCtn", rep.innPerCtn ?? "");
+    setVal("ctnEa", rep.ctnEa ?? "");
+    setVal("ctnPerPlt", rep.ctnPerPlt ?? "");
+    setVal("pltEa", rep.pltEa ?? "");
     modalOverlay.classList.remove("hidden");
+  };
+  qs("#sales-new-edit-selected")?.addEventListener("click", () => {
+    const codes = getSelectedCodes();
+    if (codes.length < 1) return alert("수정할 상품을 선택하세요.");
+    const selectedProducts = codes.map((c) => list.find((x) => String(x.code) === String(c))).filter(Boolean);
+    const groupKeys = new Set(selectedProducts.map(productBarcodeGroupKey));
+    if (groupKeys.size > 1) {
+      const names = selectedProducts.map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
+      return alert(
+        `선택한 상품이 서로 다른 그룹(바코드가 다름) ${groupKeys.size}개에 걸쳐 있습니다. 한 번에 수정하려면 같은 다중판매처 그룹(같은 바코드) 안에서만 선택하세요.\n\n${names.join("\n")}`
+      );
+    }
+    const gk = [...groupKeys][0];
+    const groupMembers = list.filter((p) => productBarcodeGroupKey(p) === gk);
+    openSalesNewEditModal(groupMembers);
   });
   qs("#sales-new-modal-close")?.addEventListener("click", () => modalOverlay?.classList.add("hidden"));
   modalOverlay?.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.add("hidden"); });
 
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.target));
-    data.code = salesNewEditingCode;
-    data.ecountCode = salesNewEditingCode;
-    data.ecountName = String(data.ecountName || "").trim();
-    data.name = data.ecountName;
-    const vendorInfoRows = salesNewVendorInfoController.getValues();
-    data.deliveryVendorInfo = vendorInfoRows;
-    data.deliveryVendors = vendorInfoRows.map((v) => v.vendor);
-    data.salesVendor = data.deliveryVendors.join(", ");
-    data.orderManagers = toTagList(data.orderManagers);
-    data.salesManagers = toTagList(data.salesManagers);
-    data.usedWarehouses = toTagList(data.usedWarehouses);
-    data.categories = toTagList(data.categories);
+    const formData = Object.fromEntries(new FormData(e.target));
+    const isGroup = salesNewEditingGroupCodes.length > 1;
+    const shared = {
+      ecountName: String(formData.ecountName || "").trim(),
+      barcode: formData.barcode,
+      middleBarcode: formData.middleBarcode,
+      logisticsBarcode: formData.logisticsBarcode,
+      spec: formData.spec,
+      status: formData.status,
+      supplyType: formData.supplyType,
+      orderDept: formData.orderDept,
+      orderManagers: toTagList(formData.orderManagers),
+      salesManagers: toTagList(formData.salesManagers),
+      purchaseVendor: formData.purchaseVendor,
+      purchaseItemCode: formData.purchaseItemCode,
+      purchaseItemName: formData.purchaseItemName,
+      warehouseGroup: formData.warehouseGroup,
+      usedWarehouses: toTagList(formData.usedWarehouses),
+      itemType: formData.itemType,
+      categories: toTagList(formData.categories),
+      innEa: formData.innEa,
+      innPerCtn: formData.innPerCtn,
+      ctnEa: formData.ctnEa,
+      ctnPerPlt: formData.ctnPerPlt,
+      pltEa: formData.pltEa
+    };
+    shared.name = shared.ecountName;
+
+    const vendorRows = salesNewVendorInfoController.getValues();
+
     try {
-      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify(data) });
+      if (!isGroup) {
+        const data = { ...shared };
+        data.code = salesNewEditingCode;
+        data.ecountCode = salesNewEditingCode;
+        data.deliveryVendorInfo = vendorRows.map(({ recordManagementCode, recordEcountCode, ...rest }) => rest);
+        data.deliveryVendors = data.deliveryVendorInfo.map((v) => v.vendor);
+        data.salesVendor = data.deliveryVendors.join(", ");
+        await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify(data) });
+      } else {
+        // 이 화면은 새 판매처 코드를 만드는 API가 없어(자동수집된 판매이력 기반 데이터),
+        // 기존 상품코드(레코드)에 대한 수정/삭제만 지원한다.
+        const existingGroups = new Map();
+        vendorRows.forEach((r) => {
+          if (!r.recordEcountCode) return;
+          if (!existingGroups.has(r.recordEcountCode)) existingGroups.set(r.recordEcountCode, []);
+          existingGroups.get(r.recordEcountCode).push(r);
+        });
+
+        const originalMembers = salesNewEditingGroupCodes
+          .map((c) => list.find((p) => String(p.code) === c))
+          .filter(Boolean);
+
+        const survivingCodes = new Set();
+        for (const p of originalMembers) {
+          const key = p.ecountCode || p.code;
+          const rows = existingGroups.get(key) || [];
+          if (!rows.length) continue;
+          survivingCodes.add(p.code);
+          const data = {
+            ...shared,
+            code: p.code,
+            ecountCode: p.ecountCode || p.code,
+            deliveryVendorInfo: rows.map(({ recordManagementCode, recordEcountCode, ...rest }) => rest),
+          };
+          data.deliveryVendors = data.deliveryVendorInfo.map((v) => v.vendor);
+          data.salesVendor = data.deliveryVendors.join(", ");
+          await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify(data) });
+        }
+
+        const codesToDelete = originalMembers.map((p) => p.code).filter((c) => !survivingCodes.has(c));
+        if (codesToDelete.length) {
+          const names = originalMembers.filter((p) => codesToDelete.includes(p.code)).map((p) => `${p.code}(${p.ecountName || p.name || ""})`);
+          if (!confirm(`판매처 목록에서 아래 ${codesToDelete.length}개 상품코드가 제거되어 완전히 삭제됩니다. 계속할까요?\n\n${names.join("\n")}`)) return;
+          await api("/api/products/sales-unregistered", { method: "DELETE", body: JSON.stringify({ codes: codesToDelete }) });
+        }
+      }
       const res = await api("/api/products/sales-unregistered");
       state.salesUnregisteredProducts = res.items || [];
       salesNewEditingCode = "";
+      salesNewEditingGroupCodes = [];
       modalOverlay?.classList.add("hidden");
       renderProducts();
       alert("저장되었습니다.");
@@ -3805,6 +4135,7 @@ INN(EA)</th>
         "판매처": (p.deliveryVendors || []).join(", "),
         "판매처구분": (p.deliveryVendors || []).length > 1 ? "다중" : "단일",
         "판매처별 상태": (p.deliveryVendorInfo || [])[0]?.status || "",
+        "판매처별 거래유형": (p.deliveryVendorInfo || [])[0]?.tradeType || "",
         "납품방법": (p.deliveryVendorInfo || [])[0]?.deliveryMethod || "",
         "물류대행": (p.deliveryVendorInfo || [])[0]?.logisticsAgent || "",
         "수급형태": p.supplyType || "",
@@ -8895,8 +9226,15 @@ async function renderHistory() {
     qs("#history-result-card").style.display = "block";
     qs("#history-empty-card").style.display = "none";
 
+    const historyParams = new URLSearchParams({ q: qTrim });
+    if (typeFilter !== "ALL") historyParams.set("type", typeFilter);
+    if (warehouseFilter) historyParams.set("warehouse", warehouseFilter);
+    if (managerFilter) historyParams.set("manager", managerFilter);
+    if (dateFrom) historyParams.set("dateFrom", dateFrom);
+    if (dateTo) historyParams.set("dateTo", dateTo);
+
     const [res, stockRes] = await Promise.all([
-      api(`/api/history?q=${encodeURIComponent(qTrim)}`),
+      api(`/api/history?${historyParams.toString()}`),
       api("/api/stock")
     ]);
 
@@ -8905,18 +9243,7 @@ async function renderHistory() {
       : [];
     const matchedStocks = matched.length ? matched.join(" / ") : "";
 
-    let items = res.items;
-    if (typeFilter !== "ALL") items = items.filter((x) => x.type === typeFilter);
-    if (warehouseFilter) items = items.filter((x) => x.warehouse === warehouseFilter || x.toWarehouse === warehouseFilter);
-    if (managerFilter) items = items.filter((x) => x.user === managerFilter);
-    if (dateFrom || dateTo) {
-      items = items.filter((x) => {
-        const d = (x.createdAt || "").slice(0, 10);
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo && d > dateTo) return false;
-        return true;
-      });
-    }
+    const items = res.items;
 
     const displayItems = (() => {
       const outGrouped = new Map();
@@ -9936,6 +10263,7 @@ INN(EA)</th>
                 <th rowspan="2">판매처 품목명</th>
                 <th rowspan="2">판매처별<br>출고단위</th>
                 <th rowspan="2">판매처별<br>상태</th>
+                <th rowspan="2">판매처별<br>거래유형</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
@@ -10186,7 +10514,7 @@ INN(EA)</th>
     draw();
     return { setValues(vals) { selected = toTagList(vals); draw(); } };
   };
-  pplMultiControllers.deliveryVendors  = setupVendorInfoTable("ppl-vendor-info-rows", "ppl-add-vendor-info-row", opts.deliveryVendors, opts.status);
+  pplMultiControllers.deliveryVendors  = setupVendorInfoTable("ppl-vendor-info-rows", "ppl-add-vendor-info-row", getRegisteredOutboundVendorNames(), opts.status);
   pplMultiControllers.orderManagers    = setupPplMulti("orderManagers",    "ppl-select-orderManagers",    "ppl-add-orderManagers",    "ppl-preview-orderManagers");
   pplMultiControllers.usedWarehouses   = setupPplMulti("usedWarehouses",   "ppl-select-usedWarehouses",   "ppl-add-usedWarehouses",   "ppl-preview-usedWarehouses");
   pplMultiControllers.categories       = setupPplMulti("categories",       "ppl-select-categories",       "ppl-add-categories",       "ppl-preview-categories");
