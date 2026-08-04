@@ -94,6 +94,8 @@ const state = {
 };
 let masterActiveTab = "company";
 let productsActiveTab = "main";
+let productsCategoryTab = "all";
+let salesNewCategoryTab = "all";
 let salesNewPageIndex = 0;
 let salesNewOnlyActive = false;
 let salesNewExpandVendor = false;
@@ -1051,7 +1053,7 @@ function downloadGuide(type) {
         "구매처 품목명": "구매처 샘플명",
         "창고그룹(이카운트)": "기본창고",
         "사용창고": "유통사업부(W), 다이소",
-        "구분": "[상품]",
+        "이카운트 구분": "[상품]",
         "카테고리": "보통, 시즌",
         "INN(EA)": 10,
         "INN/CTN": 4,
@@ -1085,7 +1087,7 @@ function downloadGuide(type) {
         "구매처 품목명": "구매처 샘플명",
         "창고그룹(이카운트)": "기본창고",
         "사용창고": "유통사업부(W), 다이소",
-        "구분": "[상품]",
+        "이카운트 구분": "[상품]",
         "카테고리": "보통, 시즌",
         "INN(EA)": 10,
         "INN/CTN": 4,
@@ -1095,7 +1097,7 @@ function downloadGuide(type) {
         "영업담당자": "영업A, 영업B"
       }
     ],
-    IN: [{ "상품코드": "P-001", "수량": 10, "창고": "유통사업부(W)", "구매처": "테스트구매처", "담당자": "admin", "메모": "초도 입고" }],
+    IN: [{ "상품코드": "P-001", "수량": 10, "창고": "유통사업부(W)", "구매처": "테스트구매처", "담당자": "admin", "메모": "초도 입고", "가공처창고": "(BOM 등록된 조립상품인 경우만 입력)" }],
     OUT: [{ "상품코드": "P-001", "수량": 3, "창고": "유통사업부(W)", "출고처": "출고처A", "담당자": "admin", "메모": "샘플 출고" }]
   };
   const ws = XLSX.utils.json_to_sheet(guides[type] || []);
@@ -1144,7 +1146,7 @@ function getPresentFieldSet(r) {
     purchaseItemCode: ["구매처 품목코드", "purchaseItemCode"],
     purchaseItemName: ["구매처 품목명", "purchaseItemName"],
     warehouseGroup: ["창고그룹(이카운트)", "창고그룹", "warehouseGroup"],
-    itemType: ["구분", "itemType"],
+    itemType: ["이카운트 구분", "구분", "itemType"],
     unit: ["단위", "unit"],
     safetyStock: ["안전재고", "safetyStock"],
     optimalStock: ["적정재고", "optimalStock"],
@@ -1200,7 +1202,7 @@ function normalizeProductRows(rows) {
         purchaseItemName: String(getByKeys(r, ["구매처 품목명", "purchaseItemName"]) || "").trim(),
         warehouseGroup: String(getByKeys(r, ["창고그룹(이카운트)", "창고그룹", "warehouseGroup"]) || "").trim(),
         usedWarehouses: toTagList(getByKeys(r, ["사용창고", "usedWarehouses"])),
-        itemType: String(getByKeys(r, ["구분", "itemType"]) || "").trim(),
+        itemType: String(getByKeys(r, ["이카운트 구분", "구분", "itemType"]) || "").trim(),
         categories: toTagList(getByKeys(r, ["카테고리", "categories", "category"])),
         unit: String(getByKeys(r, ["단위", "unit"]) || "EA").trim(),
         safetyStock: Number(getByKeys(r, ["안전재고", "safetyStock"]) || 0),
@@ -1283,6 +1285,26 @@ async function saveProductVerify(source, code, checked, checkboxEl) {
   }
 }
 
+/** saveProductVerify와 동일 패턴이지만 field명을 파라미터로 받는 범용 boolean 토글 저장(체크박스는 .checked로 되돌려야 해서 saveProductField와 별도). */
+async function saveProductBoolField(source, code, field, checked, checkboxEl) {
+  const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
+  const p = (list || []).find((x) => String(x.code) === String(code));
+  if (!p) return;
+  const prev = Boolean(p[field]);
+  p[field] = checked;
+  try {
+    if (source === "salesNew") {
+      await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code, [field]: checked }) });
+    } else {
+      await api("/api/products", { method: "POST", body: JSON.stringify({ ...p }) });
+    }
+  } catch (err) {
+    p[field] = prev;
+    if (checkboxEl) checkboxEl.checked = prev;
+    alert(err.message || "저장 실패");
+  }
+}
+
 async function saveVendorField(source, code, vendorIdx, field, value, controlEl) {
   const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
   const p = (list || []).find((x) => String(x.code) === String(code));
@@ -1329,10 +1351,20 @@ async function saveProductField(source, code, field, value, controlEl) {
 function wireVerifyAndVendorSelects(tableSelector, source) {
   const table = qs(tableSelector);
   if (!table) return;
-  table.addEventListener("change", (e) => {
+  table.addEventListener("change", async (e) => {
     const toggle = e.target.closest(".product-verify-toggle");
     if (toggle) {
       saveProductVerify(source, toggle.dataset.code, toggle.checked, toggle);
+      return;
+    }
+    const bomFlagToggle = e.target.closest(".product-bom-flag-toggle");
+    if (bomFlagToggle) {
+      const code = bomFlagToggle.dataset.code;
+      await saveProductBoolField(source, code, "bomFlag", bomFlagToggle.checked, bomFlagToggle);
+      const list = source === "salesNew" ? state.salesUnregisteredProducts : state.products;
+      const p = (list || []).find((x) => String(x.code) === String(code));
+      const linkTd = bomFlagToggle.closest("tr")?.querySelector('td[data-col-orig-idx="41"]');
+      if (linkTd && p) linkTd.innerHTML = bomLinkCellHtml(p);
       return;
     }
     const methodSel = e.target.closest(".vendor-delivery-method");
@@ -1534,6 +1566,157 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { 
   };
 }
 
+/** 완제품 BOM(구성 원자재+수량) 편집용 반복행 테이블. 판매처 없이도 저장 가능하도록 기본 행 없이 시작한다. */
+function setupBomTable(bodyId, addBtnId, productOptions) {
+  const body = qs(`#${bodyId}`);
+  const addBtn = qs(`#${addBtnId}`);
+  if (!body || !addBtn) return { setValues: () => {}, getValues: () => [] };
+  const listId = `${bodyId}-material-datalist`;
+  let datalistEl = document.getElementById(listId);
+  if (!datalistEl) {
+    datalistEl = document.createElement("datalist");
+    datalistEl.id = listId;
+    document.body.appendChild(datalistEl);
+  }
+  datalistEl.innerHTML = (productOptions || [])
+    .map((p) => `<option value="${esc(p.code)}">${esc(p.code)} ${esc(p.name || "")}</option>`)
+    .join("");
+  const addRow = (row = {}) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><input class="bom-code" list="${listId}" placeholder="원자재코드 검색" value="${esc(row.code || "")}" /></td>
+      <td><input class="bom-qty" type="number" step="any" min="0" value="${esc(row.qty ?? "")}" placeholder="완제품 1개당 소요수량" /></td>
+      <td><button type="button" class="bom-remove" title="삭제">&times;</button></td>`;
+    body.appendChild(tr);
+  };
+  addBtn.onclick = () => addRow();
+  body.addEventListener("click", (e) => {
+    const btn = e.target.closest(".bom-remove");
+    if (!btn) return;
+    btn.closest("tr").remove();
+  });
+  return {
+    setValues(rows) {
+      body.innerHTML = "";
+      (Array.isArray(rows) ? rows : []).forEach(addRow);
+    },
+    getValues() {
+      return Array.from(body.querySelectorAll("tr"))
+        .map((tr) => ({
+          code: tr.querySelector(".bom-code").value.trim(),
+          qty: Number(tr.querySelector(".bom-qty").value || 0)
+        }))
+        .filter((r) => r.code && r.qty > 0);
+    }
+  };
+}
+
+/**
+ * 상품등록/수정 모달을 열 때 이 상품이 BOM 상 어떤 역할인지(완제품/원자재) 색으로 바로 보여준다.
+ * - 조립품(자기 자신에 BOM 등록됨): 초록
+ * - 원자재/부자재(다른 완제품의 BOM에서 참조됨): 파랑 + 어떤 완제품에서 쓰이는지 목록
+ * - 둘 다 아니면: 회색
+ * 저장 없이 state.products를 매번 훑어 계산하는 조회 전용 표시라 별도 데이터 정합성 관리가 필요 없다.
+ */
+function renderProductRoleBadge(groupCodes) {
+  const badgeEl = qs("#product-role-badge");
+  const usedInEl = qs("#bom-used-in");
+  if (!badgeEl) return;
+  const codes = (groupCodes || []).map((c) => String(c || "")).filter(Boolean);
+  if (!codes.length) {
+    badgeEl.style.display = "none";
+    badgeEl.innerHTML = "";
+    if (usedInEl) usedInEl.innerHTML = "";
+    return;
+  }
+  const members = codes.map((c) => state.products.find((p) => String(p.code) === c)).filter(Boolean);
+  const ownBomCount = members.reduce((sum, p) => sum + (Array.isArray(p.bom) ? p.bom.length : 0), 0);
+  const usedInProducts = state.products.filter((pr) => (pr.bom || []).some((c) => codes.includes(c.code)));
+
+  const parts = [];
+  if (ownBomCount > 0) {
+    parts.push(`<span class="badge green">조립품 — BOM 원자재 ${ownBomCount}종 등록됨</span>`);
+  }
+  if (usedInProducts.length) {
+    parts.push(`<span class="badge blue">원자재/부자재 — 완제품 ${usedInProducts.length}종에서 사용됨</span>`);
+  }
+  if (!parts.length) {
+    parts.push(`<span class="badge gray">BOM 미연관 상품</span>`);
+  }
+  badgeEl.innerHTML = parts.join(" ");
+  badgeEl.style.display = "";
+
+  if (usedInEl) {
+    usedInEl.innerHTML = usedInProducts.length
+      ? `이 상품을 사용하는 완제품: ${usedInProducts.map((p) => `${esc(p.code)} (${esc(p.name || "")})`).join(", ")}`
+      : "";
+  }
+}
+
+/**
+ * "BOM 여부" 체크박스로 조립상품 예정임을 미리 표시해두는 데이터 정리용 워크플로우.
+ * 체크돼 있을 때만 BOM 링크가 활성화되고, 실제 BOM(원자재) 상세가 채워졌는지에 따라 등록/미등록으로 갈린다.
+ */
+function bomLinkCellHtml(p) {
+  if (!p.bomFlag) return "";
+  const registered = Boolean(p.bom?.length);
+  return `<button type="button" class="bom-link-btn ${registered ? "bom-link-registered" : "bom-link-unregistered"}" data-code="${esc(p.code)}">${registered ? "BOM 등록" : "BOM 미등록"}</button>`;
+}
+
+/**
+ * "BOM 링크" 클릭 시 상품등록정보 수정 전체 폼 대신 BOM(구성 원자재)만 다루는 가벼운 전용 모달을 연다.
+ * 저장 시에도 BOM만 바꾸는 게 목적이지만, 서버 upsertProduct는 상품 전체 레코드를 받는 구조라
+ * saveProductBoolField와 동일하게 현재 메모리상의 전체 상품 객체를 스프레드해서 bom 필드만 교체해 보낸다.
+ */
+function setupBomOnlyModal(source = "main") {
+  const overlay = qs("#bom-only-modal");
+  const closeBtn = qs("#bom-only-close");
+  const saveBtn = qs("#bom-only-save");
+  const label = qs("#bom-only-product-label");
+  const usedInEl = qs("#bom-only-used-in");
+  if (!overlay) return { openFor: () => {} };
+  const bomController = setupBomTable("bom-only-rows", "bom-only-add-row", state.products || []);
+  let currentCode = "";
+  const currentList = () => (source === "salesNew" ? state.salesUnregisteredProducts : state.products) || [];
+  const close = () => overlay.classList.add("hidden");
+  closeBtn.onclick = close;
+  overlay.onclick = (e) => {
+    if (e.target === overlay) close();
+  };
+  saveBtn.onclick = async () => {
+    const product = currentList().find((p) => String(p.code) === currentCode);
+    if (!product) return;
+    const bom = bomController.getValues();
+    try {
+      if (source === "salesNew") {
+        await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code: currentCode, bom }) });
+      } else {
+        await api("/api/products", { method: "POST", body: JSON.stringify({ ...product, bom }) });
+      }
+      product.bom = bom;
+      const row = qs(`.bom-link-btn[data-code="${CSS.escape(currentCode)}"]`)?.closest("tr")
+        || qs(`.product-bom-flag-toggle[data-code="${CSS.escape(currentCode)}"]`)?.closest("tr");
+      const linkTd = row?.querySelector('td[data-col-orig-idx="41"]');
+      if (linkTd) linkTd.innerHTML = bomLinkCellHtml(product);
+      close();
+    } catch (err) {
+      alert(err.message || "저장 실패");
+    }
+  };
+  return {
+    openFor(product) {
+      currentCode = String(product.code || "");
+      label.textContent = `${product.code} — ${product.name || ""}`;
+      bomController.setValues(product.bom || []);
+      const usedIn = (state.products || []).filter((pr) => (pr.bom || []).some((c) => c.code === product.code));
+      usedInEl.innerHTML = usedIn.length
+        ? `이 상품을 사용하는 완제품: ${usedIn.map((p) => `${esc(p.code)} (${esc(p.name || "")})`).join(", ")}`
+        : "";
+      overlay.classList.remove("hidden");
+    }
+  };
+}
+
 function findProductForMovementImport(productCode) {
   const c = String(productCode || "").trim();
   if (!c) return null;
@@ -1567,14 +1750,18 @@ function normalizeMovementRows(rows, type) {
         warehouse: String(getByKeys(r, ["창고", "warehouse"]) || "").trim(),
         partner: String(getByKeys(r, partnerKeys) || "").trim(),
         user: String(getByKeys(r, ["담당자", "user"]) || "").trim(),
-        memo: String(getByKeys(r, ["메모", "memo"]) || "").trim()
+        memo: String(getByKeys(r, ["메모", "memo"]) || "").trim(),
+        ...(type === "IN" ? { fromWarehouse: String(getByKeys(r, ["가공처창고", "fromWarehouse"]) || "").trim() } : {})
       };
     })
     .map((x) => (type === "IN" ? fillInboundPartnerFromProduct(x) : x));
 
+  // BOM 등록된 조립상품은 구매처가 아니라 가공처창고로 처리되므로 구매처 필수 검사에서 제외한다.
+  const isBomProduct = (x) => Boolean(findProductForMovementImport(x.productCode)?.bom?.length);
+
   if (type === "IN") {
     const needPartner = mapped.filter(
-      (x) => x.productCode && x.qty !== 0 && x.user && x.warehouse && !String(x.partner || "").trim()
+      (x) => x.productCode && x.qty !== 0 && x.user && x.warehouse && !String(x.partner || "").trim() && !isBomProduct(x)
     );
     if (needPartner.length) {
       const sample = needPartner
@@ -1590,7 +1777,7 @@ function normalizeMovementRows(rows, type) {
 
   return mapped.filter((x) => {
     if (!(x.productCode && x.qty !== 0 && x.user && x.warehouse)) return false;
-    if (type === "IN") return Boolean(String(x.partner || "").trim());
+    if (type === "IN") return isBomProduct(x) || Boolean(String(x.partner || "").trim());
     return Boolean(x.partner);
   });
 }
@@ -1616,6 +1803,7 @@ async function refreshCommon() {
   state.managerPermissions = managersRes.permissions || {};
   state.managerPermissionKeys = managersRes.permissionKeys || MANAGER_PERMISSION_LABELS.map((p) => p.key);
   state.warehouses = warehousesRes.items || [];
+  state.processingWarehouses = warehousesRes.processingWarehouses || [];
   state.productOptions = optionRes.items || state.productOptions;
   state.locations = locRes.items || [];
   state.companySettings = companySettingsRes || state.companySettings;
@@ -1775,7 +1963,7 @@ const MASTER_TABS = [
 
 const COMMON_CODE_FIELDS = [
   { key: "categories", label: "카테고리" },
-  { key: "itemType", label: "구분" },
+  { key: "itemType", label: "이카운트 구분" },
   { key: "status", label: "상태" },
   { key: "supplyType", label: "수급형태" },
   { key: "orderDept", label: "발주부서" },
@@ -2051,10 +2239,12 @@ function renderMasterWarehouseTab(container) {
       <h2>창고 등록</h2>
       <form id="warehouse-form">
         <div><label>창고명</label><input name="name" required /></div>
+        <div><label>외주/가공처</label><label class="verify-toggle"><input type="checkbox" name="isProcessing" /><span class="verify-toggle-slider"></span></label></div>
         <div><button class="primary" type="submit">등록</button></div>
       </form>
+      <p class="muted" style="font-size:12px;">외주/가공처로 지정한 창고는 조립입고 시 원자재 출발지(가공처창고) 선택 목록에 노출됩니다.</p>
       <table class="mini-table" id="warehouse-table">
-        <thead><tr><th>창고명</th><th>수정</th><th>삭제</th></tr></thead>
+        <thead><tr><th>창고명</th><th>외주/가공처</th><th>수정</th><th>삭제</th></tr></thead>
         <tbody>
           ${(state.warehouses || []).length
             ? state.warehouses
@@ -2062,6 +2252,7 @@ function renderMasterWarehouseTab(container) {
                   (w) =>
                     `<tr>
                       <td>${esc(w)}</td>
+                      <td><input type="checkbox" class="warehouse-processing-toggle" data-name="${encodeURIComponent(w)}" ${(state.processingWarehouses || []).includes(w) ? "checked" : ""} /></td>
                       <td><button type="button" class="primary del-small warehouse-rename" data-name="${encodeURIComponent(w)}">수정</button></td>
                       <td>${
                         w === "유통사업부(W)"
@@ -2071,7 +2262,7 @@ function renderMasterWarehouseTab(container) {
                     </tr>`
                 )
                 .join("")
-            : `<tr><td colspan="3"><span class="muted">없음</span></td></tr>`}
+            : `<tr><td colspan="4"><span class="muted">없음</span></td></tr>`}
         </tbody>
       </table>
     </div>
@@ -2082,6 +2273,7 @@ function renderMasterWarehouseTab(container) {
   qs("#warehouse-form").onsubmit = async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(e.target));
+    data.isProcessing = Boolean(e.target.querySelector('[name="isProcessing"]')?.checked);
     await api("/api/warehouses", { method: "POST", body: JSON.stringify(data) });
     await refreshCommon();
     renderMaster();
@@ -2147,6 +2339,23 @@ function renderMasterWarehouseTab(container) {
       }
     };
   });
+
+  container.querySelectorAll(".warehouse-processing-toggle").forEach((chk) => {
+    chk.onchange = async () => {
+      const name = decodeURIComponent(chk.dataset.name || "");
+      if (!name) return;
+      try {
+        await api("/api/warehouses/processing-tag", {
+          method: "PUT",
+          body: JSON.stringify({ name, isProcessing: chk.checked })
+        });
+        await refreshCommon();
+      } catch (err) {
+        chk.checked = !chk.checked;
+        alert(err.message);
+      }
+    };
+  });
 }
 
 const PRODUCTS_TABS = [
@@ -2154,13 +2363,51 @@ const PRODUCTS_TABS = [
   { key: "salesNew", label: "판매현황 미등록상품" }
 ];
 
+/** 기본상품정보 안에서 이카운트 구분값 기준으로 나누는 서브탭. 상품류=상품/제품/반제품 묶음. */
+const PRODUCT_CATEGORY_TABS = [
+  { key: "all", label: "전체" },
+  { key: "goods", label: "상품류" },
+  { key: "raw", label: "원자재" },
+  { key: "sub", label: "부자재" }
+];
+function productCategoryOf(p) {
+  const t = String(p.itemType || "").trim();
+  if (t === "원자재") return "raw";
+  if (t === "부자재") return "sub";
+  if (t === "상품" || t === "제품" || t === "반제품") return "goods";
+  return "";
+}
+
 function renderProducts() {
   const salesNewCount = (state.salesUnregisteredProducts || []).length;
   qs("#view-products").innerHTML = `
-    <div class="card" style="margin-bottom:12px;">
-      <div class="ppl-tab-bar" id="products-tab-bar">
+    <div class="card" style="margin-bottom:12px; display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:2px solid #E2E8F0; padding-bottom:0;">
+      <div class="ppl-tab-bar" id="products-tab-bar" style="border-bottom:none; margin-bottom:0;">
         ${PRODUCTS_TABS.map((t) => `<button type="button" class="ppl-tab${productsActiveTab === t.key ? " active" : ""}" data-products-tab="${t.key}">${esc(t.label)}${t.key === "salesNew" ? ` <span class="tag" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;">${salesNewCount}</span>` : ""}</button>`).join("")}
       </div>
+      ${productsActiveTab === "main" ? `
+      <div class="products-bh-actions" id="products-bh-top-actions" style="margin-left:0; margin-bottom:10px;">
+        <button id="open-product-popup" class="bh-btn bh-btn-primary products-bh-main-btn" type="button">+ 상품 추가</button>
+        <div class="bh-dropdown">
+          <button type="button" class="bh-btn bh-btn-outline bh-excel-btn products-bh-main-btn" id="excel-import-toggle" aria-expanded="false">
+            <span class="bh-mini-xls">XLS</span>
+            엑셀 가져오기
+            <span class="bh-caret">▾</span>
+          </button>
+          <div class="bh-dropdown-menu hidden" id="excel-import-menu">
+            <button type="button" class="bh-menu-item" id="menu-product-guide">가이드 다운로드</button>
+            <button type="button" class="bh-menu-item" id="menu-bulk-new">신규 상품 일괄 등록</button>
+            <button type="button" class="bh-menu-item" id="menu-bulk-update">특정상품 정보 업데이트</button>
+          </div>
+        </div>
+        <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="product-column-settings">컬럼 설정</button>
+        <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="product-export-all">엑셀 내보내기</button>
+      </div>` : ""}
+      ${productsActiveTab === "salesNew" ? `
+      <div class="products-bh-actions" id="sales-new-top-actions" style="margin-left:0; margin-bottom:10px;">
+        <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-column-settings">컬럼 설정</button>
+        <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-export-all">엑셀 내보내기</button>
+      </div>` : ""}
     </div>
     <div id="products-tab-body"></div>
   `;
@@ -2192,14 +2439,23 @@ function renderProductsMainTab(container) {
     { key: "salesManagers", label: "영업담당자" },
     { key: "supplyType", label: "수급형태" },
     { key: "warehouseGroup", label: "창고그룹(이카운트)" },
-    { key: "itemType", label: "구분" },
+    { key: "itemType", label: "이카운트 구분" },
     { key: "categories", label: "카테고리" }
   ];
+  const productCategoryCounts = {
+    all: state.products.length,
+    goods: state.products.filter((p) => productCategoryOf(p) === "goods").length,
+    raw: state.products.filter((p) => productCategoryOf(p) === "raw").length,
+    sub: state.products.filter((p) => productCategoryOf(p) === "sub").length
+  };
+  const categoryFilteredProducts =
+    productsCategoryTab === "all" ? state.products : state.products.filter((p) => productCategoryOf(p) === productsCategoryTab);
+
   // 다중상품 판정 기준: 바코드(SKU). 같은 바코드를 쓰는 서로 다른 이카운트코드 상품들을
   // 한 그룹으로 묶어서, 그룹 전체 판매처 합이 2개 이상이면 "다중"으로 표시한다.
   // 바코드가 없는 상품은 자기 자신(코드)만으로 단독 그룹이 된다.
   const barcodeGroups = new Map();
-  state.products.forEach((p) => {
+  categoryFilteredProducts.forEach((p) => {
     const key = productBarcodeGroupKey(p);
     if (!barcodeGroups.has(key)) barcodeGroups.set(key, []);
     barcodeGroups.get(key).push(p);
@@ -2236,6 +2492,7 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" data-vendor-idx="${item.hasRealInfo ? item.localVIdx : -1}" /></td>
       <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
       <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
+      <td data-col-orig-idx="43" class="spec-editable-cell" data-scope="product" data-field="note" data-input-type="text" data-code="${esc(p.code)}">${esc(p.note || "")}</td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
       <td data-col-orig-idx="3">${esc(p.middleBarcode || "")}</td>
@@ -2262,6 +2519,8 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="18">${esc(p.warehouseGroup || "")}</td>
       <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
       <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
+      <td data-col-orig-idx="42"><label class="verify-toggle"><input type="checkbox" class="product-bom-flag-toggle" data-code="${esc(p.code)}" ${p.bomFlag ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
+      <td data-col-orig-idx="41">${bomLinkCellHtml(p)}</td>
       <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
       <td data-col-orig-idx="22" class="spec-editable-cell" data-scope="product" data-field="innEa" data-code="${esc(p.code)}">${esc(p.innEa || "")}</td>
       <td data-col-orig-idx="23" class="spec-editable-cell" data-scope="product" data-field="innPerCtn" data-code="${esc(p.code)}">${esc(p.innPerCtn || "")}</td>
@@ -2283,44 +2542,32 @@ function renderProductsMainTab(container) {
   container.innerHTML = `
     <div id="products-list-view" class="products-bh">
       <div class="card products-bh-card">
-        <div class="products-bh-toolbar">
-          <h2 class="products-bh-title">기본상품정보</h2>
-          <div class="products-bh-actions">
-            <button id="open-product-popup" class="bh-btn bh-btn-primary products-bh-main-btn" type="button">+ 상품 추가</button>
-            <div class="bh-dropdown">
-              <button type="button" class="bh-btn bh-btn-outline bh-excel-btn products-bh-main-btn" id="excel-import-toggle" aria-expanded="false">
-                <span class="bh-mini-xls">XLS</span>
-                엑셀 가져오기
-                <span class="bh-caret">▾</span>
-              </button>
-              <div class="bh-dropdown-menu hidden" id="excel-import-menu">
-                <button type="button" class="bh-menu-item" id="menu-product-guide">가이드 다운로드</button>
-                <button type="button" class="bh-menu-item" id="menu-bulk-new">신규 상품 일괄 등록</button>
-                <button type="button" class="bh-menu-item" id="menu-bulk-update">특정상품 정보 업데이트</button>
-              </div>
+        <div class="products-bh-subrow" style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:10px;">
+          <div class="ppl-tab-bar" id="products-category-tab-bar" style="margin-bottom:0; flex:none;">
+            ${PRODUCT_CATEGORY_TABS.map(
+              (t) =>
+                `<button type="button" class="ppl-tab${productsCategoryTab === t.key ? " active" : ""}" data-products-category-tab="${t.key}">${esc(t.label)} <span class="ppl-tab-count">${productCategoryCounts[t.key]}</span></button>`
+            ).join("")}
+          </div>
+          <div class="products-bh-search-row" style="margin-left:auto;">
+            <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+              <input type="checkbox" id="product-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+              단종품 포함
+            </label>
+            <label id="product-collapse-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+              <input type="checkbox" id="product-collapse-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+              다중판매처 보기
+            </label>
+            <span class="products-bh-search-actions" style="margin-left:0;">
+              <button type="button" id="product-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
+              <button type="button" id="product-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
+            </span>
+            <div class="products-bh-search-wrap">
+              <span class="bh-search-icon" aria-hidden="true">🔍</span>
+              <input type="text" id="product-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처명/판매처코드·품목명/구매처 검색" autocomplete="off" />
+              <button type="button" class="bh-search-go" id="product-search-btn">조회</button>
             </div>
-            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="product-column-settings">컬럼 설정</button>
-            <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="product-export-all">엑셀 내보내기</button>
           </div>
-        </div>
-        <div class="products-bh-search-row">
-          <div class="products-bh-search-wrap">
-            <span class="bh-search-icon" aria-hidden="true">🔍</span>
-            <input type="text" id="product-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/판매처명/판매처코드·품목명/구매처 검색" autocomplete="off" />
-            <button type="button" class="bh-search-go" id="product-search-btn">조회</button>
-          </div>
-          <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
-            <input type="checkbox" id="product-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
-            단종품 포함
-          </label>
-          <label id="product-collapse-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
-            <input type="checkbox" id="product-collapse-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
-            다중판매처 보기
-          </label>
-          <span class="products-bh-search-actions">
-            <button type="button" id="product-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
-            <button type="button" id="product-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
-          </span>
         </div>
         <p id="product-search-result" class="muted products-bh-result">상품을 검색하세요.</p>
         <input type="file" id="product-file" accept=".xlsx,.xls,.csv" class="hidden-file" />
@@ -2332,6 +2579,7 @@ function renderProductsMainTab(container) {
                 <th data-col-orig-idx="0" data-col-label=""><input id="product-check-all" type="checkbox" /></th>
                 <th data-col-orig-idx="34" data-col-label="정보검수">정보검수</th>
                 <th data-col-orig-idx="38" data-col-label="관리코드">관리코드</th>
+                <th data-col-orig-idx="43" data-col-label="메모">메모</th>
                 <th data-col-orig-idx="1" data-col-label="품목코드(이카운트)">품목코드(이카운트)</th>
                 <th data-col-orig-idx="2" data-col-label="바코드(SKU)">바코드(SKU)</th>
                 <th data-col-orig-idx="3" data-col-label="바코드(INN)">바코드(INN)</th>
@@ -2361,7 +2609,9 @@ function renderProductsMainTab(container) {
                 <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
                 <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
                 <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
-                <th data-col-orig-idx="20" data-col-label="구분">구분</th>
+                <th data-col-orig-idx="20" data-col-label="이카운트 구분">이카운트 구분</th>
+                <th data-col-orig-idx="42" data-col-label="BOM 여부">BOM 여부</th>
+                <th data-col-orig-idx="41" data-col-label="BOM 링크">BOM 링크</th>
                 <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
                 <th data-col-orig-idx="22" data-col-label="입고적재사양 INN(EA)" class="col-group-cell col-group-start">입고적재사양
 INN(EA)</th>
@@ -2405,6 +2655,7 @@ INN(EA)</th>
             <button id="product-modal-close" class="bh-btn bh-btn-sm bh-btn-outline" type="button">닫기</button>
           </div>
         </div>
+        <div id="product-role-badge" style="display:none; padding:8px 20px 0;"></div>
         <form id="product-popup-form" class="modal-form">
           <div class="form-section-title">기본정보</div>
           <div id="product-form-group-note" class="muted" style="display:none; grid-column:1/-1; font-size:12px; background:#F1F5F9; border-radius:8px; padding:8px 10px;">
@@ -2488,7 +2739,7 @@ INN(EA)</th>
           </div>
           <div id="preview-salesManagers" class="tagline multi-tags"></div>
           <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
-          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
+          <div><label>이카운트 구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
           <div class="multi-select-field">
             <label>사용창고</label>
             <div class="row product-search-row multi-select-row">
@@ -2507,6 +2758,19 @@ INN(EA)</th>
             <input type="hidden" name="categories" />
           </div>
           <div id="preview-categories" class="tagline multi-tags"></div>
+
+          <div class="form-section-title">BOM (조립 구성원자재) — 해외/외주 조립입고 시 자동 소모 계산에 사용</div>
+          <div class="multi-select-field vendor-info-field">
+            <label>완제품 1개당 필요한 원자재코드·수량</label>
+            <table class="simple-table">
+              <thead>
+                <tr><th>원자재코드</th><th>소요수량</th><th></th></tr>
+              </thead>
+              <tbody id="bom-rows"></tbody>
+            </table>
+            <button type="button" id="add-bom-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가</button>
+            <div id="bom-used-in" class="muted" style="margin-top:8px; font-size:12px;"></div>
+          </div>
 
           <div id="product-form-stock-fields" style="display:contents;">
             <div class="form-section-title">재고 설정</div>
@@ -2554,6 +2818,23 @@ INN(EA)</th>
       </div>
     </div>
 
+    <div id="bom-only-modal" class="modal-overlay hidden">
+      <div class="modal" style="width: min(560px, calc(100vw - 24px));">
+        <div class="modal-header">
+          <h3>BOM 편집</h3>
+          <button type="button" id="bom-only-close" class="cancel-btn del-small">닫기</button>
+        </div>
+        <p class="muted" id="bom-only-product-label" style="margin-top:-4px;"></p>
+        <table class="simple-table">
+          <thead><tr><th>원자재코드</th><th>소요수량</th><th></th></tr></thead>
+          <tbody id="bom-only-rows"></tbody>
+        </table>
+        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가</button>
+        <div id="bom-only-used-in" class="muted" style="margin-top:8px; font-size:12px;"></div>
+        <div style="margin-top:14px;"><button type="button" id="bom-only-save" class="primary">저장</button></div>
+      </div>
+    </div>
+
     ${datalist("opt-status", opts.status)}
     ${datalist("opt-deliveryVendors", opts.deliveryVendors)}
     ${datalist("opt-orderDept", opts.orderDept)}
@@ -2579,6 +2860,15 @@ INN(EA)</th>
       </div>
     </div>
   `;
+
+  qs("#products-category-tab-bar")
+    ?.querySelectorAll("[data-products-category-tab]")
+    .forEach((btn) => {
+      btn.onclick = () => {
+        productsCategoryTab = btn.dataset.productsCategoryTab;
+        renderProductsMainTab(container);
+      };
+    });
 
   const modalOverlay = qs("#product-modal-overlay");
   const openBtn = qs("#open-product-popup");
@@ -2612,6 +2902,8 @@ INN(EA)</th>
       multiControllers.orderManagers?.setValues([]);
       multiControllers.categories?.setValues([]);
       multiControllers.usedWarehouses?.setValues([]);
+      multiControllers.bom?.setValues([]);
+      renderProductRoleBadge([]);
       modalOverlay.classList.remove("hidden");
     };
   }
@@ -2991,6 +3283,7 @@ INN(EA)</th>
   multiControllers.salesManagers = setupMultiSelect("salesManagers", "select-salesManagers", "add-salesManagers", "preview-salesManagers");
   multiControllers.categories = setupMultiSelect("categories", "select-categories", "add-categories", "preview-categories");
   multiControllers.usedWarehouses = setupMultiSelect("usedWarehouses", "select-usedWarehouses", "add-usedWarehouses", "preview-usedWarehouses");
+  multiControllers.bom = setupBomTable("bom-rows", "add-bom-row", state.products || []);
 
   qs("#product-form-reset")?.addEventListener("click", () => {
     editingCode = "";
@@ -3001,6 +3294,8 @@ INN(EA)</th>
     multiControllers.salesManagers?.setValues([]);
     multiControllers.categories?.setValues([]);
     multiControllers.usedWarehouses?.setValues([]);
+    multiControllers.bom?.setValues([]);
+    renderProductRoleBadge([]);
   });
 
   const optionForm = qs("#option-modal-form");
@@ -3054,6 +3349,14 @@ INN(EA)</th>
     el.onchange = () => el.closest("tr")?.classList.toggle("product-row-checked", el.checked);
   });
   wireVerifyAndVendorSelects("#products-table", "main");
+  const bomOnlyModal = setupBomOnlyModal();
+  qs("#products-table")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".bom-link-btn");
+    if (!btn) return;
+    const product = state.products.find((p) => String(p.code) === String(btn.dataset.code));
+    if (!product) return;
+    bomOnlyModal.openFor(product);
+  });
 
   const openProductEditModal = (groupMembers) => {
     if (!groupMembers.length || !productForm || !modalOverlay) return;
@@ -3061,6 +3364,7 @@ INN(EA)</th>
     const rep = groupMembers[0];
     editingCode = isGroup ? "" : String(rep.code || "");
     editingGroupCodes = groupMembers.map((p) => String(p.code || ""));
+    renderProductRoleBadge(editingGroupCodes);
     if (productModalTitle) {
       productModalTitle.textContent = isGroup
         ? `다중판매처 그룹 수정 (상품코드 ${groupMembers.length}건)`
@@ -3101,6 +3405,7 @@ INN(EA)</th>
     setVal("warehouseGroup", rep.warehouseGroup);
     multiControllers.usedWarehouses?.setValues(rep.usedWarehouses);
     setVal("itemType", rep.itemType);
+    multiControllers.bom?.setValues(rep.bom);
     multiControllers.categories?.setValues(rep.categories);
     multiControllers.salesManagers?.setValues(rep.salesManagers);
     setVal("ctnEa", rep.ctnEa ?? "");
@@ -3222,6 +3527,7 @@ INN(EA)</th>
       itemType: toTagList(formData.itemType)[0] || "",
       categories: toTagList(formData.categories),
       salesManagers: toTagList(formData.salesManagers),
+      bom: multiControllers.bom?.getValues() || [],
       infoVerified: Boolean(e.target.querySelector('[name="infoVerified"]')?.checked)
     };
     shared.name = shared.ecountName;
@@ -3416,14 +3722,16 @@ INN(EA)</th>
           "구매처 품목명": p.purchaseItemName || "",
           "창고그룹(이카운트)": p.warehouseGroup || "",
           "사용창고": toTagList(p.usedWarehouses).join(", "),
-          "구분": p.itemType || "",
+          "이카운트 구분": p.itemType || "",
+          "조립여부(BOM)": p.bom?.length ? "Y" : "N",
           "카테고리": toTagList(p.categories).join(", "),
           "INN(EA)": p.innEa || "",
           "INN/CTN": p.innPerCtn || "",
           "CTN(EA)": p.ctnEa || "",
           "CTN/PLT": p.ctnPerPlt || "",
           "PLT(EA)": p.pltEa || "",
-          "영업담당자": toTagList(p.salesManagers).join(", ")
+          "영업담당자": toTagList(p.salesManagers).join(", "),
+          "메모": p.note || ""
         }));
       });
       const ws = XLSX.utils.json_to_sheet(rowsForExport);
@@ -3440,7 +3748,14 @@ INN(EA)</th>
 
 function renderProductsSalesNewTab(container) {
   salesNewPageIndex = 0;
-  const list = state.salesUnregisteredProducts || [];
+  const fullList = state.salesUnregisteredProducts || [];
+  const salesNewCategoryCounts = {
+    all: fullList.length,
+    goods: fullList.filter((p) => productCategoryOf(p) === "goods").length,
+    raw: fullList.filter((p) => productCategoryOf(p) === "raw").length,
+    sub: fullList.filter((p) => productCategoryOf(p) === "sub").length
+  };
+  const list = salesNewCategoryTab === "all" ? fullList : fullList.filter((p) => productCategoryOf(p) === salesNewCategoryTab);
   const opts = state.productOptions || {};
   const selectItems = (arr) => (arr || []).map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   const selectOptions = (arr, current) =>
@@ -3500,6 +3815,8 @@ function renderProductsSalesNewTab(container) {
         <td data-col-orig-idx="18">${esc(p.warehouseGroup || "")}</td>
         <td data-col-orig-idx="19" data-filter-multi="${esc((p.usedWarehouses||[]).join('|'))}">${renderWarehouseChips(p.usedWarehouses)}</td>
         <td data-col-orig-idx="20">${esc(p.itemType || "")}</td>
+        <td data-col-orig-idx="42"><label class="verify-toggle"><input type="checkbox" class="product-bom-flag-toggle" data-code="${esc(p.code)}" ${p.bomFlag ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
+        <td data-col-orig-idx="41">${bomLinkCellHtml(p)}</td>
         <td data-col-orig-idx="21" data-filter-multi="${esc((p.categories||[]).join('|'))}">${renderCategoryChips(p.categories)}</td>
         <td data-col-orig-idx="22">${esc(p.innEa || "")}</td>
         <td data-col-orig-idx="23">${esc(p.innPerCtn || "")}</td>
@@ -3527,34 +3844,36 @@ function renderProductsSalesNewTab(container) {
 
   container.innerHTML = `
     <div class="card products-bh-card">
-      <div class="products-bh-toolbar">
-        <h2 class="products-bh-title">판매현황 미등록상품</h2>
-        <div class="products-bh-actions">
-          <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-column-settings">컬럼 설정</button>
-          <button type="button" class="bh-btn bh-btn-outline products-bh-main-btn" id="sales-new-export-all">엑셀 내보내기</button>
-        </div>
-      </div>
-      <p class="muted" style="margin-top:-4px;">
+      <p class="muted" style="margin-top:0;">
         유통사업부 판매현황(2024~현재) 이력에 등장했지만 기본상품정보에 아직 등록되지 않은 상품입니다. 여기서 정보를 채우거나 목록에서 삭제할 수 있으며, 기본상품정보에는 자동 반영되지 않습니다.
       </p>
-      <div class="products-bh-search-row">
-        <div class="products-bh-search-wrap">
-          <span class="bh-search-icon" aria-hidden="true">🔍</span>
-          <input type="text" id="sales-new-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/규격/판매처 검색" autocomplete="off" value="${esc(salesNewSearchQuery)}" />
-          <button type="button" class="bh-search-go" id="sales-new-search-btn">조회</button>
+      <div class="products-bh-subrow" style="display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:10px;">
+        <div class="ppl-tab-bar" id="sales-new-category-tab-bar" style="margin-bottom:0; flex:none;">
+          ${PRODUCT_CATEGORY_TABS.map(
+            (t) =>
+              `<button type="button" class="ppl-tab${salesNewCategoryTab === t.key ? " active" : ""}" data-sales-new-category-tab="${t.key}">${esc(t.label)} <span class="ppl-tab-count">${salesNewCategoryCounts[t.key]}</span></button>`
+          ).join("")}
         </div>
-        <label id="sales-new-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
-          <input type="checkbox" id="sales-new-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
-          단종품 포함
-        </label>
-        <label id="sales-new-expand-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
-          <input type="checkbox" id="sales-new-expand-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
-          다중판매처 보기
-        </label>
-        <span class="products-bh-search-actions">
-          <button type="button" id="sales-new-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
-          <button type="button" id="sales-new-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
-        </span>
+        <div class="products-bh-search-row" style="margin-left:auto;">
+          <label id="sales-new-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+            <input type="checkbox" id="sales-new-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+            단종품 포함
+          </label>
+          <label id="sales-new-expand-vendor-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
+            <input type="checkbox" id="sales-new-expand-vendor" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+            다중판매처 보기
+          </label>
+          <span class="products-bh-search-actions" style="margin-left:0;">
+            <button type="button" id="sales-new-edit-selected" class="bh-btn bh-btn-sm">선택 수정</button>
+            <button type="button" id="sales-new-move-selected" class="bh-btn bh-btn-sm">기본상품정보로 이동</button>
+            <button type="button" id="sales-new-delete-selected" class="bh-btn bh-btn-sm bh-btn-danger-outline">선택 삭제</button>
+          </span>
+          <div class="products-bh-search-wrap">
+            <span class="bh-search-icon" aria-hidden="true">🔍</span>
+            <input type="text" id="sales-new-search-q" class="products-bh-search" placeholder="품목코드/바코드/품목명/규격/판매처 검색" autocomplete="off" value="${esc(salesNewSearchQuery)}" />
+            <button type="button" class="bh-search-go" id="sales-new-search-btn">조회</button>
+          </div>
+        </div>
       </div>
       <p id="sales-new-search-result" class="muted products-bh-result">전체 ${list.length}건</p>
       <div class="products-bh-table-outer">
@@ -3594,7 +3913,9 @@ function renderProductsSalesNewTab(container) {
               <th data-col-orig-idx="17" data-col-label="구매처 품목명">구매처 품목명</th>
               <th data-col-orig-idx="18" data-col-label="창고그룹(이카운트)">창고그룹(이카운트)</th>
               <th data-col-orig-idx="19" data-col-label="사용창고">사용창고</th>
-              <th data-col-orig-idx="20" data-col-label="구분">구분</th>
+              <th data-col-orig-idx="20" data-col-label="이카운트 구분">이카운트 구분</th>
+              <th data-col-orig-idx="42" data-col-label="BOM 여부">BOM 여부</th>
+              <th data-col-orig-idx="41" data-col-label="BOM 링크">BOM 링크</th>
               <th data-col-orig-idx="21" data-col-label="카테고리">카테고리</th>
               <th data-col-orig-idx="22" data-col-label="입고적재사양 INN(EA)" class="col-group-cell col-group-start">입고적재사양
 INN(EA)</th>
@@ -3713,7 +4034,7 @@ INN(EA)</th>
           <div><label>발주담당자(쉼표로 구분)</label><input name="orderManagers" /></div>
           <div><label>영업담당자(쉼표로 구분)</label><input name="salesManagers" /></div>
           <div><label>창고그룹(이카운트)</label><select name="warehouseGroup"><option value=""></option>${selectOptions(opts.warehouseGroup, "")}</select></div>
-          <div><label>구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
+          <div><label>이카운트 구분</label><select name="itemType"><option value=""></option>${selectOptions(opts.itemType, "")}</select></div>
           <div><label>사용창고(쉼표로 구분)</label><input name="usedWarehouses" /></div>
           <div><label>카테고리(쉼표로 구분)</label><input name="categories" /></div>
 
@@ -3721,7 +4042,33 @@ INN(EA)</th>
         </form>
       </div>
     </div>
+
+    <div id="bom-only-modal" class="modal-overlay hidden">
+      <div class="modal" style="width: min(560px, calc(100vw - 24px));">
+        <div class="modal-header">
+          <h3>BOM 편집</h3>
+          <button type="button" id="bom-only-close" class="cancel-btn del-small">닫기</button>
+        </div>
+        <p class="muted" id="bom-only-product-label" style="margin-top:-4px;"></p>
+        <table class="simple-table">
+          <thead><tr><th>원자재코드</th><th>소요수량</th><th></th></tr></thead>
+          <tbody id="bom-only-rows"></tbody>
+        </table>
+        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가</button>
+        <div id="bom-only-used-in" class="muted" style="margin-top:8px; font-size:12px;"></div>
+        <div style="margin-top:14px;"><button type="button" id="bom-only-save" class="primary">저장</button></div>
+      </div>
+    </div>
   `;
+
+  qs("#sales-new-category-tab-bar")
+    ?.querySelectorAll("[data-sales-new-category-tab]")
+    .forEach((btn) => {
+      btn.onclick = () => {
+        salesNewCategoryTab = btn.dataset.salesNewCategoryTab;
+        renderProductsSalesNewTab(container);
+      };
+    });
 
   // 검색 + 페이지네이션
   const searchInput = qs("#sales-new-search-q");
@@ -3889,6 +4236,14 @@ INN(EA)</th>
     tr.classList.toggle("product-row-checked");
   });
   wireVerifyAndVendorSelects("#sales-new-products-table", "salesNew");
+  const salesNewBomOnlyModal = setupBomOnlyModal("salesNew");
+  qs("#sales-new-products-table")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".bom-link-btn");
+    if (!btn) return;
+    const product = list.find((p) => String(p.code) === String(btn.dataset.code));
+    if (!product) return;
+    salesNewBomOnlyModal.openFor(product);
+  });
 
   // 컬럼 설정
   const colOverlay = qs("#sales-new-columns-overlay");
@@ -4074,6 +4429,28 @@ INN(EA)</th>
     }
   });
 
+  qs("#sales-new-move-selected")?.addEventListener("click", async () => {
+    const codes = getSelectedCodes();
+    if (!codes.length) return alert("이동할 상품을 선택하세요.");
+    const rows = codes.map((code) => list.find((x) => String(x.code) === String(code))).filter(Boolean);
+    if (!rows.length) return;
+    if (!confirm(`선택한 상품 ${rows.length}개를 기본상품정보로 이동하시겠습니까?\n(미등록상품 목록에서는 제거되고, 메모는 기본상품정보의 메모로 그대로 이어집니다)`)) return;
+    try {
+      for (const p of rows) {
+        // 미등록상품의 memo 필드는 기본상품정보에선 note 필드로 저장되므로 이동 시 매핑해준다.
+        await api("/api/products", { method: "POST", body: JSON.stringify({ ...p, note: p.memo || p.note || "" }) });
+      }
+      await api("/api/products/sales-unregistered", { method: "DELETE", body: JSON.stringify({ codes: rows.map((p) => p.code) }) });
+      const [productsRes, salesRes] = await Promise.all([api("/api/products"), api("/api/products/sales-unregistered")]);
+      state.products = productsRes.items || [];
+      state.salesUnregisteredProducts = salesRes.items || [];
+      renderProducts();
+      alert("이동 완료");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   qs("#sales-new-delete-selected")?.addEventListener("click", async () => {
     const rows = getSelectedRowsDetailed();
     if (!rows.length) return alert("삭제할 상품을 선택하세요.");
@@ -4147,7 +4524,8 @@ INN(EA)</th>
         "구매처 품목명": p.purchaseItemName || "",
         "창고그룹(이카운트)": p.warehouseGroup || "",
         "사용창고": (p.usedWarehouses || []).join(", "),
-        "구분": p.itemType || "",
+        "이카운트 구분": p.itemType || "",
+        "조립여부(BOM)": p.bom?.length ? "Y" : "N",
         "카테고리": (p.categories || []).join(", "),
         "INN(EA)": p.innEa || "",
         "INN/CTN": p.innPerCtn || "",
@@ -4551,6 +4929,11 @@ function movementInboundPageHtml() {
           <div><label>수량</label><input name="qty" type="number" required /></div>
           <div><label>창고</label><input name="warehouse" list="IN-warehouse-list" required /></div>
           <datalist id="IN-warehouse-list">${warehouseOptions}</datalist>
+          <div id="IN-bom-section" class="hidden" style="display:contents;">
+            <div><label>가공처창고(원자재 출발지) — BOM 등록된 조립상품입니다</label><input name="fromWarehouse" list="IN-processing-warehouse-list" /></div>
+            <datalist id="IN-processing-warehouse-list">${(state.processingWarehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("")}</datalist>
+            <div id="IN-bom-preview" class="muted" style="grid-column:1/-1;"></div>
+          </div>
           <div><label>${partnerLabel}</label><input name="partner" list="IN-partner-list" />${partnerHint}</div>
           <datalist id="IN-partner-list">${partnerOptions}</datalist>
           <div><label>담당자</label><input name="user" list="IN-manager-list" required /></div>
@@ -4558,7 +4941,7 @@ function movementInboundPageHtml() {
           <div><label>메모</label><input name="memo" /></div>
           <div><button id="IN-submit" class="primary" type="button">등록</button></div>
         </form>
-        <p class="muted">${hint}</p>
+        <p class="muted">${hint} 조립상품(BOM 등록된 완제품)은 상품코드 입력 시 가공처창고 입력란이 자동으로 나타납니다.</p>
       </div>
     </div>
 
@@ -4575,7 +4958,7 @@ function movementInboundPageHtml() {
           </div>
           <div id="IN-dropzone" class="dropzone">파일을 여기로 드래그하거나 클릭해서 선택하세요</div>
           <input type="file" id="IN-file" accept=".xlsx,.xls,.csv" class="hidden-file" />
-          <p class="muted">컬럼명: 상품코드, 수량, 창고, ${partnerLabel}(생략 시 상품 기본정보 구매처), 담당자, 메모</p>
+          <p class="muted">컬럼명: 상품코드, 수량, 창고, ${partnerLabel}(생략 시 상품 기본정보 구매처), 담당자, 메모, 가공처창고(조립상품인 경우 필수)</p>
         </div>
       </div>
     </div>
@@ -4583,6 +4966,11 @@ function movementInboundPageHtml() {
     <div class="card">
       <h3>최근 등록 내역</h3>
       <div id="recent-IN" class="muted">최근 내역을 불러오는 중...</div>
+    </div>
+
+    <div class="card">
+      <h3>최근 조립입고 내역</h3>
+      <div id="recent-assembly" class="muted">최근 내역을 불러오는 중...</div>
     </div>
   `;
 }
@@ -4606,6 +4994,136 @@ function setupInboundModals() {
   excel?.addEventListener("click", (e) => {
     if (e.target === excel) closeExcel();
   });
+  setupInboundBomAutoDetect();
+}
+
+/** 단건입고 폼의 상품코드/수량/가공처창고 입력에 따라 BOM 소요량 미리보기를 렌더링 */
+function renderBomPreviewInto(box, result) {
+  if (!result || !result.components?.length) {
+    box.innerHTML = "";
+    return;
+  }
+  const rows = result.components
+    .map(
+      (c) => `<tr class="${c.shortBy > 0 ? "assembly-preview-short" : ""}">
+        <td>${esc(c.code)}</td><td>${esc(c.name || "")}</td>
+        <td>${c.requiredQty}</td><td>${c.available}</td>
+        <td>${c.shortBy > 0 ? `부족 ${c.shortBy}` : "충분"}</td>
+      </tr>`
+    )
+    .join("");
+  box.innerHTML = `
+    <table class="simple-table">
+      <thead><tr><th>원자재코드</th><th>원자재명</th><th>필요수량</th><th>현재고(가공처)</th><th>상태</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${result.insufficient ? `<span class="muted" style="color:#DC2626;">원자재 재고가 부족해 입고를 등록할 수 없습니다.</span>` : ""}
+  `;
+}
+
+/**
+ * 단건입고 폼: 상품코드가 BOM 등록된 조립상품이면 가공처창고 입력란을 자동으로 드러내고
+ * BOM 소요량/현재고를 실시간 미리보기한다. 현장 사람이 "일반입고/조립입고"를 직접 고르지 않도록,
+ * 이 판별은 상품코드 입력값만 보고 클라이언트에서 자동으로 이뤄진다.
+ */
+function setupInboundBomAutoDetect() {
+  const form = qs("#IN-form");
+  if (!form) return;
+  const section = qs("#IN-bom-section");
+  const previewBox = qs("#IN-bom-preview");
+  const productInput = form.querySelector('[name="productCode"]');
+  const qtyInput = form.querySelector('[name="qty"]');
+  const fromWarehouseInput = form.querySelector('[name="fromWarehouse"]');
+  if (!section || !previewBox || !productInput || !qtyInput || !fromWarehouseInput) return;
+  let previewTimer = null;
+
+  const evaluate = async () => {
+    const product = findProductForMovementImport(productInput.value);
+    const hasBom = Boolean(product?.bom?.length);
+    if (!hasBom) {
+      section.classList.add("hidden");
+      fromWarehouseInput.required = false;
+      previewBox.innerHTML = "";
+      return;
+    }
+    section.classList.remove("hidden");
+    fromWarehouseInput.required = true;
+    const qty = Number(qtyInput.value);
+    const fromWarehouse = fromWarehouseInput.value.trim();
+    if (!fromWarehouse || !Number.isFinite(qty) || qty <= 0) {
+      previewBox.innerHTML = "";
+      return;
+    }
+    try {
+      const result = await api("/api/assembly-inbound/preview", {
+        method: "POST",
+        body: JSON.stringify({ finishedGoodCode: product.code, qty, fromWarehouse })
+      });
+      renderBomPreviewInto(previewBox, result);
+    } catch (e) {
+      previewBox.innerHTML = `<span class="muted" style="color:#DC2626;">${esc(e.message)}</span>`;
+    }
+  };
+
+  [productInput, qtyInput, fromWarehouseInput].forEach((el) => {
+    el.addEventListener("input", () => {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(evaluate, 300);
+    });
+  });
+}
+
+/** 조립입고 슬립 단위 최근 내역 + 취소 버튼 */
+async function renderRecentAssemblyInbound() {
+  const box = qs("#recent-assembly");
+  if (!box) return;
+  box.innerHTML = "최근 내역을 불러오는 중...";
+  try {
+    const res = await api("/api/assembly-inbound/recent?limit=50");
+    const items = res.items || [];
+    if (!items.length) {
+      box.innerHTML = `<span class="muted">등록 내역이 없습니다.</span>`;
+      return;
+    }
+    const rows = items
+      .map((b) => {
+        const componentsText = b.components.map((c) => `${esc(c.code)} ${c.qty}`).join(", ");
+        const cancelCell = b.cancelled
+          ? `<span class="badge gray">취소됨</span>`
+          : `<button type="button" class="cancel-btn del-small assembly-cancel-btn" data-slip="${esc(b.slipNo)}" data-user="${esc(b.user)}">취소</button>`;
+        return `<tr>
+          <td>${esc(b.slipNo)}</td>
+          <td>${esc(b.finishedGood ? `${b.finishedGood.code} (${b.finishedGood.qty}) → ${b.finishedGood.warehouse}` : "")}</td>
+          <td>${componentsText}</td>
+          <td>${esc(b.user || "")}</td>
+          <td>${esc((b.createdAt || "").slice(0, 19).replace("T", " "))}</td>
+          <td>${cancelCell}</td>
+        </tr>`;
+      })
+      .join("");
+    box.innerHTML = `
+      <table class="simple-table">
+        <thead><tr><th>슬립번호</th><th>완제품</th><th>소모 원자재</th><th>담당자</th><th>일시</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    `;
+    box.querySelectorAll(".assembly-cancel-btn").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("이 조립입고 건을 취소하시겠습니까? (원자재/완제품 재고가 원복됩니다)")) return;
+        try {
+          await api("/api/assembly-inbound/cancel", {
+            method: "POST",
+            body: JSON.stringify({ slipNo: btn.dataset.slip, user: btn.dataset.user })
+          });
+          await afterMovementDone();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+  } catch (e) {
+    box.innerHTML = `<span class="muted">${esc(e.message)}</span>`;
+  }
 }
 
 /** 출고 화면: 입고와 동일 — 상단 버튼만, 단건·엑셀은 팝업 */
@@ -4707,10 +5225,29 @@ function bindMovement(type) {
     try {
       let payload = movementPayload(type);
       if (type === "IN") {
-        payload = fillInboundPartnerFromProduct(payload);
-        if (!String(payload.partner || "").trim()) {
-          alert("구매처가 없습니다. 입력하거나 상품 기본정보에 구매처를 등록하세요.");
-          return;
+        const product = findProductForMovementImport(payload.productCode);
+        const hasBom = Boolean(product?.bom?.length);
+        if (hasBom) {
+          const fromWarehouse = String(payload.fromWarehouse || "").trim();
+          if (!fromWarehouse) {
+            alert("가공처창고(원자재 출발지)를 입력하세요.");
+            return;
+          }
+          const qty = Number(payload.qty);
+          const preview = await api("/api/assembly-inbound/preview", {
+            method: "POST",
+            body: JSON.stringify({ finishedGoodCode: product.code, qty, fromWarehouse })
+          });
+          if (preview.insufficient) {
+            alert("원자재 재고가 부족해 입고를 등록할 수 없습니다.");
+            return;
+          }
+        } else {
+          payload = fillInboundPartnerFromProduct(payload);
+          if (!String(payload.partner || "").trim()) {
+            alert("구매처가 없습니다. 입력하거나 상품 기본정보에 구매처를 등록하세요.");
+            return;
+          }
         }
       }
       await api("/api/movements", { method: "POST", body: JSON.stringify(payload) });
@@ -4746,6 +5283,7 @@ function renderInbound() {
   qs("#view-inbound").innerHTML = movementInboundPageHtml();
   bindMovement("IN");
   setupInboundModals();
+  renderRecentAssemblyInbound();
 }
 
 async function renderInboundPlan() {

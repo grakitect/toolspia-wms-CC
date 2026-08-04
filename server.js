@@ -290,10 +290,15 @@ function normalizeDb(db) {
   if (!Array.isArray(db.warehouses) || db.warehouses.length === 0) {
     db.warehouses = ["유통사업부(W)", "다이소", "아세로직스(W)", "가온플러스(W)"];
   }
+  if (!Array.isArray(db.processingWarehouses)) db.processingWarehouses = [];
+  db.processingWarehouses = Array.from(new Set(
+    db.processingWarehouses.map((w) => String(w || "").trim()).filter((w) => w && db.warehouses.includes(w))
+  ));
   if (!db.productOptions || typeof db.productOptions !== "object") db.productOptions = {};
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
+  const validProductCodes = new Set((db.products || []).map((p) => String(p.code || "").trim()).filter(Boolean));
   for (const p of db.products || []) {
     if (!p.managementCode) p.managementCode = nextManagementCode(db);
     p.deliveryVendors = toTagList(p.deliveryVendors || p.salesVendor);
@@ -319,6 +324,8 @@ function normalizeDb(db) {
     p.salesManagers = toTagList(p.salesManagers);
     p.categories = toTagList(p.categories || p.category);
     p.usedWarehouses = toTagList(p.usedWarehouses).filter((w) => db.warehouses.includes(w));
+    p.bom = toBomList(p.bom).filter((c) => validProductCodes.has(c.code));
+    p.bomFlag = Boolean(p.bomFlag);
     if (!p.ecountCode) p.ecountCode = String(p.code || "");
     if (!p.ecountName) p.ecountName = String(p.name || "");
     p.middleBarcode = String(p.middleBarcode || "");
@@ -348,6 +355,7 @@ function normalizeDb(db) {
   ));
   for (const m of db.movements) {
     if (!m.warehouse) m.warehouse = "유통사업부(W)";
+    if (typeof m.isAssembly !== "boolean") m.isAssembly = false;
   }
   if (!db.inboundPlanUpload || typeof db.inboundPlanUpload !== "object") {
     db.inboundPlanUpload = { lines: [], sourceFileName: "", uploadedAt: "", slipWorkflow: {} };
@@ -393,6 +401,8 @@ function normalizeDb(db) {
     if (!Array.isArray(p.deliveryVendorInfo)) p.deliveryVendorInfo = [];
     p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
     if (p.itemType) p.itemType = cleanItemTypeValue(p.itemType);
+    p.bom = toBomList(p.bom).filter((c) => validProductCodes.has(c.code));
+    p.bomFlag = Boolean(p.bomFlag);
   }
   if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
   for (const pt of ["emart", "daiso", "lotte"]) {
@@ -471,6 +481,19 @@ function toDeliveryVendorInfoList(value) {
       pltEa: String(row?.pltEa || "").trim()
     }))
     .filter((row) => row.vendor);
+}
+
+/** 완제품 BOM(구성 원자재) 목록 정규화: [{code, qty}], 같은 code는 qty 합산 */
+function toBomList(value) {
+  if (!Array.isArray(value)) return [];
+  const qtyByCode = new Map();
+  for (const row of value) {
+    const code = String(row?.code || "").trim();
+    const qty = Number(row?.qty);
+    if (!code || !Number.isFinite(qty) || qty <= 0) continue;
+    qtyByCode.set(code, (qtyByCode.get(code) || 0) + qty);
+  }
+  return Array.from(qtyByCode, ([code, qty]) => ({ code, qty }));
 }
 
 /** 엑셀·입력창 흔한 공백( NBSP ) 정리 */
@@ -611,6 +634,8 @@ function upsertProduct(db, product) {
     purchaseItemName: String(product.purchaseItemName || ""),
     warehouseGroup: firstToken(product.warehouseGroup, ""),
     usedWarehouses,
+    bom: toBomList(product.bom),
+    bomFlag: Boolean(product.bomFlag),
     itemType: firstToken(product.itemType, ""),
     categories,
     // Backward compatibility for existing stock screens.
@@ -811,6 +836,7 @@ function addMovement(db, row) {
     slipNo: String(row.slipNo || "").trim(),
     user,
     cancelled: false,
+    isAssembly: Boolean(row.isAssembly),
     createdAt: row.createdAt || new Date().toISOString()
   });
 }
@@ -839,6 +865,127 @@ function cancelMovement(db, id, user) {
     originType: target.type,
     createdAt: new Date().toISOString()
   });
+}
+
+/**
+ * 해외/외주 조립입고: 완제품 BOM 기준으로 가공처 창고의 원자재 소요량·부족분을 계산한다.
+ * 조회 전용(쓰기 없음) — 미리보기 API와 addAssemblyInbound의 사전 검증이 공유해서 쓴다.
+ */
+function computeAssemblyRequirement(db, finishedGoodCode, qty, fromWarehouse) {
+  const finishedGood = findProductByMovementImportCode(db, finishedGoodCode);
+  if (!finishedGood) throw new Error(`등록되지 않은 완제품입니다: ${finishedGoodCode}`);
+  const bom = Array.isArray(finishedGood.bom) ? finishedGood.bom : [];
+  if (!bom.length) throw new Error(`BOM(구성 원자재)이 등록되지 않은 상품입니다: ${finishedGood.code} ${finishedGood.name || ""}`);
+  const qtyNum = Number(qty);
+  if (!Number.isFinite(qtyNum) || qtyNum <= 0) throw new Error("수량은 0보다 큰 숫자여야 합니다.");
+  const fromWarehouseResolved = resolveRegisteredWarehouse(db, fromWarehouse);
+  if (!fromWarehouseResolved) throw new Error(`등록되지 않은 창고: ${fromWarehouse || "-"}`);
+  if (!(db.processingWarehouses || []).includes(fromWarehouseResolved)) {
+    throw new Error(`외주/가공처로 지정된 창고가 아닙니다: ${fromWarehouseResolved}`);
+  }
+  const stockItems = calculateStock(db, fromWarehouseResolved);
+  const components = bom.map((line) => {
+    const material = db.products.find((p) => p.code === line.code);
+    const requiredQty = Number(line.qty || 0) * qtyNum;
+    const stockRow = stockItems.find((x) => x.code === line.code);
+    const available = stockRow ? Number(stockRow.stock || 0) : 0;
+    const shortBy = Math.max(0, requiredQty - available);
+    return {
+      code: line.code,
+      name: material ? material.name : "",
+      perUnitQty: Number(line.qty || 0),
+      requiredQty,
+      available,
+      shortBy
+    };
+  });
+  return {
+    finishedGood: { code: finishedGood.code, name: finishedGood.name || "" },
+    fromWarehouse: fromWarehouseResolved,
+    qty: qtyNum,
+    components,
+    insufficient: components.some((c) => c.shortBy > 0)
+  };
+}
+
+/**
+ * 조립입고 커밋: 가공처 창고에서 BOM 원자재를 OUT으로 소모하고, 완제품을 입고창고에 IN으로 적재한다.
+ * 모든 movement는 같은 slipNo를 공유하며 isAssembly=true로 마킹된다.
+ * readDb()가 요청마다 새 db를 메모리에 올리고 성공 시에만 writeDb()하는 구조(다른 /api 라우트와 동일)라
+ * 중간에 addMovement가 throw하면 이 요청의 db 변경분은 그대로 버려지므로 별도 롤백 코드가 필요 없다.
+ */
+function addAssemblyInbound(db, { finishedGoodCode, qty, toWarehouse, fromWarehouse, user, memo }) {
+  const requirement = computeAssemblyRequirement(db, finishedGoodCode, qty, fromWarehouse);
+  if (requirement.insufficient) {
+    const shortText = requirement.components
+      .filter((c) => c.shortBy > 0)
+      .map((c) => `${c.code} ${c.name}(부족 ${c.shortBy})`)
+      .join(", ");
+    throw new Error(`원자재 재고 부족으로 조립입고 불가: ${shortText}`);
+  }
+  const toWarehouseResolved = resolveRegisteredWarehouse(db, toWarehouse);
+  if (!toWarehouseResolved) throw new Error(`등록되지 않은 창고: ${toWarehouse || "-"}`);
+  const slipNo = `ASSY-${String(db.seq++).padStart(5, "0")}`;
+  const memoText = String(memo || "").trim();
+  for (const c of requirement.components) {
+    addMovement(db, {
+      type: "OUT",
+      productCode: c.code,
+      qty: c.requiredQty,
+      warehouse: requirement.fromWarehouse,
+      user,
+      slipNo,
+      isAssembly: true,
+      memo: memoText || `조립투입(BOM) → ${requirement.finishedGood.code}`
+    });
+  }
+  addMovement(db, {
+    type: "IN",
+    productCode: requirement.finishedGood.code,
+    qty: requirement.qty,
+    warehouse: toWarehouseResolved,
+    user,
+    slipNo,
+    isAssembly: true,
+    memo: memoText || `조립입고(BOM) ← ${requirement.fromWarehouse}`
+  });
+  return { slipNo, finishedGood: requirement.finishedGood, components: requirement.components };
+}
+
+/** 조립입고 슬립 전체 취소: 같은 slipNo·isAssembly=true인 movement를 모두 cancelMovement로 취소한다. */
+function cancelAssemblyInboundSlip(db, slipNo, user) {
+  const slip = String(slipNo || "").trim();
+  if (!slip) throw new Error("취소할 슬립번호가 없습니다.");
+  const targets = db.movements.filter((m) => m.isAssembly && m.slipNo === slip && !m.cancelled);
+  if (!targets.length) throw new Error("취소할 조립입고 내역이 없습니다.");
+  for (const m of targets) cancelMovement(db, m.id, user);
+  return { cancelledCount: targets.length };
+}
+
+/**
+ * 입고(IN) 진입점 단일화: 상품에 BOM이 등록돼 있으면(=조립상품) 자동으로 조립입고 경로로 보내고,
+ * 아니면 평범한 IN으로 처리한다. 현장 사람이 "일반입고/조립입고" 모드를 직접 고르지 않도록,
+ * 이 판별을 서버가 상품 데이터만 보고 수행한다.
+ */
+function postInboundMovement(db, row) {
+  const product = findProductByMovementImportCode(db, row.productCode);
+  const hasBom = Boolean(product && Array.isArray(product.bom) && product.bom.length);
+  if (hasBom) {
+    const fromWarehouse = String(row.fromWarehouse || "").trim();
+    if (!fromWarehouse) {
+      throw new Error(`이 상품은 BOM이 등록된 조립상품입니다. 가공처창고(원자재 출발지)를 입력하세요: ${product.code} ${product.name || ""}`);
+    }
+    return addAssemblyInbound(db, {
+      finishedGoodCode: product.code,
+      qty: row.qty,
+      toWarehouse: row.warehouse,
+      fromWarehouse,
+      user: row.user,
+      memo: row.memo
+    });
+  }
+  addMovement(db, { ...row, type: "IN" });
+  return null;
 }
 
 function computeStockAfterEachMovement(db) {
@@ -3309,7 +3456,7 @@ async function handleApi(req, res, urlObj) {
   }
 
   if (req.method === "GET" && pathname === "/api/warehouses") {
-    return sendJson(res, 200, { items: db.warehouses });
+    return sendJson(res, 200, { items: db.warehouses, processingWarehouses: db.processingWarehouses });
   }
 
   if (req.method === "POST" && pathname === "/api/warehouses") {
@@ -3318,8 +3465,9 @@ async function handleApi(req, res, urlObj) {
       const name = String(body.name || "").trim();
       if (!name) throw new Error("창고명은 필수입니다.");
       if (!db.warehouses.includes(name)) db.warehouses.push(name);
+      if (body.isProcessing && !db.processingWarehouses.includes(name)) db.processingWarehouses.push(name);
       writeDb(db);
-      return sendJson(res, 200, { ok: true, items: db.warehouses });
+      return sendJson(res, 200, { ok: true, items: db.warehouses, processingWarehouses: db.processingWarehouses });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3341,8 +3489,25 @@ async function handleApi(req, res, urlObj) {
         throw new Error("해당 창고에 잔여 재고가 있습니다. 모두 이동/조정 후 삭제하세요.");
       }
       db.warehouses = db.warehouses.filter((w) => w !== name);
+      db.processingWarehouses = db.processingWarehouses.filter((w) => w !== name);
       writeDb(db);
-      return sendJson(res, 200, { ok: true, items: db.warehouses });
+      return sendJson(res, 200, { ok: true, items: db.warehouses, processingWarehouses: db.processingWarehouses });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "PUT" && pathname === "/api/warehouses/processing-tag") {
+    try {
+      const body = await parseBody(req);
+      const name = String(body.name || "").trim();
+      if (!name) throw new Error("창고명은 필수입니다.");
+      if (!db.warehouses.includes(name)) throw new Error("등록되지 않은 창고입니다.");
+      const isProcessing = Boolean(body.isProcessing);
+      db.processingWarehouses = db.processingWarehouses.filter((w) => w !== name);
+      if (isProcessing) db.processingWarehouses.push(name);
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, processingWarehouses: db.processingWarehouses });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3358,12 +3523,13 @@ async function handleApi(req, res, urlObj) {
       if (db.warehouses.includes(newName)) throw new Error("이미 존재하는 창고명입니다.");
 
       db.warehouses = db.warehouses.map((w) => (w === oldName ? newName : w));
+      db.processingWarehouses = db.processingWarehouses.map((w) => (w === oldName ? newName : w));
       for (const m of db.movements) {
         if (m.warehouse === oldName) m.warehouse = newName;
         if (m.toWarehouse === oldName) m.toWarehouse = newName;
       }
       writeDb(db);
-      return sendJson(res, 200, { ok: true, items: db.warehouses });
+      return sendJson(res, 200, { ok: true, items: db.warehouses, processingWarehouses: db.processingWarehouses });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3705,9 +3871,11 @@ async function handleApi(req, res, urlObj) {
   if (req.method === "POST" && pathname === "/api/movements") {
     try {
       const body = await parseBody(req);
-      addMovement(db, body);
+      let result = null;
+      if (body.type === "IN") result = postInboundMovement(db, body);
+      else addMovement(db, body);
       writeDb(db);
-      return sendJson(res, 200, { ok: true });
+      return sendJson(res, 200, { ok: true, ...(result || {}) });
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
@@ -3717,7 +3885,10 @@ async function handleApi(req, res, urlObj) {
     try {
       const body = await parseBody(req);
       const rows = Array.isArray(body.rows) ? body.rows : [];
-      for (const r of rows) addMovement(db, r);
+      for (const r of rows) {
+        if (r.type === "IN") postInboundMovement(db, r);
+        else addMovement(db, r);
+      }
       writeDb(db);
       return sendJson(res, 200, { ok: true, count: rows.length });
     } catch (e) {
@@ -3737,6 +3908,56 @@ async function handleApi(req, res, urlObj) {
     } catch (e) {
       return sendJson(res, 400, { error: e.message });
     }
+  }
+
+  if (req.method === "POST" && pathname === "/api/assembly-inbound/preview") {
+    try {
+      const body = await parseBody(req);
+      const result = computeAssemblyRequirement(db, body.finishedGoodCode, body.qty, body.fromWarehouse);
+      return sendJson(res, 200, result);
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "POST" && pathname === "/api/assembly-inbound/cancel") {
+    try {
+      const body = await parseBody(req);
+      const result = cancelAssemblyInboundSlip(db, body.slipNo, String(body.user || "").trim());
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, ...result });
+    } catch (e) {
+      return sendJson(res, 400, { error: e.message });
+    }
+  }
+
+  if (req.method === "GET" && pathname === "/api/assembly-inbound/recent") {
+    const limit = Math.max(1, Math.min(200, Number(urlObj.searchParams.get("limit")) || 30));
+    const bySlip = new Map();
+    for (const m of db.movements) {
+      if (!m.isAssembly || !m.slipNo) continue;
+      if (!bySlip.has(m.slipNo)) bySlip.set(m.slipNo, []);
+      bySlip.get(m.slipNo).push(m);
+    }
+    const batches = Array.from(bySlip.entries())
+      .map(([slipNo, rows]) => {
+        const inRow = rows.find((r) => r.type === "IN");
+        const outRows = rows.filter((r) => r.type === "OUT");
+        const createdAt = rows.reduce((min, r) => (!min || r.createdAt < min ? r.createdAt : min), "");
+        return {
+          slipNo,
+          createdAt,
+          user: (inRow || rows[0]).user,
+          cancelled: rows.every((r) => r.cancelled),
+          finishedGood: inRow
+            ? { code: inRow.productCode, qty: inRow.qty, warehouse: inRow.warehouse }
+            : null,
+          components: outRows.map((r) => ({ code: r.productCode, qty: Math.abs(r.qty), warehouse: r.warehouse }))
+        };
+      })
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+      .slice(0, limit);
+    return sendJson(res, 200, { items: batches });
   }
 
   if (req.method === "GET" && pathname === "/api/history") {
