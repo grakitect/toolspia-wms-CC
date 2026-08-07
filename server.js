@@ -96,9 +96,11 @@ const PRODUCT_OPTION_KEYS = [
   "supplyType",
   "warehouseGroup",
   "itemType",
-  "categories"
+  "categories",
+  "processingTags"
 ];
 const DEFAULT_ITEM_TYPES = ["반제품", "상품", "제품", "원자재", "부자재"];
+const DEFAULT_PROCESSING_TAGS = ["바코드부착", "소분", "특수포장"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const LOGO_DIR = path.join(__dirname, "로고");
 const DATA_DIR = path.join(__dirname, "data");
@@ -295,6 +297,7 @@ function normalizeDb(db) {
     db.processingWarehouses.map((w) => String(w || "").trim()).filter((w) => w && db.warehouses.includes(w))
   ));
   if (!db.productOptions || typeof db.productOptions !== "object") db.productOptions = {};
+  if (db.productOptions.processingTags === undefined) db.productOptions.processingTags = [...DEFAULT_PROCESSING_TAGS];
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
@@ -316,7 +319,7 @@ function normalizeDb(db) {
         p.deliveryVendorInfo = [{ vendor: "", code: legacyCode, itemName: legacyItemName, outUnit: "", innEa: "", innPerCtn: "", ctnEa: "", ctnPerPlt: "", pltEa: "" }];
       }
     }
-    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
+    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v, processingTags: toTagList(v.processingTags) }));
     p.infoVerified = Boolean(p.infoVerified);
     delete p.deliveryVendorCode;
     delete p.deliveryItemName;
@@ -344,6 +347,7 @@ function normalizeDb(db) {
     db.productOptions.warehouseGroup.push(String(p.warehouseGroup || "").trim());
     db.productOptions.itemType.push(String(p.itemType || "").trim());
     db.productOptions.categories.push(...toTagList(p.categories));
+    for (const v of p.deliveryVendorInfo) db.productOptions.processingTags.push(...toTagList(v.processingTags));
   }
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
@@ -399,7 +403,7 @@ function normalizeDb(db) {
     if (!p.managementCode) p.managementCode = nextManagementCode(db);
     p.infoVerified = Boolean(p.infoVerified);
     if (!Array.isArray(p.deliveryVendorInfo)) p.deliveryVendorInfo = [];
-    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v }));
+    p.deliveryVendorInfo = p.deliveryVendorInfo.map((v) => ({ deliveryMethod: "", logisticsAgent: "", status: "", ...v, processingTags: toTagList(v.processingTags) }));
     if (p.itemType) p.itemType = cleanItemTypeValue(p.itemType);
     p.bom = toBomList(p.bom).filter((c) => validProductCodes.has(c.code));
     p.bomFlag = Boolean(p.bomFlag);
@@ -474,6 +478,7 @@ function toDeliveryVendorInfoList(value) {
       tradeType: String(row?.tradeType || "").trim(),
       deliveryMethod: String(row?.deliveryMethod || "").trim(),
       logisticsAgent: String(row?.logisticsAgent || "").trim(),
+      processingTags: toTagList(row?.processingTags),
       innEa: String(row?.innEa || "").trim(),
       innPerCtn: String(row?.innPerCtn || "").trim(),
       ctnEa: String(row?.ctnEa || "").trim(),

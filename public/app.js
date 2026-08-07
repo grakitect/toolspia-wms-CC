@@ -75,7 +75,8 @@ const state = {
     supplyType: [],
     warehouseGroup: [],
     itemType: [],
-    categories: []
+    categories: [],
+    processingTags: []
   },
   partners: { inbound: [], outbound: [], purchase: [] },
   managers: [],
@@ -1039,6 +1040,7 @@ function downloadGuide(type) {
         "판매처관리코드": "D-001",
         "판매처 품목명": "다이소용 상품명",
         "출고단위": "CTN",
+        "임가공": "바코드부착, 소분",
         "출고적재사양 INN(EA)": 12,
         "출고적재사양 INN/CTN": 1,
         "출고적재사양 CTN(EA)": 12,
@@ -1073,6 +1075,7 @@ function downloadGuide(type) {
         "판매처관리코드": "E-002",
         "판매처 품목명": "이마트용 상품명",
         "출고단위": "EA",
+        "임가공": "바코드부착, 소분",
         "출고적재사양 INN(EA)": 10,
         "출고적재사양 INN/CTN": 1,
         "출고적재사양 CTN(EA)": 10,
@@ -1193,6 +1196,7 @@ function normalizeProductRows(rows) {
         rowVendorCtnEa: String(getByKeys(r, ["출고적재사양 CTN(EA)", "outCtnEa"]) || "").trim(),
         rowVendorCtnPerPlt: String(getByKeys(r, ["출고적재사양 CTN/PLT", "outCtnPerPlt"]) || "").trim(),
         rowVendorPltEa: String(getByKeys(r, ["출고적재사양 PLT(EA)", "outPltEa"]) || "").trim(),
+        rowVendorProcessingTags: toTagList(getByKeys(r, ["임가공", "processingTags"])),
         spec: String(getByKeys(r, ["규격", "spec"]) || "").trim(),
         purchaseVendor: String(getByKeys(r, ["구매처", "purchaseVendor"]) || "").trim(),
         supplyType: String(getByKeys(r, ["수급형태", "supplyType"]) || "").trim(),
@@ -1254,7 +1258,7 @@ function normalizeProductRows(rows) {
         product.deliveryVendorInfo.push({
           vendor, code: row.rowVendorCode, itemName: row.rowVendorItemName, outUnit: row.rowVendorOutUnit,
           innEa: row.rowVendorInnEa, innPerCtn: row.rowVendorInnPerCtn, ctnEa: row.rowVendorCtnEa,
-          ctnPerPlt: row.rowVendorCtnPerPlt, pltEa: row.rowVendorPltEa
+          ctnPerPlt: row.rowVendorCtnPerPlt, pltEa: row.rowVendorPltEa, processingTags: row.rowVendorProcessingTags
         });
       }
     }
@@ -1515,6 +1519,14 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { 
       <td><input class="vi-ctnea" value="${esc(row.ctnEa || "")}" placeholder="예: 12" /></td>
       <td><input class="vi-ctnperplt" value="${esc(row.ctnPerPlt || "")}" /></td>
       <td><input class="vi-pltea" value="${esc(row.pltEa || "")}" /></td>
+      <td class="vi-processingtags-cell">
+        <div class="vi-processingtags-picker">
+          <select class="vi-processingtags-select"><option value="">선택</option>${(state.productOptions?.processingTags || []).map((o) => `<option value="${esc(o)}">${esc(o)}</option>`).join("")}</select>
+          <button type="button" class="vi-processingtags-add">+</button>
+        </div>
+        <div class="vi-processingtags-preview tagline multi-tags"></div>
+        <input type="hidden" class="vi-processingtags" value="${esc(toTagList(row.processingTags).join(","))}" />
+      </td>
       <td><button type="button" class="vi-remove" title="삭제">&times;</button></td>`;
     // 상태 옵션(opts.status)에 없는 값을 <select>에 그냥 대입하면 매칭되는 <option>이 없어
     // 조용히 빈 값으로 바뀌어 버린다. 목록에 없는 값이면 그 값을 담은 옵션을 즉석에서 추가해 보존한다.
@@ -1528,6 +1540,34 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { 
       statusEl.appendChild(opt);
       statusEl.value = statusVal;
     }
+    // 임가공은 판매처마다 여러 개를 고를 수 있어야 해서, 드롭다운+추가 버튼으로 고르면
+    // 태그 칩으로 쌓이고(hidden input에 쉼표로 반영) 칩의 ×로 개별 삭제할 수 있게 한다.
+    const ptHidden = tr.querySelector(".vi-processingtags");
+    const ptPreview = tr.querySelector(".vi-processingtags-preview");
+    const ptSelect = tr.querySelector(".vi-processingtags-select");
+    const ptAddBtn = tr.querySelector(".vi-processingtags-add");
+    let ptSelected = toTagList(ptHidden.value);
+    const drawPt = () => {
+      ptHidden.value = ptSelected.join(", ");
+      ptPreview.innerHTML = ptSelected
+        .map((t, i) => `<span class="tag tag-orange tag-removable">${esc(t)} <button type="button" class="chip-remove" data-idx="${i}">x</button></span>`)
+        .join("");
+    };
+    drawPt();
+    ptAddBtn.addEventListener("click", () => {
+      const v = ptSelect.value;
+      if (v && !ptSelected.includes(v)) {
+        ptSelected.push(v);
+        drawPt();
+      }
+      ptSelect.value = "";
+    });
+    ptPreview.addEventListener("click", (e) => {
+      const btn = e.target.closest(".chip-remove");
+      if (!btn) return;
+      ptSelected.splice(Number(btn.dataset.idx), 1);
+      drawPt();
+    });
     body.appendChild(tr);
   };
   addBtn.onclick = () => addRow();
@@ -1555,6 +1595,7 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { 
           tradeType: tr.querySelector(".vi-tradetype").value.trim(),
           deliveryMethod: tr.querySelector(".vi-deliverymethod").value.trim(),
           logisticsAgent: tr.querySelector(".vi-logisticsagent").value.trim(),
+          processingTags: toTagList(tr.querySelector(".vi-processingtags").value),
           innEa: tr.querySelector(".vi-innea").value.trim(),
           innPerCtn: tr.querySelector(".vi-innperctn").value.trim(),
           ctnEa: tr.querySelector(".vi-ctnea").value.trim(),
@@ -1970,7 +2011,8 @@ const COMMON_CODE_FIELDS = [
   { key: "orderManagers", label: "발주담당자" },
   { key: "salesManagers", label: "영업담당자" },
   { key: "warehouseGroup", label: "창고그룹(이카운트)" },
-  { key: "deliveryVendors", label: "판매처명(자동완성)" }
+  { key: "deliveryVendors", label: "판매처명(자동완성)" },
+  { key: "processingTags", label: "임가공" }
 ];
 
 function renderMaster() {
@@ -2440,7 +2482,8 @@ function renderProductsMainTab(container) {
     { key: "supplyType", label: "수급형태" },
     { key: "warehouseGroup", label: "창고그룹(이카운트)" },
     { key: "itemType", label: "이카운트 구분" },
-    { key: "categories", label: "카테고리" }
+    { key: "categories", label: "카테고리" },
+    { key: "processingTags", label: "임가공" }
   ];
   const productCategoryCounts = {
     all: state.products.length,
@@ -2507,6 +2550,7 @@ function renderProductsMainTab(container) {
       <td data-col-orig-idx="28">${esc(v.outUnit || "")}</td>
       <td data-col-orig-idx="35">${esc(v.deliveryMethod || "")}</td>
       <td data-col-orig-idx="36">${esc(v.logisticsAgent || "")}</td>
+      <td data-col-orig-idx="44" data-filter-multi="${esc((v.processingTags||[]).join('|'))}">${renderTagChips(v.processingTags)}</td>
       <td data-col-orig-idx="10">${esc(v.code || "")}</td>
       <td data-col-orig-idx="11">${esc(v.itemName || "")}</td>
       <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
@@ -2598,6 +2642,7 @@ function renderProductsMainTab(container) {
                 <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
 납품방법</th>
                 <th data-col-orig-idx="36" data-col-label="물류대행">물류대행</th>
+                <th data-col-orig-idx="44" data-col-label="임가공">임가공</th>
                 <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
                 <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
                 <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
@@ -2698,6 +2743,7 @@ INN(EA)</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2">임가공</th>
                 <th rowspan="2"></th>
               </tr>
               <tr>
@@ -2908,11 +2954,6 @@ INN(EA)</th>
     };
   }
   if (closeBtn && modalOverlay) closeBtn.onclick = () => modalOverlay.classList.add("hidden");
-  if (modalOverlay) {
-    modalOverlay.onclick = (e) => {
-      if (e.target === modalOverlay) modalOverlay.classList.add("hidden");
-    };
-  }
   if (optionOpenBtn && optionOverlay) optionOpenBtn.onclick = () => optionOverlay.classList.remove("hidden");
   if (optionCloseBtn && optionOverlay) optionCloseBtn.onclick = () => optionOverlay.classList.add("hidden");
   if (optionOverlay) {
@@ -3712,6 +3753,7 @@ INN(EA)</th>
           "출고적재사양 CTN(EA)": v.ctnEa || "",
           "출고적재사양 CTN/PLT": v.ctnPerPlt || "",
           "출고적재사양 PLT(EA)": v.pltEa || "",
+          "임가공": toTagList(v.processingTags).join(", "),
           "판매처구분": multi,
           "규격": p.spec || "",
           "구매처": p.purchaseVendor || "",
@@ -3803,6 +3845,7 @@ function renderProductsSalesNewTab(container) {
         <td data-col-orig-idx="28">${esc(vInfo.outUnit || "")}</td>
         <td data-col-orig-idx="35">${esc(vInfo.deliveryMethod || "")}</td>
         <td data-col-orig-idx="36">${esc(vInfo.logisticsAgent || "")}</td>
+        <td data-col-orig-idx="44" data-filter-multi="${esc((vInfo.processingTags||[]).join('|'))}">${renderTagChips(vInfo.processingTags)}</td>
         <td data-col-orig-idx="10">${esc(vInfo.code || "")}</td>
         <td data-col-orig-idx="11">${esc(vInfo.itemName || "")}</td>
         <td data-col-orig-idx="13">${esc(p.supplyType || "")}</td>
@@ -3902,6 +3945,7 @@ function renderProductsSalesNewTab(container) {
               <th data-col-orig-idx="35" data-col-label="판매처별 납품방법">판매처별
 납품방법</th>
               <th data-col-orig-idx="36" data-col-label="물류대행">물류대행</th>
+              <th data-col-orig-idx="44" data-col-label="임가공">임가공</th>
               <th data-col-orig-idx="10" data-col-label="판매처관리코드">판매처관리코드</th>
               <th data-col-orig-idx="11" data-col-label="판매처 품목명">판매처 품목명</th>
               <th data-col-orig-idx="13" data-col-label="수급형태">수급형태</th>
@@ -4009,6 +4053,7 @@ INN(EA)</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2">임가공</th>
                 <th rowspan="2"></th>
               </tr>
               <tr>
@@ -4336,7 +4381,6 @@ INN(EA)</th>
     openSalesNewEditModal(groupMembers);
   });
   qs("#sales-new-modal-close")?.addEventListener("click", () => modalOverlay?.classList.add("hidden"));
-  modalOverlay?.addEventListener("click", (e) => { if (e.target === modalOverlay) modalOverlay.classList.add("hidden"); });
 
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -4515,6 +4559,7 @@ INN(EA)</th>
         "판매처별 거래유형": (p.deliveryVendorInfo || [])[0]?.tradeType || "",
         "납품방법": (p.deliveryVendorInfo || [])[0]?.deliveryMethod || "",
         "물류대행": (p.deliveryVendorInfo || [])[0]?.logisticsAgent || "",
+        "임가공": ((p.deliveryVendorInfo || [])[0]?.processingTags || []).join(", "),
         "수급형태": p.supplyType || "",
         "발주부서": p.orderDept || "",
         "발주담당자": (p.orderManagers || []).join(", "),
@@ -10805,6 +10850,7 @@ INN(EA)</th>
                 <th rowspan="2">납품방법</th>
                 <th rowspan="2">물류대행</th>
                 <th colspan="5" style="text-align:center;background:#EFF6FF;">출고적재사양</th>
+                <th rowspan="2">임가공</th>
                 <th rowspan="2"></th>
               </tr>
               <tr>
@@ -11059,7 +11105,6 @@ INN(EA)</th>
 
   const closePplModal = () => pplModalOverlay?.classList.add("hidden");
   qs("#ppl-modal-close")?.addEventListener("click", closePplModal);
-  pplModalOverlay?.addEventListener("click", (e) => { if (e.target === pplModalOverlay) closePplModal(); });
   if (pplForm) preventEnterSubmit(pplForm);
 
   const openPplEdit = (p) => {

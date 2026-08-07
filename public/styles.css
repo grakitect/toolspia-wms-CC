@@ -711,7 +711,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .table-scroll-x { width: 100%; overflow-x: auto; }
 .table-scroll-proxy-wrap { width: 100%; overflow-x: auto; margin-bottom: 6px; }
 .table-scroll-proxy-inner { height: 1px; }
-#products-table { width: 6955px; table-layout: fixed; }
+#products-table { width: 7085px; table-layout: fixed; }
 #products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -778,6 +778,8 @@ tbody tr:last-child td { border-bottom: 0; }
 #products-table thead th[data-col-orig-idx="43"] { width: 330px; }
 #products-table thead th[data-col-orig-idx="21"],
 #sales-new-products-table thead th[data-col-orig-idx="21"] { width: 111px; }
+#products-table thead th[data-col-orig-idx="44"],
+#sales-new-products-table thead th[data-col-orig-idx="44"] { width: 130px; }
 #products-table thead th[data-col-orig-idx="22"],
 #sales-new-products-table thead th[data-col-orig-idx="22"] { width: 113px; }
 #products-table thead th[data-col-orig-idx="23"],
@@ -969,7 +971,7 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 .column-settings-list { display: flex; flex-direction: column; gap: 0; max-height: 60vh; overflow-y: auto; padding-right: 4px; margin-bottom: 12px; }
 
 /* ── 판매현황 미등록상품 테이블: 기본상품정보와 동일한 컬럼 너비/동작, 초록 계열 헤더로만 구분 ── */
-#sales-new-products-table { width: 6955px; table-layout: fixed; }
+#sales-new-products-table { width: 7085px; table-layout: fixed; }
 #sales-new-products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #sales-new-products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
 #sales-new-products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
@@ -1449,12 +1451,18 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 }
 .vendor-info-table {
   width: 100%;
-  min-width: 1340px;
+  min-width: 1490px;
   border-collapse: collapse;
   margin-bottom: 0;
 }
 .vendor-info-table .vi-record-id-col { min-width: 92px; }
 .vendor-info-table .vi-vendor { min-width: 132px; }
+.vendor-info-table .vi-processingtags-cell { min-width: 150px; }
+.vendor-info-table .vi-processingtags-picker { display: flex; gap: 4px; align-items: center; }
+.vendor-info-table .vi-processingtags-picker select { flex: 1; min-width: 0; width: auto; }
+.vendor-info-table .vi-processingtags-picker button { flex: none; padding: 2px 8px; }
+.vendor-info-table .vi-processingtags-preview { margin-top: 4px; }
+.vendor-info-table .vi-processingtags-preview:empty { margin-top: 0; }
 .vendor-info-table th {
   font-size: 11px;
   font-weight: 600;
