@@ -97,9 +97,11 @@ const PRODUCT_OPTION_KEYS = [
   "warehouseGroup",
   "itemType",
   "categories",
-  "processingTags"
+  "processingTags",
+  "processSteps"
 ];
 const DEFAULT_ITEM_TYPES = ["반제품", "상품", "제품", "원자재", "부자재"];
+const DEFAULT_PROCESS_STEPS = ["소분", "바코드부착", "포장", "검수"];
 const DEFAULT_PROCESSING_TAGS = ["바코드부착", "소분", "특수포장"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const LOGO_DIR = path.join(__dirname, "로고");
@@ -298,6 +300,7 @@ function normalizeDb(db) {
   ));
   if (!db.productOptions || typeof db.productOptions !== "object") db.productOptions = {};
   if (db.productOptions.processingTags === undefined) db.productOptions.processingTags = [...DEFAULT_PROCESSING_TAGS];
+  if (db.productOptions.processSteps === undefined) db.productOptions.processSteps = [...DEFAULT_PROCESS_STEPS];
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
   }
@@ -329,6 +332,8 @@ function normalizeDb(db) {
     p.usedWarehouses = toTagList(p.usedWarehouses).filter((w) => db.warehouses.includes(w));
     p.bom = toBomList(p.bom).filter((c) => validProductCodes.has(c.code));
     p.bomFlag = Boolean(p.bomFlag);
+    p.noRecentOrder = Boolean(p.noRecentOrder);
+    p.processSteps = Array.isArray(p.processSteps) ? p.processSteps.map((s) => String(s || "").trim()).filter(Boolean) : [];
     if (!p.ecountCode) p.ecountCode = String(p.code || "");
     if (!p.ecountName) p.ecountName = String(p.name || "");
     p.middleBarcode = String(p.middleBarcode || "");
@@ -348,6 +353,7 @@ function normalizeDb(db) {
     db.productOptions.itemType.push(String(p.itemType || "").trim());
     db.productOptions.categories.push(...toTagList(p.categories));
     for (const v of p.deliveryVendorInfo) db.productOptions.processingTags.push(...toTagList(v.processingTags));
+    db.productOptions.processSteps.push(...p.processSteps);
   }
   for (const k of PRODUCT_OPTION_KEYS) {
     db.productOptions[k] = normalizeOptionValues(db.productOptions[k]);
@@ -407,6 +413,8 @@ function normalizeDb(db) {
     if (p.itemType) p.itemType = cleanItemTypeValue(p.itemType);
     p.bom = toBomList(p.bom).filter((c) => validProductCodes.has(c.code));
     p.bomFlag = Boolean(p.bomFlag);
+    p.noRecentOrder = Boolean(p.noRecentOrder);
+    p.processSteps = Array.isArray(p.processSteps) ? p.processSteps.map((s) => String(s || "").trim()).filter(Boolean) : [];
   }
   if (!db.unshipCompare || typeof db.unshipCompare !== "object") db.unshipCompare = {};
   for (const pt of ["emart", "daiso", "lotte"]) {
@@ -641,6 +649,8 @@ function upsertProduct(db, product) {
     usedWarehouses,
     bom: toBomList(product.bom),
     bomFlag: Boolean(product.bomFlag),
+    noRecentOrder: Boolean(product.noRecentOrder),
+    processSteps: Array.isArray(product.processSteps) ? product.processSteps.map((s) => String(s || "").trim()).filter(Boolean) : [],
     itemType: firstToken(product.itemType, ""),
     categories,
     // Backward compatibility for existing stock screens.

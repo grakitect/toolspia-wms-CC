@@ -61,6 +61,7 @@ const DELIVERY_METHOD_OPTIONS = ["", "택배", "용차", "화물", "직납", "�
 const LOGISTICS_AGENT_OPTIONS = ["", "운송대행", "3PL"];
 const TRADE_TYPE_OPTIONS = ["", "내수", "수출"];
 let productListPageIndex = 0;
+let productsOnlyLotte = false; // 임시: 롯데패키징 작업 중 필터 번거로움 줄이기용, 작업 끝나면 제거 가능
 const state = {
   products: [],
   salesUnregisteredProducts: [],
@@ -99,6 +100,7 @@ let productsCategoryTab = "all";
 let salesNewCategoryTab = "all";
 let salesNewPageIndex = 0;
 let salesNewOnlyActive = false;
+let salesNewOnlyLotte = false; // 임시: 롯데패키징 작업 중 필터 번거로움 줄이기용, 작업 끝나면 제거 가능
 let salesNewExpandVendor = false;
 let salesNewExpandedCodes = new Set();
 let salesNewEditingCode = "";
@@ -1611,7 +1613,7 @@ function setupVendorInfoTable(bodyId, addBtnId, vendorOptions, statusOptions, { 
 function setupBomTable(bodyId, addBtnId, productOptions) {
   const body = qs(`#${bodyId}`);
   const addBtn = qs(`#${addBtnId}`);
-  if (!body || !addBtn) return { setValues: () => {}, getValues: () => [] };
+  if (!body || !addBtn) return { setValues: () => {}, getValues: () => [], setEditing: () => {} };
   const listId = `${bodyId}-material-datalist`;
   let datalistEl = document.getElementById(listId);
   if (!datalistEl) {
@@ -1622,15 +1624,48 @@ function setupBomTable(bodyId, addBtnId, productOptions) {
   datalistEl.innerHTML = (productOptions || [])
     .map((p) => `<option value="${esc(p.code)}">${esc(p.code)} ${esc(p.name || "")}</option>`)
     .join("");
+  const byCode = new Map((productOptions || []).map((p) => [String(p.code || "").trim(), p]));
+  const updateInfoCells = (tr) => {
+    const code = tr.querySelector(".bom-code").value.trim();
+    const p = byCode.get(code);
+    tr.querySelector(".bom-name").textContent = p ? p.name || "" : code ? "(미등록)" : "";
+    tr.querySelector(".bom-spec").textContent = p?.spec || "";
+    tr.querySelector(".bom-unit").textContent = p?.unit || "";
+  };
+  let editing = false;
+  // 입력창을 항상 열어두면 실수로 값이 바뀌기 쉬워서, "+ 추가" 버튼을 누르기 전까지는
+  // 기존 행도 읽기전용 고정값으로만 보여주고 버튼을 눌러야 전체가 입력 가능해진다.
+  const applyRowMode = (tr) => {
+    const codeInput = tr.querySelector(".bom-code");
+    const qtyInput = tr.querySelector(".bom-qty");
+    const removeBtn = tr.querySelector(".bom-remove");
+    [codeInput, qtyInput].forEach((el) => {
+      if (!el) return;
+      el.readOnly = !editing;
+      el.style.border = editing ? "" : "none";
+      el.style.background = editing ? "" : "transparent";
+    });
+    if (removeBtn) removeBtn.style.display = editing ? "" : "none";
+  };
   const addRow = (row = {}) => {
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td><input class="bom-code" list="${listId}" placeholder="원자재코드 검색" value="${esc(row.code || "")}" /></td>
+      <td class="bom-name muted"></td>
+      <td class="bom-spec muted"></td>
+      <td class="bom-unit muted"></td>
       <td><input class="bom-qty" type="number" step="any" min="0" value="${esc(row.qty ?? "")}" placeholder="완제품 1개당 소요수량" /></td>
       <td><button type="button" class="bom-remove" title="삭제">&times;</button></td>`;
     body.appendChild(tr);
+    updateInfoCells(tr);
+    tr.querySelector(".bom-code").addEventListener("input", () => updateInfoCells(tr));
+    applyRowMode(tr);
   };
-  addBtn.onclick = () => addRow();
+  addBtn.onclick = () => {
+    editing = true;
+    body.querySelectorAll("tr").forEach(applyRowMode);
+    addRow();
+  };
   body.addEventListener("click", (e) => {
     const btn = e.target.closest(".bom-remove");
     if (!btn) return;
@@ -1648,6 +1683,99 @@ function setupBomTable(bodyId, addBtnId, productOptions) {
           qty: Number(tr.querySelector(".bom-qty").value || 0)
         }))
         .filter((r) => r.code && r.qty > 0);
+    },
+    setEditing(v) {
+      editing = Boolean(v);
+      body.querySelectorAll("tr").forEach(applyRowMode);
+    }
+  };
+}
+
+// <input>의 scrollWidth는 브라우저마다 오버플로 상태를 정확히 반영하지 않아 한글 텍스트 폭 추정에
+// 못 쓴다. 실제 렌더 폰트로 캔버스에서 글자폭을 직접 재는 쪽이 훨씬 안정적이다.
+let _textMeasureCanvasCtx;
+function measureTextWidth(text, font) {
+  if (!_textMeasureCanvasCtx) _textMeasureCanvasCtx = document.createElement("canvas").getContext("2d");
+  _textMeasureCanvasCtx.font = font;
+  return _textMeasureCanvasCtx.measureText(text || "").width;
+}
+
+/** 완제품 공정순서 편집용 반복행 리스트. 순서가 핵심이라 텍스트 한 줄로 몰아 적기보다 1번부터 번호 매겨 한 줄씩 입력받는다. */
+function setupProcessStepsTable(bodyId, addBtnId, keywordOptions) {
+  const body = qs(`#${bodyId}`);
+  const addBtn = qs(`#${addBtnId}`);
+  if (!body || !addBtn) return { setValues: () => {}, getValues: () => [], setEditing: () => {} };
+  const listId = `${bodyId}-keyword-datalist`;
+  let datalistEl = document.getElementById(listId);
+  if (!datalistEl) {
+    datalistEl = document.createElement("datalist");
+    datalistEl.id = listId;
+    document.body.appendChild(datalistEl);
+  }
+  datalistEl.innerHTML = (keywordOptions || []).map((k) => `<option value="${esc(k)}"></option>`).join("");
+  const renumber = () => {
+    body.querySelectorAll(".process-step-item").forEach((item, i) => {
+      const numCell = item.querySelector(".process-step-num");
+      if (numCell) numCell.textContent = `${i + 1}.`;
+    });
+  };
+  let editing = false;
+  // BOM 원자재 표와 동일하게, "+ 공정 추가"를 누르기 전에는 기존 공정도 고정 텍스트로만 보여준다.
+  const applyRowMode = (item) => {
+    const textInput = item.querySelector(".process-step-text");
+    const removeBtn = item.querySelector(".process-step-remove");
+    if (textInput) {
+      textInput.readOnly = !editing;
+      textInput.style.border = editing ? "" : "none";
+      textInput.style.background = editing ? "" : "transparent";
+      if (editing) {
+        textInput.style.width = "90px";
+      } else {
+        const cs = getComputedStyle(textInput);
+        const font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const padBorder =
+          parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth);
+        textInput.style.width = `${Math.max(30, Math.ceil(measureTextWidth(textInput.value, font) + padBorder + 20))}px`;
+      }
+    }
+    if (removeBtn) removeBtn.style.display = editing ? "" : "none";
+  };
+  const addRow = (text = "") => {
+    const item = document.createElement("div");
+    item.className = "process-step-item";
+    item.style.cssText = "display:inline-flex; align-items:center; gap:2px;";
+    item.innerHTML = `
+      <span class="process-step-num muted" style="font-size:12px;"></span>
+      <input class="process-step-text" type="text" list="${listId}" value="${esc(text)}" placeholder="공정명" style="padding:2px 4px; font-size:13px;" />
+      <button type="button" class="process-step-remove" title="삭제" style="width:18px; height:18px; line-height:1; padding:0;">&times;</button>`;
+    body.appendChild(item);
+    renumber();
+    applyRowMode(item);
+  };
+  addBtn.onclick = () => {
+    editing = true;
+    body.querySelectorAll(".process-step-item").forEach(applyRowMode);
+    addRow();
+  };
+  body.addEventListener("click", (e) => {
+    const btn = e.target.closest(".process-step-remove");
+    if (!btn) return;
+    btn.closest(".process-step-item").remove();
+    renumber();
+  });
+  return {
+    setEditing(v) {
+      editing = Boolean(v);
+      body.querySelectorAll(".process-step-item").forEach(applyRowMode);
+    },
+    setValues(steps) {
+      body.innerHTML = "";
+      (Array.isArray(steps) ? steps : []).forEach((s) => addRow(s));
+    },
+    getValues() {
+      return Array.from(body.querySelectorAll(".process-step-text"))
+        .map((el) => el.value.trim())
+        .filter(Boolean);
     }
   };
 }
@@ -1715,10 +1843,13 @@ function setupBomOnlyModal(source = "main") {
   const saveBtn = qs("#bom-only-save");
   const label = qs("#bom-only-product-label");
   const usedInEl = qs("#bom-only-used-in");
+  const memoInput = qs("#bom-only-memo");
   if (!overlay) return { openFor: () => {} };
   const bomController = setupBomTable("bom-only-rows", "bom-only-add-row", state.products || []);
+  const processController = setupProcessStepsTable("bom-only-process-rows", "bom-only-add-process-row", state.productOptions?.processSteps || []);
   let currentCode = "";
   const currentList = () => (source === "salesNew" ? state.salesUnregisteredProducts : state.products) || [];
+  const memoField = () => (source === "salesNew" ? "memo" : "note");
   const close = () => overlay.classList.add("hidden");
   closeBtn.onclick = close;
   overlay.onclick = (e) => {
@@ -1728,17 +1859,26 @@ function setupBomOnlyModal(source = "main") {
     const product = currentList().find((p) => String(p.code) === currentCode);
     if (!product) return;
     const bom = bomController.getValues();
+    const processSteps = processController.getValues();
+    const memo = memoInput?.value || "";
     try {
       if (source === "salesNew") {
-        await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code: currentCode, bom }) });
+        await api("/api/products/sales-unregistered", { method: "PUT", body: JSON.stringify({ code: currentCode, bom, processSteps, memo }) });
       } else {
-        await api("/api/products", { method: "POST", body: JSON.stringify({ ...product, bom }) });
+        await api("/api/products", { method: "POST", body: JSON.stringify({ ...product, bom, processSteps, note: memo }) });
       }
       product.bom = bom;
+      product.processSteps = processSteps;
+      product[memoField()] = memo;
       const row = qs(`.bom-link-btn[data-code="${CSS.escape(currentCode)}"]`)?.closest("tr")
         || qs(`.product-bom-flag-toggle[data-code="${CSS.escape(currentCode)}"]`)?.closest("tr");
       const linkTd = row?.querySelector('td[data-col-orig-idx="41"]');
       if (linkTd) linkTd.innerHTML = bomLinkCellHtml(product);
+      const memoTd = row?.querySelector(`td[data-field="${memoField()}"]`);
+      if (memoTd) memoTd.textContent = memo;
+      // 저장 후에는 다시 고정값 보기로 돌아가서, 다음에 열었을 때 실수로 값이 바뀌는 걸 막는다.
+      bomController.setEditing(false);
+      processController.setEditing(false);
       close();
     } catch (err) {
       alert(err.message || "저장 실패");
@@ -1747,13 +1887,25 @@ function setupBomOnlyModal(source = "main") {
   return {
     openFor(product) {
       currentCode = String(product.code || "");
-      label.textContent = `${product.code} — ${product.name || ""}`;
+      label.innerHTML = `
+        <div style="font-weight:700; font-size:22px; color:#1E293B;">${esc(product.name || "")}</div>
+        <div style="font-size:14px; color:#64748B; margin-top:4px;">
+          <span class="muted" style="font-size:11px;">WMS코드</span> <b>${esc(product.managementCode || "-")}</b>
+          &nbsp;·&nbsp;<span class="muted" style="font-size:11px;">이카운트코드</span> <b>${esc(product.ecountCode || product.code || "-")}</b>
+          &nbsp;·&nbsp;<span class="muted" style="font-size:11px;">SKU바코드</span> <b>${esc(product.barcode || "-")}</b>
+        </div>`;
+      if (memoInput) memoInput.value = product[memoField()] || "";
+      // 공정순서 고정폭 계산(scrollWidth)은 모달이 화면에 보여야(비display:none) 정확히 측정되므로
+      // 값 채우기보다 먼저 모달을 연다.
+      overlay.classList.remove("hidden");
+      bomController.setEditing(false);
+      processController.setEditing(false);
+      processController.setValues(product.processSteps || []);
       bomController.setValues(product.bom || []);
       const usedIn = (state.products || []).filter((pr) => (pr.bom || []).some((c) => c.code === product.code));
       usedInEl.innerHTML = usedIn.length
         ? `이 상품을 사용하는 완제품: ${usedIn.map((p) => `${esc(p.code)} (${esc(p.name || "")})`).join(", ")}`
         : "";
-      overlay.classList.remove("hidden");
     }
   };
 }
@@ -2531,10 +2683,10 @@ function renderProductsMainTab(container) {
             const vendorExtraAttr = vIdx > 0 ? ` data-vendor-extra="1"` : "";
             const vendorBadgeAttr = vIdx === 0 && isMulti ? ` data-vendor-multi-badge="${encodeURIComponent(vendorMultiBadgeHtml)}"` : "";
             const vendorGroupAttr = isMulti ? ` data-vendor-group="${groupIdx}"` : "";
-            return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}"${vendorExtraAttr}${vendorBadgeAttr}${vendorGroupAttr}>
+            return `<tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" data-vendors="${esc((p.deliveryVendors||[]).join("|"))}" class="${groupClass}${rowClass ? ` ${rowClass}` : ""}"${vendorExtraAttr}${vendorBadgeAttr}${vendorGroupAttr}>
       <td data-col-orig-idx="0"><input type="checkbox" class="product-row-check" data-code="${esc(p.code)}" data-vendor-idx="${item.hasRealInfo ? item.localVIdx : -1}" /></td>
       <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
-      <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
+      <td data-col-orig-idx="38">${esc(p.managementCode || "")}${p.noRecentOrder ? ' <span class="tag" title="90일 이상 발주 이력 없음" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;font-size:11px;padding:1px 6px;">90일이내 출고없음</span>' : ""}</td>
       <td data-col-orig-idx="43" class="spec-editable-cell" data-scope="product" data-field="note" data-input-type="text" data-code="${esc(p.code)}">${esc(p.note || "")}</td>
       <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
       <td data-col-orig-idx="2">${esc(p.barcode)}</td>
@@ -2594,6 +2746,10 @@ function renderProductsMainTab(container) {
             ).join("")}
           </div>
           <div class="products-bh-search-row" style="margin-left:auto;">
+            <label id="product-only-lotte-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;" title="임시 필터: 판매처가 롯데패키징인 상품만 표시">
+              <input type="checkbox" id="product-only-lotte" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+              롯데패키징만
+            </label>
             <label id="product-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
               <input type="checkbox" id="product-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
               단종품 포함
@@ -2810,7 +2966,7 @@ INN(EA)</th>
             <label>완제품 1개당 필요한 원자재코드·수량</label>
             <table class="simple-table">
               <thead>
-                <tr><th>원자재코드</th><th>소요수량</th><th></th></tr>
+                <tr><th>원자재코드</th><th>품목명</th><th>규격</th><th>단위</th><th>소요수량</th><th></th></tr>
               </thead>
               <tbody id="bom-rows"></tbody>
             </table>
@@ -2865,17 +3021,26 @@ INN(EA)</th>
     </div>
 
     <div id="bom-only-modal" class="modal-overlay hidden">
-      <div class="modal" style="width: min(560px, calc(100vw - 24px));">
+      <div class="modal" style="width: min(840px, calc(100vw - 24px));">
         <div class="modal-header">
           <h3>BOM 편집</h3>
           <button type="button" id="bom-only-close" class="cancel-btn del-small">닫기</button>
         </div>
-        <p class="muted" id="bom-only-product-label" style="margin-top:-4px;"></p>
+        <div id="bom-only-product-label" style="margin:-4px 0 14px;"></div>
+        <div style="margin-bottom:12px;">
+          <label class="muted" style="display:block; font-size:12px; margin-bottom:4px;">공정순서</label>
+          <div id="bom-only-process-rows" style="display:flex; flex-wrap:wrap; align-items:center; gap:4px 4px; margin:4px 0;"></div>
+          <button type="button" id="bom-only-add-process-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 공정 추가/수정</button>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="bom-only-memo" class="muted" style="display:block; font-size:12px; margin-bottom:4px;">메모</label>
+          <textarea id="bom-only-memo" rows="2" placeholder="공정 외 특이사항 메모" style="width:100%; box-sizing:border-box; resize:vertical; font:inherit; padding:8px; border:1px solid #CBD5E1; border-radius:6px;"></textarea>
+        </div>
         <table class="simple-table">
-          <thead><tr><th>원자재코드</th><th>소요수량</th><th></th></tr></thead>
+          <thead><tr><th>원자재코드</th><th>품목명</th><th>규격</th><th>단위</th><th>소요수량</th><th></th></tr></thead>
           <tbody id="bom-only-rows"></tbody>
         </table>
-        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가</button>
+        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가/수정</button>
         <div id="bom-only-used-in" class="muted" style="margin-top:8px; font-size:12px;"></div>
         <div style="margin-top:14px;"><button type="button" id="bom-only-save" class="primary">저장</button></div>
       </div>
@@ -3033,12 +3198,14 @@ INN(EA)</th>
   const applyProductListFilters = () => {
     const q = (searchInput?.value || "").trim().toLowerCase();
     const includeDiscontinued = qs("#product-only-active")?.checked ?? false;
+    const lotteOnly = qs("#product-only-lotte")?.checked ?? false;
     const allRows = document.querySelectorAll("#products-table tbody tr");
     const passesFilter = (tr) => {
       if (tr.dataset.wmsExcelVisible === "0") return false;
       if (tr.dataset.vendorForceHidden === "1") return false;
       const st = tr.dataset.status || "";
       if (!includeDiscontinued && st !== "판매중") return false;
+      if (lotteOnly && !String(tr.dataset.vendors || "").includes("롯데패키징")) return false;
       return !q || String(tr.dataset.search || "").includes(q);
     };
     const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "100", 10) || 100));
@@ -3103,6 +3270,29 @@ INN(EA)</th>
     };
     onlyActiveChk?.addEventListener("change", () => { productListPageIndex = 0; applyProductListFilters(); updateOnlyActiveStyle(); });
     updateOnlyActiveStyle();
+
+    const onlyLotteChk = qs("#product-only-lotte");
+    const onlyLotteBtn = qs("#product-only-lotte-btn");
+    if (onlyLotteChk) onlyLotteChk.checked = productsOnlyLotte;
+    const updateOnlyLotteStyle = () => {
+      if (!onlyLotteBtn) return;
+      if (onlyLotteChk?.checked) {
+        onlyLotteBtn.style.borderColor = "#3182F6";
+        onlyLotteBtn.style.background = "#EBF3FF";
+        onlyLotteBtn.style.color = "#1A6FDB";
+      } else {
+        onlyLotteBtn.style.borderColor = "#CBD5E1";
+        onlyLotteBtn.style.background = "#fff";
+        onlyLotteBtn.style.color = "#475569";
+      }
+    };
+    onlyLotteChk?.addEventListener("change", () => {
+      productsOnlyLotte = onlyLotteChk.checked;
+      productListPageIndex = 0;
+      applyProductListFilters();
+      updateOnlyLotteStyle();
+    });
+    updateOnlyLotteStyle();
 
     const collapseVendorChk = qs("#product-collapse-vendor");
     const collapseVendorBtn = qs("#product-collapse-vendor-btn");
@@ -3824,12 +4014,13 @@ function renderProductsSalesNewTab(container) {
     const collapseMode = !salesNewExpandVendor;
     const highlightOn = isMulti && collapseMode && individuallyExpanded;
     const barOn = isMulti && (collapseMode ? individuallyExpanded : true);
-    const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : ""].filter(Boolean).join(" ");
+    const noSales = typeof p._salesQty !== "number";
+    const extraClasses = [rowClass, highlightOn ? "product-vendor-expanded-highlight" : "", barOn ? "vendor-bar-row" : "", noSales ? "product-row-no-sales" : ""].filter(Boolean).join(" ");
     return `
-      <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}"${extraClasses ? ` class="${extraClasses}"` : ""}>
+      <tr data-search="${esc(searchText)}" data-status="${esc(p.status || "")}" data-vendors="${esc(vendors.join("|"))}"${extraClasses ? ` class="${extraClasses}"` : ""}>
         <td data-col-orig-idx="0"><input type="checkbox" class="sales-new-row-check" data-code="${esc(p.code)}" data-vendor-idx="${vendorIdx !== undefined ? vendorIdx : -1}" /></td>
         <td data-col-orig-idx="34"><label class="verify-toggle"><input type="checkbox" class="product-verify-toggle" data-code="${esc(p.code)}" data-source="salesNew" ${p.infoVerified ? "checked" : ""} /><span class="verify-toggle-slider"></span></label></td>
-        <td data-col-orig-idx="38">${esc(p.managementCode || "")}</td>
+        <td data-col-orig-idx="38">${esc(p.managementCode || "")}${noSales ? ' <span class="tag" title="판매현황(2024~현재) 이력에 없음(이카운트 품목마스터 기준 추가) — 최근 거래 확인 필요" style="background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;font-weight:600;font-size:11px;padding:1px 6px;">2년내 출고이력없음</span>' : ""}${p.noRecentOrder ? ' <span class="tag" title="90일 이상 발주 이력 없음" style="background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;font-weight:600;font-size:11px;padding:1px 6px;">90일이내 출고없음</span>' : ""}</td>
         <td data-col-orig-idx="39" class="spec-editable-cell" data-scope="product" data-field="memo" data-input-type="text" data-code="${esc(p.code)}">${esc(p.memo || "")}</td>
         <td data-col-orig-idx="1">${esc(p.ecountCode || p.code)}</td>
         <td data-col-orig-idx="2">${esc(p.barcode)}</td>
@@ -3898,6 +4089,10 @@ function renderProductsSalesNewTab(container) {
           ).join("")}
         </div>
         <div class="products-bh-search-row" style="margin-left:auto;">
+          <label id="sales-new-only-lotte-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;" title="임시 필터: 판매처가 롯데패키징인 상품만 표시">
+            <input type="checkbox" id="sales-new-only-lotte" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
+            롯데패키징만
+          </label>
           <label id="sales-new-only-active-btn" style="display:inline-flex;align-items:center;gap:6px;padding:0 12px;height:38px;border:1.5px solid #CBD5E1;border-radius:8px;font-size:13px;font-weight:500;color:#475569;background:#fff;cursor:pointer;user-select:none;transition:border-color .15s,background .15s,color .15s;box-sizing:border-box;">
             <input type="checkbox" id="sales-new-only-active" style="width:13px;height:13px;accent-color:#3182F6;cursor:pointer;" />
             단종품 포함
@@ -4089,17 +4284,26 @@ INN(EA)</th>
     </div>
 
     <div id="bom-only-modal" class="modal-overlay hidden">
-      <div class="modal" style="width: min(560px, calc(100vw - 24px));">
+      <div class="modal" style="width: min(840px, calc(100vw - 24px));">
         <div class="modal-header">
           <h3>BOM 편집</h3>
           <button type="button" id="bom-only-close" class="cancel-btn del-small">닫기</button>
         </div>
-        <p class="muted" id="bom-only-product-label" style="margin-top:-4px;"></p>
+        <div id="bom-only-product-label" style="margin:-4px 0 14px;"></div>
+        <div style="margin-bottom:12px;">
+          <label class="muted" style="display:block; font-size:12px; margin-bottom:4px;">공정순서</label>
+          <div id="bom-only-process-rows" style="display:flex; flex-wrap:wrap; align-items:center; gap:4px 4px; margin:4px 0;"></div>
+          <button type="button" id="bom-only-add-process-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 공정 추가/수정</button>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="bom-only-memo" class="muted" style="display:block; font-size:12px; margin-bottom:4px;">메모</label>
+          <textarea id="bom-only-memo" rows="2" placeholder="공정 외 특이사항 메모" style="width:100%; box-sizing:border-box; resize:vertical; font:inherit; padding:8px; border:1px solid #CBD5E1; border-radius:6px;"></textarea>
+        </div>
         <table class="simple-table">
-          <thead><tr><th>원자재코드</th><th>소요수량</th><th></th></tr></thead>
+          <thead><tr><th>원자재코드</th><th>품목명</th><th>규격</th><th>단위</th><th>소요수량</th><th></th></tr></thead>
           <tbody id="bom-only-rows"></tbody>
         </table>
-        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가</button>
+        <button type="button" id="bom-only-add-row" class="bh-btn bh-btn-sm bh-btn-outline">+ 구성원자재 추가/수정</button>
         <div id="bom-only-used-in" class="muted" style="margin-top:8px; font-size:12px;"></div>
         <div style="margin-top:14px;"><button type="button" id="bom-only-save" class="primary">저장</button></div>
       </div>
@@ -4125,19 +4329,24 @@ INN(EA)</th>
   const pageNext = qs("#sales-new-page-next");
   const onlyActiveChk = qs("#sales-new-only-active");
   const onlyActiveBtn = qs("#sales-new-only-active-btn");
+  const onlyLotteChk = qs("#sales-new-only-lotte");
+  const onlyLotteBtn = qs("#sales-new-only-lotte-btn");
   const expandChk = qs("#sales-new-expand-vendor");
   const expandBtn = qs("#sales-new-expand-vendor-btn");
   if (onlyActiveChk) onlyActiveChk.checked = salesNewOnlyActive;
+  if (onlyLotteChk) onlyLotteChk.checked = salesNewOnlyLotte;
   if (expandChk) expandChk.checked = salesNewExpandVendor;
 
   const applyFilters = () => {
     const q = (searchInput?.value || "").trim().toLowerCase();
     const includeDiscontinued = onlyActiveChk?.checked ?? false;
+    const lotteOnly = onlyLotteChk?.checked ?? false;
     const allRows = document.querySelectorAll("#sales-new-products-table tbody tr");
     const passesFilter = (tr) => {
       if (tr.dataset.wmsExcelVisible === "0") return false;
       const st = tr.dataset.status || "";
       if (!includeDiscontinued && st && st !== "판매중") return false;
+      if (lotteOnly && !String(tr.dataset.vendors || "").includes("롯데패키징")) return false;
       return !q || String(tr.dataset.search || "").includes(q);
     };
     const size = Math.min(99999, Math.max(1, parseInt(pageSizeEl?.value || "100", 10) || 100));
@@ -4190,6 +4399,26 @@ INN(EA)</th>
     updateOnlyActiveStyle();
   });
   updateOnlyActiveStyle();
+
+  const updateOnlyLotteStyle = () => {
+    if (!onlyLotteBtn) return;
+    if (onlyLotteChk?.checked) {
+      onlyLotteBtn.style.borderColor = "#3182F6";
+      onlyLotteBtn.style.background = "#EBF3FF";
+      onlyLotteBtn.style.color = "#1A6FDB";
+    } else {
+      onlyLotteBtn.style.borderColor = "#CBD5E1";
+      onlyLotteBtn.style.background = "#fff";
+      onlyLotteBtn.style.color = "#475569";
+    }
+  };
+  onlyLotteChk?.addEventListener("change", () => {
+    salesNewOnlyLotte = onlyLotteChk.checked;
+    salesNewPageIndex = 0;
+    applyFilters();
+    updateOnlyLotteStyle();
+  });
+  updateOnlyLotteStyle();
 
   const updateExpandVendorStyle = () => {
     if (!expandBtn) return;

@@ -974,6 +974,7 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 #sales-new-products-table { width: 7085px; table-layout: fixed; }
 #sales-new-products-table tr.product-row-discontinued td { background: #F5F5F5; color: #AAAAAA; }
 #sales-new-products-table tr.product-row-suspended td { background: #F8F9FB; color: #9AA3AF; }
+#sales-new-products-table tr.product-row-no-sales td { background: #FFFBEB; }
 #sales-new-products-table td { padding: 7px 14px; white-space: normal; overflow-wrap: anywhere; }
 #sales-new-products-table thead th { white-space: normal; overflow-wrap: anywhere; vertical-align: bottom; }
 
