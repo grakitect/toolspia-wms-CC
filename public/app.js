@@ -392,7 +392,10 @@ function applyExcelLikeFilter(tableSelector, afterApply) {
       }
     } else if (kind === "input") {
       const input = cell.querySelector("input");
-      if (input) return String(input.value || "").trim();
+      if (input) {
+        if (input.type === "checkbox") return input.checked ? "Y" : "N";
+        return String(input.value || "").trim();
+      }
     }
     return String(cell.textContent || "").trim();
   }
@@ -3918,9 +3921,23 @@ INN(EA)</th>
         alert("다운로드할 상품정보가 없습니다.");
         return;
       }
-      const rowsForExport = items.flatMap((p) => {
+      const barcodeGroupCounts = new Map();
+      items.forEach((p) => {
+        const key = productBarcodeGroupKey(p);
+        barcodeGroupCounts.set(key, (barcodeGroupCounts.get(key) || 0) + 1);
+      });
+      // 화면(기본상품정보 테이블)과 마찬가지로 같은 바코드 그룹끼리 인접하게 묶어서 내보낸다.
+      const exportGroups = new Map();
+      items.forEach((p) => {
+        const key = productBarcodeGroupKey(p);
+        if (!exportGroups.has(key)) exportGroups.set(key, []);
+        exportGroups.get(key).push(p);
+      });
+      const orderedItems = Array.from(exportGroups.values()).flat();
+      const rowsForExport = orderedItems.flatMap((p) => {
         const vendorRows = getProductVendorRows(p);
-        const multi = vendorRows.length > 1 ? "다중" : "단일";
+        const isMulti = vendorRows.length > 1 || barcodeGroupCounts.get(productBarcodeGroupKey(p)) > 1;
+        const multi = isMulti ? "다중" : "단일";
         return vendorRows.map((v) => ({
           "관리코드": p.managementCode || "",
           "품목코드(이카운트)": p.ecountCode || p.code || "",
@@ -3955,7 +3972,7 @@ INN(EA)</th>
           "창고그룹(이카운트)": p.warehouseGroup || "",
           "사용창고": toTagList(p.usedWarehouses).join(", "),
           "이카운트 구분": p.itemType || "",
-          "조립여부(BOM)": p.bom?.length ? "Y" : "N",
+          "조립여부(BOM)": p.bomFlag ? "Y" : "N",
           "카테고리": toTagList(p.categories).join(", "),
           "INN(EA)": p.innEa || "",
           "INN/CTN": p.innPerCtn || "",
@@ -4799,7 +4816,7 @@ INN(EA)</th>
         "창고그룹(이카운트)": p.warehouseGroup || "",
         "사용창고": (p.usedWarehouses || []).join(", "),
         "이카운트 구분": p.itemType || "",
-        "조립여부(BOM)": p.bom?.length ? "Y" : "N",
+        "조립여부(BOM)": p.bomFlag ? "Y" : "N",
         "카테고리": (p.categories || []).join(", "),
         "INN(EA)": p.innEa || "",
         "INN/CTN": p.innPerCtn || "",
@@ -10305,7 +10322,14 @@ function getFilteredPvVendors() {
   const all = state.purchaseVendorSummary || [];
   return all.filter((v) =>
     (pvCategoryTab === "전체" || pvCategoryOf(v.vendorName) === pvCategoryTab) &&
-    (!q || v.vendorName.toLowerCase().includes(q) || (v.vendorCode || "").toLowerCase().includes(q))
+    (!q ||
+      v.vendorName.toLowerCase().includes(q) ||
+      (v.vendorCode || "").toLowerCase().includes(q) ||
+      (v.items || []).some((it) =>
+        (it.itemName || "").toLowerCase().includes(q) ||
+        (it.vendorItemName || "").toLowerCase().includes(q) ||
+        (it.itemCode || "").toLowerCase().includes(q)
+      ))
   );
 }
 
@@ -10433,7 +10457,7 @@ function renderPurchaseVendorsBody() {
     <div style="display:flex; gap:16px; align-items:flex-start;">
       <div class="card" style="width:300px; flex-shrink:0; padding:0; overflow:hidden; position:sticky; top:0; max-height:calc(100vh - 190px); display:flex; flex-direction:column;">
         <div style="padding:12px; border-bottom:1px solid #e5e9f0;">
-          <input id="pv-search" placeholder="구매처명/코드 검색" value="${esc(pvSearchQuery)}" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
+          <input id="pv-search" placeholder="구매처명/코드/품목명 통합검색" value="${esc(pvSearchQuery)}" style="width:100%; padding:7px 10px; border:1px solid #cbd5e1; border-radius:6px; font-size:13px; box-sizing:border-box;" />
         </div>
         <div id="pv-list" style="overflow-y:auto; flex:1;"></div>
       </div>
@@ -11250,9 +11274,22 @@ INN(EA)</th>
   // ── 엑셀 내보내기 ──────────────────────────────────────────────────────────
   qs("#ppl-export-btn").onclick = () => {
     try {
-      const exportRows = state.products.flatMap((p) => {
+      const pplBarcodeGroupCounts = new Map();
+      state.products.forEach((p) => {
+        const key = productBarcodeGroupKey(p);
+        pplBarcodeGroupCounts.set(key, (pplBarcodeGroupCounts.get(key) || 0) + 1);
+      });
+      const pplExportGroups = new Map();
+      state.products.forEach((p) => {
+        const key = productBarcodeGroupKey(p);
+        if (!pplExportGroups.has(key)) pplExportGroups.set(key, []);
+        pplExportGroups.get(key).push(p);
+      });
+      const pplOrderedItems = Array.from(pplExportGroups.values()).flat();
+      const exportRows = pplOrderedItems.flatMap((p) => {
         const vendorRows = getProductVendorRows(p);
-        const multi = vendorRows.length > 1 ? "다중" : "단일";
+        const isMulti = vendorRows.length > 1 || pplBarcodeGroupCounts.get(productBarcodeGroupKey(p)) > 1;
+        const multi = isMulti ? "다중" : "단일";
         return vendorRows.map((v) => ({
           "관리코드": p.managementCode||"",
           "품목코드(이카운트)": p.ecountCode||p.code,
@@ -11281,6 +11318,7 @@ INN(EA)</th>
           "창고그룹(이카운트)": p.warehouseGroup||"",
           "사용창고": (p.usedWarehouses||[]).join(", "),
           "구분": p.itemType||"",
+          "조립여부(BOM)": p.bomFlag ? "Y" : "N",
           "카테고리": (p.categories||[]).join(", "),
           "INN(EA)": p.innEa||"",
           "INN/CTN": p.innPerCtn||"",
