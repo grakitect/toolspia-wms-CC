@@ -8861,10 +8861,26 @@ function nextLocCode(code, step) {
   return m[1] + String(num).padStart(m[2].length, "0");
 }
 
+let locZoneTab = "__ALL__";
+
 async function renderLocationMaster() {
   const wrap = qs("#view-location-master");
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
-  const locs = state.locations || [];
+  const allLocs = state.locations || [];
+
+  const zones = [...new Set(allLocs.map((l) => l.zone).filter(Boolean))].sort();
+  if (locZoneTab !== "__ALL__" && !zones.includes(locZoneTab)) locZoneTab = "__ALL__";
+  const locs = (locZoneTab === "__ALL__" ? allLocs : allLocs.filter((l) => l.zone === locZoneTab))
+    .slice()
+    .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true, sensitivity: "base" }));
+
+  const zoneTabsHtml = [
+    `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === "__ALL__" ? " bh-btn-primary" : ""}" data-zone="__ALL__">전체 (${allLocs.length})</button>`,
+    ...zones.map((z) => {
+      const cnt = allLocs.filter((l) => l.zone === z).length;
+      return `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === z ? " bh-btn-primary" : ""}" data-zone="${esc(z)}">${esc(z)} (${cnt})</button>`;
+    }),
+  ].join("");
 
   const listRows = locs.map((l) => `
     <tr>
@@ -8887,7 +8903,11 @@ async function renderLocationMaster() {
             <h2 style="margin:0;">로케이션 관리</h2>
             <button class="bh-btn bh-btn-primary" id="loc-add-btn">+ 단건 추가</button>
             <button class="bh-btn" id="loc-bulk-btn">⚡ 일괄 생성</button>
+            <button class="bh-btn" id="loc-export-btn">엑셀 다운로드</button>
+            <span style="font-size:13px;color:#64748b;font-weight:600;">${locZoneTab === "__ALL__" ? "전체" : locZoneTab + "구역"} ${locs.length}개</span>
           </div>
+
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap;">${zoneTabsHtml}</div>
 
           <!-- ① 단건 추가 폼 -->
           <div id="loc-add-form-wrap" style="display:none;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin-bottom:12px;background:#eff6ff;">
@@ -8924,7 +8944,7 @@ async function renderLocationMaster() {
               <div class="lcb-field"><label>칸 수</label><input id="lb-slots" type="number" min="1" max="99" value="1" /></div>
             </div>
             <div style="margin-top:8px;"><label>창고 *</label><input id="lb-wh" list="lb-wh-list" style="width:160px;" required /><datalist id="lb-wh-list">${warehouseOptions}</datalist></div>
-            <div id="lb-preview" style="margin:10px 0;padding:8px;background:#dcfce7;border-radius:6px;font-size:12px;color:#166534;min-height:28px;"></div>
+            <div id="lb-preview" style="margin:10px 0;padding:8px;background:#dcfce7;border-radius:6px;font-size:12px;color:#166534;min-height:28px;max-height:220px;overflow-y:auto;"></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button type="button" class="bh-btn" id="loc-bulk-cancel">취소</button>
               <button type="button" class="bh-btn" id="lb-preview-btn">미리보기</button>
@@ -9019,6 +9039,34 @@ async function renderLocationMaster() {
     el.innerHTML = `생성 예정 ${codes.length}개: <span style="font-family:monospace;">${codes.map(esc).join("&nbsp;&nbsp;")}</span>`;
   };
 
+  // ── 존별 탭 ─────────────────────────────────────
+  wrap.querySelectorAll(".loc-zone-tab").forEach((btn) => {
+    btn.onclick = () => {
+      locZoneTab = btn.dataset.zone;
+      renderLocationMaster();
+    };
+  });
+
+  // ── 엑셀 다운로드 ──────────────────────────────
+  qs("#loc-export-btn").onclick = () => {
+    try {
+      const exportRows = locs.map((l) => ({
+        "코드": l.code || "",
+        "존": l.zone || "",
+        "이름": l.name || "",
+        "창고": l.warehouseId || "",
+        "상태": l.active !== false ? "활성" : "비활성",
+      }));
+      const ws = XLSX.utils.json_to_sheet(exportRows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "로케이션");
+      const tag = locZoneTab === "__ALL__" ? "전체" : `${locZoneTab}구역`;
+      XLSX.writeFile(wb, `로케이션-${tag}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      alert(err.message || "내보내기 실패");
+    }
+  };
+
   // ── 단건 추가 ──────────────────────────────────
   qs("#loc-add-btn").onclick = () => {
     qs("#loc-add-form-wrap").style.display = "block";
@@ -9069,10 +9117,8 @@ async function renderLocationMaster() {
         const name = p ? `${p.zone}구역 ${p.col}열 ${p.rack}번랙 ${p.level}단 ${p.slot}칸` : code;
         return { code, zone, name, warehouseId: wh };
       });
-      let ok = 0;
-      for (const loc of parsed) {
-        try { await api("/api/locations", { method: "POST", body: JSON.stringify(loc) }); ok++; } catch (_) {}
-      }
+      const bulkRes = await api("/api/locations/bulk", { method: "POST", body: JSON.stringify({ items: parsed }) });
+      const ok = bulkRes.count;
       state.locations = (await api("/api/locations")).items;
       alert(`${ok}개 생성 완료${skipped ? ` (${skipped}개 중복 건너뜀)` : ""}.`);
       await renderLocationMaster();

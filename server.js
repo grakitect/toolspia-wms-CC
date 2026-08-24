@@ -6537,6 +6537,33 @@ async function handleApi(req, res, urlObj) {
     } catch (e) { return sendJson(res, 400, { error: e.message }); }
   }
 
+  if (req.method === "POST" && pathname === "/api/locations/bulk") {
+    try {
+      const body = await parseBody(req);
+      const items = Array.isArray(body.items) ? body.items : [];
+      const existingCodes = new Set(db.locations.map((l) => l.code));
+      const created = [];
+      const skipped = [];
+      items.forEach((item, i) => {
+        const code = String(item.code || "").trim();
+        const zone = String(item.zone || "").trim();
+        const name = String(item.name || "").trim();
+        const warehouseId = String(item.warehouseId || "").trim();
+        if (!code || !zone || !warehouseId) { skipped.push(code || `(${i}번째)`); return; }
+        if (existingCodes.has(code)) { skipped.push(code); return; }
+        const loc = {
+          id: `${Date.now()}_${i}_${Math.random().toString(36).slice(2, 7)}`,
+          code, zone, name: name || code, warehouseId, active: true
+        };
+        db.locations.push(loc);
+        existingCodes.add(code);
+        created.push(loc);
+      });
+      writeDb(db);
+      return sendJson(res, 200, { ok: true, created, skipped, count: created.length });
+    } catch (e) { return sendJson(res, 400, { error: e.message }); }
+  }
+
   if (req.method === "PUT" && pathname.startsWith("/api/locations/")) {
     try {
       const id = decodeURIComponent(pathname.split("/").pop());
