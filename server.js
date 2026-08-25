@@ -431,6 +431,9 @@ function normalizeDb(db) {
   }
   if (!db.ecvanCredentials || typeof db.ecvanCredentials !== "object") db.ecvanCredentials = { id: "", pw: "" };
   if (!Array.isArray(db.locations)) db.locations = [];
+  for (const loc of db.locations) {
+    if (typeof loc.building !== "string") loc.building = "";
+  }
   if (!db.locationMaps || typeof db.locationMaps !== "object") db.locationMaps = {};
   if (!Array.isArray(db.purchaseOrders)) db.purchaseOrders = [];
   if (!Array.isArray(db.purchaseProductMaster)) db.purchaseProductMaster = [];
@@ -6520,16 +6523,18 @@ async function handleApi(req, res, urlObj) {
     try {
       const body = await parseBody(req);
       const code = String(body.code || "").trim();
+      const building = String(body.building || "").trim();
       const zone = String(body.zone || "").trim();
       const name = String(body.name || "").trim();
       const warehouseId = String(body.warehouseId || "").trim();
       if (!code) throw new Error("로케이션 코드는 필수입니다.");
+      if (!building) throw new Error("동은 필수입니다.");
       if (!zone) throw new Error("존은 필수입니다.");
       if (!warehouseId) throw new Error("창고는 필수입니다.");
       if (db.locations.some((l) => l.code === code)) throw new Error(`이미 존재하는 코드: ${code}`);
       const loc = {
         id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        code, zone, name: name || code, warehouseId, active: true
+        code, building, zone, name: name || code, warehouseId, active: true
       };
       db.locations.push(loc);
       writeDb(db);
@@ -6546,14 +6551,15 @@ async function handleApi(req, res, urlObj) {
       const skipped = [];
       items.forEach((item, i) => {
         const code = String(item.code || "").trim();
+        const building = String(item.building || "").trim();
         const zone = String(item.zone || "").trim();
         const name = String(item.name || "").trim();
         const warehouseId = String(item.warehouseId || "").trim();
-        if (!code || !zone || !warehouseId) { skipped.push(code || `(${i}번째)`); return; }
+        if (!code || !building || !zone || !warehouseId) { skipped.push(code || `(${i}번째)`); return; }
         if (existingCodes.has(code)) { skipped.push(code); return; }
         const loc = {
           id: `${Date.now()}_${i}_${Math.random().toString(36).slice(2, 7)}`,
-          code, zone, name: name || code, warehouseId, active: true
+          code, building, zone, name: name || code, warehouseId, active: true
         };
         db.locations.push(loc);
         existingCodes.add(code);
@@ -6576,6 +6582,7 @@ async function handleApi(req, res, urlObj) {
         if (db.locations.some((l) => l.id !== id && l.code === code)) throw new Error(`이미 존재하는 코드: ${code}`);
         loc.code = code;
       }
+      if (body.building !== undefined) loc.building = String(body.building).trim();
       if (body.zone !== undefined) loc.zone = String(body.zone).trim();
       if (body.name !== undefined) loc.name = String(body.name).trim();
       if (body.warehouseId !== undefined) loc.warehouseId = String(body.warehouseId).trim();

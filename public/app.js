@@ -8541,9 +8541,9 @@ function renderAdjust() {
         </div>
         <div><label>창고</label><input name="warehouse" list="LOC-warehouse-list" required /></div>
         <datalist id="LOC-warehouse-list">${warehouseOptions}</datalist>
-        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="LOC-from-loc-list" required placeholder="예: A-01-01" /></div>
+        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="LOC-from-loc-list" required placeholder="예: AA01-01-101" /></div>
         <datalist id="LOC-from-loc-list">${locationOptions}</datalist>
-        <div><label>도착 로케이션 <span class="required-mark">*</span></label><input name="toLocationCode" list="LOC-to-loc-list" required placeholder="예: B-02-03" /></div>
+        <div><label>도착 로케이션 <span class="required-mark">*</span></label><input name="toLocationCode" list="LOC-to-loc-list" required placeholder="예: AB02-01-101" /></div>
         <datalist id="LOC-to-loc-list">${locationOptions}</datalist>
         <div><label>이동수량</label><input name="qty" type="number" required /></div>
         <div><label>담당자</label><input name="user" list="LOC-manager-list" required /></div>
@@ -8566,7 +8566,7 @@ function renderAdjust() {
         </div>
         <div><label>출발창고</label><input name="warehouse" list="TRANSFER-from-list" required /></div>
         <datalist id="TRANSFER-from-list">${warehouseOptions}</datalist>
-        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="TRANSFER-from-loc-list" required placeholder="예: A-01-01" /></div>
+        <div><label>출발 로케이션 <span class="required-mark">*</span></label><input name="locationCode" list="TRANSFER-from-loc-list" required placeholder="예: AA01-01-101" /></div>
         <datalist id="TRANSFER-from-loc-list">${locationOptions}</datalist>
         <div><label>도착창고</label><input name="toWarehouse" list="TRANSFER-to-list" required /></div>
         <datalist id="TRANSFER-to-list">${warehouseOptions}</datalist>
@@ -8826,18 +8826,22 @@ function renderAdjust() {
 }
 
 // ── 로케이션 마스터 ────────────────────────────────────────────────────────
-function buildLocCode(zone, col, rack, level, slot) {
+// 동(building) + 존(zone) + 열-랙-단칸. 예: A동 A존 1열 1번랙 1단 1칸 → AA01-01-101
+function buildLocCode(building, zone, col, rack, level, slot) {
+  const b = String(building || "").toUpperCase().trim();
   const z = String(zone || "").toUpperCase().trim();
   const c = String(Math.round(Number(col) || 0)).padStart(2, "0");
   const r = String(Math.round(Number(rack) || 0)).padStart(2, "0");
   const l = String(Math.round(Number(level) || 0));
   const s = String(Math.round(Number(slot) || 0)).padStart(2, "0");
-  if (!z || c === "00" || r === "00" || l === "0" || s === "00") return "";
-  return `${z}${c}-${r}-${l}${s}`;
+  if (!b || !z || c === "00" || r === "00" || l === "0" || s === "00") return "";
+  return `${b}${z}${c}-${r}-${l}${s}`;
 }
 
 function parseLocCode(code) {
-  // E06-01-101 → { zone:"E", col:6, rack:1, level:1, slot:1 }
+  // AA06-01-101 → { zone:"AA"(동+존 결합 문자열), col:6, rack:1, level:1, slot:1 }
+  // 동/존 경계는 여기서 구분하지 않는다 — 랙 번호 증감(nextLocCode) 등 문자 접두사를 통째로
+  // 다루는 용도로만 쓰이며, 동/존을 각각 알아야 하는 곳은 위치 객체의 building/zone 필드를 쓴다.
   const m = String(code || "").match(/^([A-Za-z]+)(\d{2})-(\d{2})-([1-9])(\d{2})$/);
   if (!m) return null;
   return { zone: m[1].toUpperCase(), col: Number(m[2]), rack: Number(m[3]), level: Number(m[4]), slot: Number(m[5]) };
@@ -8854,13 +8858,20 @@ function truncLocCode(code) {
 function nextLocCode(code, step) {
   if (!code || !step) return code;
   const p = parseLocCode(code);
-  if (p) return buildLocCode(p.zone, p.col, p.rack + step, p.level, p.slot);
+  if (p) {
+    const c = String(p.col).padStart(2, "0");
+    const r = String(p.rack + step).padStart(2, "0");
+    const l = String(p.level);
+    const s = String(p.slot).padStart(2, "0");
+    return `${p.zone}${c}-${r}-${l}${s}`;
+  }
   const m = code.match(/^([\s\S]*\D)(\d+)$/);
   if (!m) return code;
   const num = parseInt(m[2], 10) + step;
   return m[1] + String(num).padStart(m[2].length, "0");
 }
 
+let locBuildingTab = "__ALL__";
 let locZoneTab = "__ALL__";
 
 async function renderLocationMaster() {
@@ -8868,16 +8879,28 @@ async function renderLocationMaster() {
   const warehouseOptions = (state.warehouses || []).map((w) => `<option value="${esc(w)}">${esc(w)}</option>`).join("");
   const allLocs = state.locations || [];
 
-  const zones = [...new Set(allLocs.map((l) => l.zone).filter(Boolean))].sort();
+  const buildings = [...new Set(allLocs.map((l) => l.building).filter(Boolean))].sort();
+  if (locBuildingTab !== "__ALL__" && !buildings.includes(locBuildingTab)) locBuildingTab = "__ALL__";
+  const buildingFiltered = locBuildingTab === "__ALL__" ? allLocs : allLocs.filter((l) => l.building === locBuildingTab);
+
+  const zones = [...new Set(buildingFiltered.map((l) => l.zone).filter(Boolean))].sort();
   if (locZoneTab !== "__ALL__" && !zones.includes(locZoneTab)) locZoneTab = "__ALL__";
-  const locs = (locZoneTab === "__ALL__" ? allLocs : allLocs.filter((l) => l.zone === locZoneTab))
+  const locs = (locZoneTab === "__ALL__" ? buildingFiltered : buildingFiltered.filter((l) => l.zone === locZoneTab))
     .slice()
-    .sort((a, b) => String(a.code).localeCompare(String(b.code), undefined, { numeric: true, sensitivity: "base" }));
+    .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "ko", { numeric: true, sensitivity: "base" }));
+
+  const buildingTabsHtml = [
+    `<button class="bh-btn bh-btn-sm loc-building-tab${locBuildingTab === "__ALL__" ? " bh-btn-primary" : ""}" data-building="__ALL__">전체 동 (${allLocs.length})</button>`,
+    ...buildings.map((b) => {
+      const cnt = allLocs.filter((l) => l.building === b).length;
+      return `<button class="bh-btn bh-btn-sm loc-building-tab${locBuildingTab === b ? " bh-btn-primary" : ""}" data-building="${esc(b)}">${esc(b)}동 (${cnt})</button>`;
+    }),
+  ].join("");
 
   const zoneTabsHtml = [
-    `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === "__ALL__" ? " bh-btn-primary" : ""}" data-zone="__ALL__">전체 (${allLocs.length})</button>`,
+    `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === "__ALL__" ? " bh-btn-primary" : ""}" data-zone="__ALL__">전체 (${buildingFiltered.length})</button>`,
     ...zones.map((z) => {
-      const cnt = allLocs.filter((l) => l.zone === z).length;
+      const cnt = buildingFiltered.filter((l) => l.zone === z).length;
       return `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === z ? " bh-btn-primary" : ""}" data-zone="${esc(z)}">${esc(z)} (${cnt})</button>`;
     }),
   ].join("");
@@ -8886,6 +8909,7 @@ async function renderLocationMaster() {
     <tr>
       <td style="width:36px;text-align:center;"><input type="checkbox" class="loc-row-cb" data-id="${esc(l.id)}" /></td>
       <td><code style="font-size:12px;">${esc(l.code)}</code></td>
+      <td>${esc(l.building)}</td>
       <td>${esc(l.zone)}</td>
       <td>${esc(l.name)}</td>
       <td>${esc(l.warehouseId)}</td>
@@ -8904,16 +8928,18 @@ async function renderLocationMaster() {
             <button class="bh-btn bh-btn-primary" id="loc-add-btn">+ 단건 추가</button>
             <button class="bh-btn" id="loc-bulk-btn">⚡ 일괄 생성</button>
             <button class="bh-btn" id="loc-export-btn">엑셀 다운로드</button>
-            <span style="font-size:13px;color:#64748b;font-weight:600;">${locZoneTab === "__ALL__" ? "전체" : locZoneTab + "구역"} ${locs.length}개</span>
+            <span style="font-size:13px;color:#64748b;font-weight:600;">${locBuildingTab === "__ALL__" ? "전체 동" : locBuildingTab + "동"} · ${locZoneTab === "__ALL__" ? "전체" : locZoneTab + "구역"} ${locs.length}개</span>
           </div>
 
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap;">${buildingTabsHtml}</div>
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:12px;flex-wrap:wrap;">${zoneTabsHtml}</div>
 
           <!-- ① 단건 추가 폼 -->
           <div id="loc-add-form-wrap" style="display:none;border:1px solid #bfdbfe;border-radius:8px;padding:16px;margin-bottom:12px;background:#eff6ff;">
             <h4 style="margin:0 0 10px;color:#1d4ed8;">새 로케이션 — 코드 조합기</h4>
             <div class="loc-code-builder-row">
-              <div class="lcb-field"><label>구역</label><input id="lcb-zone" placeholder="E" maxlength="3" /></div>
+              <div class="lcb-field"><label>동</label><input id="lcb-building" placeholder="A" maxlength="3" /></div>
+              <div class="lcb-field"><label>구역</label><input id="lcb-zone" placeholder="A" maxlength="3" /></div>
               <div class="lcb-field"><label>열</label><input id="lcb-col" type="number" min="1" max="99" placeholder="6" /></div>
               <div class="lcb-field"><label>랙순서</label><input id="lcb-rack" type="number" min="1" max="99" placeholder="1" /></div>
               <div class="lcb-field"><label>단</label><input id="lcb-level" type="number" min="1" max="9" placeholder="1" /></div>
@@ -8935,9 +8961,10 @@ async function renderLocationMaster() {
 
           <!-- ② 일괄 생성 폼 -->
           <div id="loc-bulk-form-wrap" style="display:none;border:1px solid #bbf7d0;border-radius:8px;padding:16px;margin-bottom:12px;background:#f0fdf4;">
-            <h4 style="margin:0 0 10px;color:#166534;">일괄 생성 — 구역·열·랙 단위</h4>
+            <h4 style="margin:0 0 10px;color:#166534;">일괄 생성 — 동·구역·열·랙 단위</h4>
             <div class="loc-code-builder-row">
-              <div class="lcb-field"><label>구역</label><input id="lb-zone" placeholder="E" maxlength="3" /></div>
+              <div class="lcb-field"><label>동</label><input id="lb-building" placeholder="A" maxlength="3" /></div>
+              <div class="lcb-field"><label>구역</label><input id="lb-zone" placeholder="A" maxlength="3" /></div>
               <div class="lcb-field"><label>열 <span style="font-size:10px;color:#6b7280;">예: 6 또는 1-6</span></label><input id="lb-col" placeholder="6" style="width:80px;" /></div>
               <div class="lcb-field"><label>랙순서 <span style="font-size:10px;color:#6b7280;">예: 1 또는 1-3</span></label><input id="lb-rack" placeholder="1" style="width:80px;" /></div>
               <div class="lcb-field"><label>단 수</label><input id="lb-levels" type="number" min="1" max="9" value="3" /></div>
@@ -8958,6 +8985,7 @@ async function renderLocationMaster() {
             <form id="loc-edit-form" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <input type="hidden" name="id" />
               <div><label>코드 *</label><input name="code" required /></div>
+              <div><label>동 *</label><input name="building" required /></div>
               <div><label>존 *</label><input name="zone" required /></div>
               <div><label>이름</label><input name="name" /></div>
               <div><label>창고 *</label><input name="warehouseId" list="loc-edit-wh-list" required /><datalist id="loc-edit-wh-list">${warehouseOptions}</datalist></div>
@@ -8976,8 +9004,8 @@ async function renderLocationMaster() {
           </div>
           <div style="overflow-x:auto;">
             <table class="data-table">
-              <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="loc-all-cb" title="전체 선택" /></th><th>코드</th><th>존</th><th>이름</th><th>창고</th><th>상태</th><th>관리</th></tr></thead>
-              <tbody>${listRows || '<tr><td colspan="7" class="muted" style="text-align:center;padding:24px;">등록된 로케이션이 없습니다.</td></tr>'}</tbody>
+              <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="loc-all-cb" title="전체 선택" /></th><th>코드</th><th>동</th><th>존</th><th>이름</th><th>창고</th><th>상태</th><th>관리</th></tr></thead>
+              <tbody>${listRows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px;">등록된 로케이션이 없습니다.</td></tr>'}</tbody>
             </table>
           </div>
     </div>
@@ -8985,16 +9013,17 @@ async function renderLocationMaster() {
 
   // ── 코드 조합기 실시간 미리보기 ─────────────
   function updateAddPreview() {
+    const b = qs("#lcb-building")?.value || "";
     const z = qs("#lcb-zone")?.value || "";
     const c = qs("#lcb-col")?.value || "";
     const r = qs("#lcb-rack")?.value || "";
     const l = qs("#lcb-level")?.value || "";
     const s = qs("#lcb-slot")?.value || "";
-    const code = buildLocCode(z, c, r, l, s);
+    const code = buildLocCode(b, z, c, r, l, s);
     const el = qs("#lcb-preview");
     if (el) el.textContent = code || "—";
   }
-  ["lcb-zone","lcb-col","lcb-rack","lcb-level","lcb-slot"].forEach((id) => {
+  ["lcb-building","lcb-zone","lcb-col","lcb-rack","lcb-level","lcb-slot"].forEach((id) => {
     qs(`#${id}`)?.addEventListener("input", updateAddPreview);
   });
 
@@ -9012,32 +9041,44 @@ async function renderLocationMaster() {
     return n > 0 ? [n] : [];
   }
 
+  // 동/구역은 코드 문자열로 다시 쪼개지 않도록 항목마다 원본 값을 그대로 들고 있는다.
   function getBulkCodes() {
-    const z = (qs("#lb-zone")?.value || "").trim();
+    const b = (qs("#lb-building")?.value || "").trim().toUpperCase();
+    const z = (qs("#lb-zone")?.value || "").trim().toUpperCase();
     const cols = parseRange(qs("#lb-col")?.value);
     const racks = parseRange(qs("#lb-rack")?.value);
     const levels = Math.max(1, Math.min(9, Number(qs("#lb-levels")?.value) || 3));
     const slots = Math.max(1, Math.min(99, Number(qs("#lb-slots")?.value) || 1));
-    if (!z || !cols.length || !racks.length) return [];
-    const codes = [];
+    if (!b || !z || !cols.length || !racks.length) return [];
+    const items = [];
     for (const c of cols) {
       for (const r of racks) {
         for (let lv = 1; lv <= levels; lv++) {
           for (let sl = 1; sl <= slots; sl++) {
-            codes.push(buildLocCode(z, c, r, lv, sl));
+            const code = buildLocCode(b, z, c, r, lv, sl);
+            if (code) items.push({ code, building: b, zone: z, col: c, rack: r, level: lv, slot: sl });
           }
         }
       }
     }
-    return codes;
+    return items;
   }
 
   qs("#lb-preview-btn").onclick = () => {
-    const codes = getBulkCodes();
+    const items = getBulkCodes();
     const el = qs("#lb-preview");
-    if (!codes.length) { el.textContent = "구역·열·랙순서를 입력하세요."; return; }
-    el.innerHTML = `생성 예정 ${codes.length}개: <span style="font-family:monospace;">${codes.map(esc).join("&nbsp;&nbsp;")}</span>`;
+    if (!items.length) { el.textContent = "동·구역·열·랙순서를 입력하세요."; return; }
+    el.innerHTML = `생성 예정 ${items.length}개: <span style="font-family:monospace;">${items.map((it) => esc(it.code)).join("&nbsp;&nbsp;")}</span>`;
   };
+
+  // ── 동별 탭 ─────────────────────────────────────
+  wrap.querySelectorAll(".loc-building-tab").forEach((btn) => {
+    btn.onclick = () => {
+      locBuildingTab = btn.dataset.building;
+      locZoneTab = "__ALL__";
+      renderLocationMaster();
+    };
+  });
 
   // ── 존별 탭 ─────────────────────────────────────
   wrap.querySelectorAll(".loc-zone-tab").forEach((btn) => {
@@ -9052,6 +9093,7 @@ async function renderLocationMaster() {
     try {
       const exportRows = locs.map((l) => ({
         "코드": l.code || "",
+        "동": l.building || "",
         "존": l.zone || "",
         "이름": l.name || "",
         "창고": l.warehouseId || "",
@@ -9075,19 +9117,20 @@ async function renderLocationMaster() {
   };
   qs("#loc-add-cancel").onclick = () => { qs("#loc-add-form-wrap").style.display = "none"; };
   qs("#loc-add-submit").onclick = async () => {
+    const b = qs("#lcb-building").value.trim();
     const z = qs("#lcb-zone").value.trim();
     const c = qs("#lcb-col").value;
     const r = qs("#lcb-rack").value;
     const l = qs("#lcb-level").value;
     const s = qs("#lcb-slot").value;
-    const code = buildLocCode(z, c, r, l, s);
-    if (!code) { alert("구역·열·랙순서·단·칸을 모두 입력하세요."); return; }
+    const code = buildLocCode(b, z, c, r, l, s);
+    if (!code) { alert("동·구역·열·랙순서·단·칸을 모두 입력하세요."); return; }
     const wh = qs("#lcb-wh").value.trim();
     if (!wh) { alert("창고를 입력하세요."); return; }
     const nameInput = qs("#lcb-name").value.trim();
-    const name = nameInput || `${z}구역 ${c}열 ${r}번랙 ${l}단 ${s}칸`;
+    const name = nameInput || `${b}동 ${z}구역 ${c}열 ${r}번랙 ${l}단 ${s}칸`;
     try {
-      await api("/api/locations", { method: "POST", body: JSON.stringify({ code, zone: z.toUpperCase(), name, warehouseId: wh }) });
+      await api("/api/locations", { method: "POST", body: JSON.stringify({ code, building: b.toUpperCase(), zone: z.toUpperCase(), name, warehouseId: wh }) });
       state.locations = (await api("/api/locations")).items;
       await renderLocationMaster();
     } catch (e) { alert(e.message); }
@@ -9101,22 +9144,23 @@ async function renderLocationMaster() {
   };
   qs("#loc-bulk-cancel").onclick = () => { qs("#loc-bulk-form-wrap").style.display = "none"; };
   qs("#loc-bulk-submit").onclick = async () => {
-    const codes = getBulkCodes();
-    if (!codes.length) { alert("구역·열·랙순서를 입력하세요."); return; }
+    const items = getBulkCodes();
+    if (!items.length) { alert("동·구역·열·랙순서를 입력하세요."); return; }
     const wh = qs("#lb-wh").value.trim();
     if (!wh) { alert("창고를 입력하세요."); return; }
-    const zone = (qs("#lb-zone").value || "").trim().toUpperCase();
     const existingCodes = new Set((state.locations || []).map((l) => l.code));
-    const toCreate = codes.filter((code) => !existingCodes.has(code));
-    const skipped = codes.length - toCreate.length;
+    const toCreate = items.filter((it) => !existingCodes.has(it.code));
+    const skipped = items.length - toCreate.length;
     if (!toCreate.length) { alert(`모두 이미 존재합니다 (${skipped}개 건너뜀).`); return; }
-    if (!confirm(`${toCreate.length}개 생성${skipped ? ` (${skipped}개 중복 건너뜀)` : ""}:\n${toCreate.slice(0, 10).join(", ")}${toCreate.length > 10 ? "..." : ""}`)) return;
+    if (!confirm(`${toCreate.length}개 생성${skipped ? ` (${skipped}개 중복 건너뜀)` : ""}:\n${toCreate.slice(0, 10).map((it) => it.code).join(", ")}${toCreate.length > 10 ? "..." : ""}`)) return;
     try {
-      const parsed = toCreate.map((code) => {
-        const p = parseLocCode(code);
-        const name = p ? `${p.zone}구역 ${p.col}열 ${p.rack}번랙 ${p.level}단 ${p.slot}칸` : code;
-        return { code, zone, name, warehouseId: wh };
-      });
+      const parsed = toCreate.map((it) => ({
+        code: it.code,
+        building: it.building,
+        zone: it.zone,
+        name: `${it.building}동 ${it.zone}구역 ${it.col}열 ${it.rack}번랙 ${it.level}단 ${it.slot}칸`,
+        warehouseId: wh
+      }));
       const bulkRes = await api("/api/locations/bulk", { method: "POST", body: JSON.stringify({ items: parsed }) });
       const ok = bulkRes.count;
       state.locations = (await api("/api/locations")).items;
@@ -9133,6 +9177,7 @@ async function renderLocationMaster() {
       const f = qs("#loc-edit-form");
       f.querySelector("[name=id]").value = loc.id;
       f.querySelector("[name=code]").value = loc.code;
+      f.querySelector("[name=building]").value = loc.building || "";
       f.querySelector("[name=zone]").value = loc.zone;
       f.querySelector("[name=name]").value = loc.name || "";
       f.querySelector("[name=warehouseId]").value = loc.warehouseId;
