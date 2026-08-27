@@ -331,7 +331,8 @@ body {
 }
 #view-barcode-print2,
 #view-barcode-print-history,
-#view-barcode-print-presets {
+#view-barcode-print-presets,
+#view-location-label-print {
   height: 100%;
 }
 
@@ -1926,6 +1927,9 @@ td.spec-editable-cell:hover { background: #EFF6FF; }
 .products-bh-y-scroll::-webkit-scrollbar-thumb { background: #94A3B8; border-radius: 8px; }
 .products-bh-y-scroll::-webkit-scrollbar-thumb:hover { background: #64748B; }
 .products-bh-y-scroll { scrollbar-width: auto; }
+
+#loc-table { border-collapse: separate; border-spacing: 0; }
+#loc-table thead { position: sticky; top: 0; z-index: 1; background: #FAFBFC; }
 
 /* ── Pagination ──────────────────────────────────────────────── */
 .products-bh-pagination {

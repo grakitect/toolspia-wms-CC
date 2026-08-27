@@ -21,6 +21,7 @@ const views = [
   "location-master",
   "location-map",
   "location-map-3d",
+  "location-label-print",
   "location-stock",
   "purchase-vendors",
   "purchase-products",
@@ -709,7 +710,7 @@ function switchView(name) {
   // 바코드 인쇄 뷰는 패딩 제거 (풀스크린 iframe)
   qs(".main").classList.toggle(
     "main-fullscreen",
-    name === "barcode-print2" || name === "barcode-print-history" || name === "barcode-print-presets"
+    name === "barcode-print2" || name === "barcode-print-history" || name === "barcode-print-presets" || name === "location-label-print"
   );
   try {
     localStorage.setItem(LAST_VIEW_KEY, name);
@@ -8883,9 +8884,10 @@ async function renderLocationMaster() {
   if (locBuildingTab !== "__ALL__" && !buildings.includes(locBuildingTab)) locBuildingTab = "__ALL__";
   const buildingFiltered = locBuildingTab === "__ALL__" ? allLocs : allLocs.filter((l) => l.building === locBuildingTab);
 
-  const zones = [...new Set(buildingFiltered.map((l) => l.zone).filter(Boolean))].sort();
-  if (locZoneTab !== "__ALL__" && !zones.includes(locZoneTab)) locZoneTab = "__ALL__";
-  const locs = (locZoneTab === "__ALL__" ? buildingFiltered : buildingFiltered.filter((l) => l.zone === locZoneTab))
+  const zoneCombo = (l) => `${l.building || ""}${l.zone || ""}`;
+  const zoneCombos = [...new Set(buildingFiltered.map(zoneCombo).filter(Boolean))].sort();
+  if (locZoneTab !== "__ALL__" && !zoneCombos.includes(locZoneTab)) locZoneTab = "__ALL__";
+  const locs = (locZoneTab === "__ALL__" ? buildingFiltered : buildingFiltered.filter((l) => zoneCombo(l) === locZoneTab))
     .slice()
     .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "ko", { numeric: true, sensitivity: "base" }));
 
@@ -8899,9 +8901,9 @@ async function renderLocationMaster() {
 
   const zoneTabsHtml = [
     `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === "__ALL__" ? " bh-btn-primary" : ""}" data-zone="__ALL__">전체 (${buildingFiltered.length})</button>`,
-    ...zones.map((z) => {
-      const cnt = buildingFiltered.filter((l) => l.zone === z).length;
-      return `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === z ? " bh-btn-primary" : ""}" data-zone="${esc(z)}">${esc(z)} (${cnt})</button>`;
+    ...zoneCombos.map((zc) => {
+      const cnt = buildingFiltered.filter((l) => zoneCombo(l) === zc).length;
+      return `<button class="bh-btn bh-btn-sm loc-zone-tab${locZoneTab === zc ? " bh-btn-primary" : ""}" data-zone="${esc(zc)}">${esc(zc)} (${cnt})</button>`;
     }),
   ].join("");
 
@@ -9002,8 +9004,8 @@ async function renderLocationMaster() {
             <button class="bh-btn bh-btn-sm" id="loc-bulk-deactivate">비활성화</button>
             <button class="bh-btn bh-btn-sm bh-btn-danger" id="loc-bulk-delete">삭제</button>
           </div>
-          <div style="overflow-x:auto;">
-            <table class="data-table">
+          <div class="table-scroll-x products-bh-y-scroll">
+            <table class="data-table" id="loc-table">
               <thead><tr><th style="width:36px;text-align:center;"><input type="checkbox" id="loc-all-cb" title="전체 선택" /></th><th>코드</th><th>동</th><th>존</th><th>이름</th><th>창고</th><th>상태</th><th>관리</th></tr></thead>
               <tbody>${listRows || '<tr><td colspan="8" class="muted" style="text-align:center;padding:24px;">등록된 로케이션이 없습니다.</td></tr>'}</tbody>
             </table>
@@ -10383,6 +10385,12 @@ function renderBarcodePrintPresets() {
   el.innerHTML = `<iframe src="/barcode-print2.html?embedded=1&tab=presets" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
 }
 
+function renderLocationLabelPrint() {
+  const el = qs("#view-location-label-print");
+  if (el.querySelector("iframe")) return;
+  el.innerHTML = `<iframe src="/location-label-print.html" style="width:100%;height:100%;border:none;display:block;"></iframe>`;
+}
+
 let pvSelectedVendor = null;
 let pvSearchQuery = "";
 let pvCategoryTab = "전체";
@@ -11613,6 +11621,7 @@ async function init() {
       if (v === "location-map") renderLocationMap();
       if (v === "location-map-3d") renderLocationMap3D();
       else { const w3d = qs("#view-location-map-3d"); if (w3d?._disposeMap3D) { w3d._disposeMap3D(); w3d._disposeMap3D = null; } }
+      if (v === "location-label-print") renderLocationLabelPrint();
       if (v === "location-stock") await renderLocationStock();
       if (v === "purchase-vendors") await renderPurchaseVendors();
       if (v === "purchase-products") renderPurchaseProductsList();
@@ -11665,6 +11674,7 @@ async function init() {
   if (initialView === "barcode-print2") renderBarcodePrint2();
   if (initialView === "barcode-print-history") renderBarcodePrintHistory();
   if (initialView === "barcode-print-presets") renderBarcodePrintPresets();
+  if (initialView === "location-label-print") renderLocationLabelPrint();
 
   try {
     if (localStorage.getItem(WmsDemoMask.STORAGE_KEY) === "1") {
