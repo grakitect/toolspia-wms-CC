@@ -74,6 +74,10 @@
   table{width:100%;border-collapse:collapse;font-size:13px;}
   th,td{padding:9px 10px;border-bottom:1px solid var(--ui-border);text-align:left;}
   th{color:var(--ui-text2);font-weight:700;background:#FAFBFC;font-size:11.5px;text-transform:uppercase;letter-spacing:.2px;}
+  .zone-tab-wrap{display:inline-flex;align-items:center;gap:4px;}
+  .filter-box{background:#FAFBFC;border:1px solid var(--ui-border);border-radius:10px;padding:10px 12px 4px;margin-bottom:12px;}
+  .filter-tier{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap;}
+  .filter-tier-label{flex:none;width:32px;font-size:12px;font-weight:700;color:var(--ui-text2);}
   .rack-group{margin-bottom:6px;border:1px solid var(--ui-border);border-radius:10px;overflow:hidden;}
   .rack-group-head{display:flex;align-items:center;gap:8px;background:#FAFBFC;padding:8px 12px;cursor:pointer;font-size:13px;}
   .rack-group-head b{font-size:13px;color:var(--ui-text);}
@@ -181,6 +185,12 @@
     #printArea{
       display:block;margin:0 !important;text-align:left;box-sizing:border-box;
       padding:var(--page-margin-top,5mm) var(--page-margin-right,4mm) var(--page-margin-bottom,4mm) var(--page-margin-left,4mm);
+      /* #printArea는 라벨이 넘치면 여러 장으로 자동 분할되는 하나의 연속된 박스다.
+         기본값(slice)에서는 padding-top이 "첫 페이지"에만 적용되고 두 번째 장부터는
+         사라진다 — 5번째 라벨(두 번째 용지)부터 윗 여백이 안 잡히던 원인.
+         clone으로 지정해 모든 페이지에 padding을 반복 적용한다. */
+      -webkit-box-decoration-break:clone;
+      box-decoration-break:clone;
     }
     #printArea::after{content:"";display:table;clear:both;}
     .label-wrap{float:left;margin:0 var(--label-gap,1.5mm) var(--label-gap,1.5mm) 0;page-break-inside:avoid;break-inside:avoid;}
@@ -251,8 +261,11 @@
           <button class="danger" id="deleteSelectedBtn">선택 삭제</button>
         </div>
       </div>
-      <div id="masterBuildingTabs" class="row" style="margin:0 0 6px;"></div>
-      <div id="masterZoneTabs" class="row" style="margin:0 0 10px;"></div>
+      <div class="filter-box">
+        <div class="filter-tier"><span class="filter-tier-label">동</span><div id="masterBuildingTabs" class="row" style="margin:0;"></div></div>
+        <div class="filter-tier"><span class="filter-tier-label">구역</span><div id="masterZoneTabs" class="row" style="margin:0;"></div></div>
+        <div class="filter-tier"><span class="filter-tier-label">열</span><div id="masterColTabs" class="row" style="margin:0;"></div></div>
+      </div>
       <div id="masterList"><div class="empty-msg">등록된 로케이션이 없습니다.</div></div>
     </div>
   </section>
@@ -941,6 +954,7 @@
   let collapsedRacks = new Set();
   let locBuildingTab = "__ALL__";
   let locZoneTab = "__ALL__";
+  let locColTab = "__ALL__";
 
   // masterMeta에 없는 코드(임시로 추가한 코드 등)는 코드 앞 2글자(동+구역)로 유추한다.
   function codeBuilding(code){
@@ -1020,6 +1034,14 @@
     return { rack: code.slice(0, idx), level: code.slice(idx + 1) };
   }
 
+  // 랙코드(예: AA06-01)에서 "열" 단위 키(예: AA06)만 뽑아낸다.
+  // 코드 규칙: 구역(존)+열이 붙어 있고 그 뒤에 "-랙번호"가 온다 → 랙코드를 한 번 더 마지막 "-" 기준으로 쪼개면 열 키가 나온다.
+  function codeColumnKey(code){
+    const { rack } = splitCode(code);
+    const idx = rack.lastIndexOf("-");
+    return idx < 0 ? rack : rack.slice(0, idx);
+  }
+
   function groupByRack(codes){
     const map = new Map();
     codes.forEach(raw=>{
@@ -1054,9 +1076,10 @@
   const masterSearchEl = document.getElementById("masterSearch");
   const masterBuildingTabsEl = document.getElementById("masterBuildingTabs");
   const masterZoneTabsEl = document.getElementById("masterZoneTabs");
-  let currentVisibleCodes = []; // 현재 동/구역 탭 + 검색어로 필터링되어 화면에 보이는 코드 목록
+  const masterColTabsEl = document.getElementById("masterColTabs");
+  let currentVisibleCodes = []; // 현재 동/구역/열 탭 + 검색어로 필터링되어 화면에 보이는 코드 목록
 
-  // 동 탭 → 그 안의 구역(동+구역 조합) 탭 순으로 필터링해서, 로케이션 관리 화면과 같은 탭 구성을 재현한다.
+  // 동 탭 → 구역(동+구역 조합) 탭 → 열(구역+열 조합) 탭 순으로 필터링해서, 로케이션 관리 화면과 같은 탭 구성을 재현한다.
   function renderMasterTabs(){
     const buildings = [...new Set(master.map(codeBuilding).filter(Boolean))].sort();
     if (locBuildingTab !== "__ALL__" && !buildings.includes(locBuildingTab)) locBuildingTab = "__ALL__";
@@ -1065,6 +1088,10 @@
     const zoneCombos = [...new Set(buildingFiltered.map(codeZoneCombo).filter(Boolean))].sort();
     if (locZoneTab !== "__ALL__" && !zoneCombos.includes(locZoneTab)) locZoneTab = "__ALL__";
     const zoneFiltered = locZoneTab === "__ALL__" ? buildingFiltered : buildingFiltered.filter(c => codeZoneCombo(c) === locZoneTab);
+
+    const colKeys = [...new Set(zoneFiltered.map(codeColumnKey).filter(Boolean))].sort();
+    if (locColTab !== "__ALL__" && !colKeys.includes(locColTab)) locColTab = "__ALL__";
+    const colFiltered = locColTab === "__ALL__" ? zoneFiltered : zoneFiltered.filter(c => codeColumnKey(c) === locColTab);
 
     masterBuildingTabsEl.innerHTML = [
       `<button class="secondary${locBuildingTab === "__ALL__" ? " active" : ""}" data-building="__ALL__">전체 동 (${master.length})</button>`,
@@ -1076,8 +1103,23 @@
     masterZoneTabsEl.innerHTML = [
       `<button class="secondary${locZoneTab === "__ALL__" ? " active" : ""}" data-zone="__ALL__">전체 (${buildingFiltered.length})</button>`,
       ...zoneCombos.map(zc=>{
-        const cnt = buildingFiltered.filter(c => codeZoneCombo(c) === zc).length;
-        return `<button class="secondary${locZoneTab === zc ? " active" : ""}" data-zone="${escapeHtml(zc)}">${escapeHtml(zc)} (${cnt})</button>`;
+        const items = buildingFiltered.filter(c => codeZoneCombo(c) === zc);
+        const allChecked = items.length > 0 && items.every(c => selected.has(c));
+        return `<span class="zone-tab-wrap">
+          <input type="checkbox" class="zone-select-all" data-zone="${escapeHtml(zc)}" title="${escapeHtml(zc)} 구역 전체선택" ${allChecked?"checked":""}>
+          <button class="secondary${locZoneTab === zc ? " active" : ""}" data-zone="${escapeHtml(zc)}">${escapeHtml(zc)} (${items.length})</button>
+        </span>`;
+      }),
+    ].join("");
+    masterColTabsEl.innerHTML = [
+      `<button class="secondary${locColTab === "__ALL__" ? " active" : ""}" data-col="__ALL__">전체 열 (${zoneFiltered.length})</button>`,
+      ...colKeys.map(ck=>{
+        const items = zoneFiltered.filter(c => codeColumnKey(c) === ck);
+        const allChecked = items.length > 0 && items.every(c => selected.has(c));
+        return `<span class="zone-tab-wrap">
+          <input type="checkbox" class="col-select-all" data-col="${escapeHtml(ck)}" title="${escapeHtml(ck)} 열 전체선택" ${allChecked?"checked":""}>
+          <button class="secondary${locColTab === ck ? " active" : ""}" data-col="${escapeHtml(ck)}">${escapeHtml(ck)} (${items.length})</button>
+        </span>`;
       }),
     ].join("");
 
@@ -1085,17 +1127,43 @@
       btn.addEventListener("click", ()=>{
         locBuildingTab = btn.dataset.building;
         locZoneTab = "__ALL__";
+        locColTab = "__ALL__";
         renderMasterList();
       });
     });
     masterZoneTabsEl.querySelectorAll("button").forEach(btn=>{
       btn.addEventListener("click", ()=>{
         locZoneTab = btn.dataset.zone;
+        locColTab = "__ALL__";
+        renderMasterList();
+      });
+    });
+    masterColTabsEl.querySelectorAll("button").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        locColTab = btn.dataset.col;
+        renderMasterList();
+      });
+    });
+    // 구역 탭 옆 체크박스: 탭 전환 없이 그 구역(예: AA) 전체를 바로 선택/해제
+    masterZoneTabsEl.querySelectorAll(".zone-select-all").forEach(cb=>{
+      cb.addEventListener("change", ()=>{
+        const zc = cb.dataset.zone;
+        const items = buildingFiltered.filter(c => codeZoneCombo(c) === zc);
+        items.forEach(c => cb.checked ? selected.add(c) : selected.delete(c));
+        renderMasterList();
+      });
+    });
+    // 열 탭 옆 체크박스: 탭 전환 없이 그 열(예: AA01) 전체를 바로 선택/해제
+    masterColTabsEl.querySelectorAll(".col-select-all").forEach(cb=>{
+      cb.addEventListener("change", ()=>{
+        const ck = cb.dataset.col;
+        const items = zoneFiltered.filter(c => codeColumnKey(c) === ck);
+        items.forEach(c => cb.checked ? selected.add(c) : selected.delete(c));
         renderMasterList();
       });
     });
 
-    return zoneFiltered;
+    return colFiltered;
   }
 
   function renderMasterList(){
@@ -1105,6 +1173,7 @@
       masterCountEl.textContent = 0;
       masterBuildingTabsEl.innerHTML = "";
       masterZoneTabsEl.innerHTML = "";
+      masterColTabsEl.innerHTML = "";
       masterListEl.innerHTML = `<div class="empty-msg">등록된 로케이션이 없습니다.</div>`;
       return;
     }
@@ -1376,8 +1445,8 @@
     // 오른쪽 단(레벨) 셀들의 화살표/텍스트 정보와 각각 들어갈 수 있는 최대 폰트 크기를 먼저 계산
     const itemMeta = items.map((it, i)=>{
       const isOdd = (i % 2 === 0);
-      const isLast = (i === items.length - 1);
-      const arrowDir = isLast ? null : (isOdd ? "down" : "up");
+      // 화살표는 앞의 두 단(첫 두 칸)에만 붙는다 — 단이 2개뿐이어도 그 2개엔 붙고, 3단째부터는 단이 몇 개든 화살표 없음.
+      const arrowDir = (items.length > 1 && i < 2) ? (isOdd ? "down" : "up") : null;
       const sizingText = it.level + (arrowDir ? "M" : "");
       const maxFit = fitFontSizeMm(sizingText, colWidthMm - 2, rowH * 0.7);
       return { it, isOdd, arrowDir, maxFit };
