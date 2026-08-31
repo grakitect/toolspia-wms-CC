@@ -469,6 +469,7 @@
           <div class="row" style="margin-top:10px;">
             <label style="font-size:13px;font-weight:normal;"><input type="radio" name="set-indivArrowDir" id="set-indivArrowDir-down" value="down"> 화살표 아래 방향</label>
             <label style="font-size:13px;font-weight:normal;"><input type="radio" name="set-indivArrowDir" id="set-indivArrowDir-up" value="up"> 화살표 위 방향</label>
+            <label style="font-size:13px;font-weight:normal;"><input type="radio" name="set-indivArrowDir" id="set-indivArrowDir-none" value="none"> 화살표 표시 안함</label>
           </div>
           <div class="settings-grid" style="margin-top:10px;">
             <div class="setting-item">
@@ -1625,11 +1626,12 @@
 
     // 화살표 높이는 사용자가 지정한 값(기본 QR 눈에 보이는 무늬 크기와 비슷한 10mm)에 맞춘다. 그만큼의 가로폭을 먼저 빼고
     // 남은 폭 안에서만 코드 글자 크기를 맞춰야 화살표가 커진 만큼 글자가 잘리지 않는다.
-    const arrowDir = s.indivArrowDir === "up" ? "up" : "down";
+    const arrowDir = s.indivArrowDir === "none" ? null : (s.indivArrowDir === "up" ? "up" : "down");
     const arrowHeightMm = Number(s.indivArrowHeightMm) || DEFAULT_SETTINGS.indivArrowHeightMm;
     const arrowWidthMm = arrowHeightMm * (0.6695 / 0.7408); // 기존 화살표 아이콘의 가로/세로 비율 유지
     const arrowGapMm = 1;
-    const codeAreaWmm = textAreaWmm - arrowWidthMm - arrowGapMm;
+    // 화살표를 표시 안 하면 그만큼의 폭을 코드 글자 쪽에 그대로 돌려준다.
+    const codeAreaWmm = arrowDir ? (textAreaWmm - arrowWidthMm - arrowGapMm) : textAreaWmm;
 
     const textEl = document.createElement("div");
     textEl.className = "indiv-text";
@@ -1653,11 +1655,14 @@
       return p;
     }
 
-    const m = String(code || "").match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
+    // 다락(복층)/사이드 거치대 등 "열" 구분 없이 동/구역 뒤에 특수 구역 표기(MZ/SD)가 붙는 코드
+    // (예: ADMZ-01-101, ADSD-01-101) — 이 특수 표기를 열 자리와 같은 검정 박스로 강조해서 보여준다.
+    const mSpecial = String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d)(\d{2})$/);
+    const m = mSpecial ? null : String(code || "").match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
     const row = document.createElement("div");
     row.className = "indiv-v2-row";
-    if (m){
-      const [, zone, col, rack, level, slot] = m;
+    if (mSpecial || m){
+      const [, zone, col, rack, level, slot] = mSpecial || m;
       const zoneSpan = document.createElement("span");
       zoneSpan.className = "indiv-v2-seg";
       zoneSpan.textContent = zone.toUpperCase();
@@ -1665,7 +1670,7 @@
 
       const colSpan = document.createElement("span");
       colSpan.className = "indiv-v2-seg boxed";
-      colSpan.textContent = col;
+      colSpan.textContent = mSpecial ? col.toUpperCase() : col;
       applyPos(colSpan, "col", true);
       const colPos = getPos("col");
       const boxPadPct = Number.isFinite(Number(colPos.boxPad)) ? Number(colPos.boxPad) : 100;
@@ -1691,12 +1696,14 @@
       row.appendChild(rackSpan);
       row.appendChild(hyphenSpan);
       row.appendChild(levelSlotSpan);
-      const arrowPos = getPos("arrow");
-      const arrowHtml = arrowSVG(arrowDir).replace(
-        'class="arrow-icon"',
-        `class="indiv-v2-arrow" style="height:${arrowHeightMm}mm;width:${arrowWidthMm}mm;margin-left:${arrowGapMm}mm;position:relative;left:${Number(arrowPos.x)||0}mm;top:${Number(arrowPos.y)||0}mm;"`
-      );
-      row.insertAdjacentHTML("beforeend", arrowHtml);
+      if (arrowDir){
+        const arrowPos = getPos("arrow");
+        const arrowHtml = arrowSVG(arrowDir).replace(
+          'class="arrow-icon"',
+          `class="indiv-v2-arrow" style="height:${arrowHeightMm}mm;width:${arrowWidthMm}mm;margin-left:${arrowGapMm}mm;position:relative;left:${Number(arrowPos.x)||0}mm;top:${Number(arrowPos.y)||0}mm;"`
+        );
+        row.insertAdjacentHTML("beforeend", arrowHtml);
+      }
     } else {
       // 정해진 코드 형식(동/구역+열-랙-단칸)이 아니면 통째로 표시 (임시 추가 코드 등 대비)
       const plainSpan = document.createElement("span");
@@ -1979,6 +1986,7 @@
     indivInnerBorder: document.getElementById("set-indivInnerBorder"),
     indivArrowDown: document.getElementById("set-indivArrowDir-down"),
     indivArrowUp: document.getElementById("set-indivArrowDir-up"),
+    indivArrowNone: document.getElementById("set-indivArrowDir-none"),
     indivV2Align: document.getElementById("set-indivV2Align"),
     indivArrowHeight: document.getElementById("set-indivArrowHeight"),
   };
@@ -1989,8 +1997,9 @@
     indivSetEls.indivFrame.value = settings.indivFrameMm;
     indivSetEls.indivDivider.checked = !!settings.indivShowDivider;
     indivSetEls.indivInnerBorder.checked = !!settings.indivShowInnerBorder;
-    indivSetEls.indivArrowDown.checked = settings.indivArrowDir !== "up";
+    indivSetEls.indivArrowDown.checked = settings.indivArrowDir !== "up" && settings.indivArrowDir !== "none";
     indivSetEls.indivArrowUp.checked = settings.indivArrowDir === "up";
+    indivSetEls.indivArrowNone.checked = settings.indivArrowDir === "none";
     indivSetEls.indivV2Align.value = settings.indivV2Align;
     indivSetEls.indivArrowHeight.value = settings.indivArrowHeightMm;
     fillIndivV2PosForm();
@@ -2003,7 +2012,7 @@
     settings.indivFrameMm = Number.isFinite(frameVal) && frameVal >= 0 ? frameVal : DEFAULT_SETTINGS.indivFrameMm;
     settings.indivShowDivider = indivSetEls.indivDivider.checked;
     settings.indivShowInnerBorder = indivSetEls.indivInnerBorder.checked;
-    settings.indivArrowDir = indivSetEls.indivArrowUp.checked ? "up" : "down";
+    settings.indivArrowDir = indivSetEls.indivArrowNone.checked ? "none" : (indivSetEls.indivArrowUp.checked ? "up" : "down");
     settings.indivV2Align = indivSetEls.indivV2Align.value;
     settings.indivArrowHeightMm = Number(indivSetEls.indivArrowHeight.value) || DEFAULT_SETTINGS.indivArrowHeightMm;
     persistSettings();
