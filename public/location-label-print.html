@@ -1655,14 +1655,22 @@
       return p;
     }
 
-    // 다락(복층)/사이드 거치대 등 "열" 구분 없이 동/구역 뒤에 특수 구역 표기(MZ/SD)가 붙는 코드
-    // (예: ADMZ-01-101, ADSD-01-101) — 이 특수 표기를 열 자리와 같은 검정 박스로 강조해서 보여준다.
-    const mSpecial = String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d)(\d{2})$/);
-    const m = mSpecial ? null : String(code || "").match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
+    // 다락(복층)/사이드 거치대 등 "열" 구분 없이 동/구역 뒤에 특수 구역 표기(MZ/SD)가 붙는 코드.
+    // 단(레벨) 구분이 없어 마지막 자리는 2자리 순번만 있다 (예: ADMZ-01-01, ADSD-01-01).
+    // 예전에 쓰던 3자리(단+칸) 형식(예: ADMZ-01-101)이 남아있을 경우도 대비해 같이 인식한다.
+    const mSpecial2 = String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d{2})$/);
+    const mSpecial3 = mSpecial2 ? null : String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d)(\d{2})$/);
+    const mSpecial = mSpecial2 || mSpecial3;
+    // 열과 열 사이 통로 평치 코드(예: AABT-0102-01 = A동 A구역 1열-2열 사이, 1번 자리).
+    // 단(레벨) 구분이 없어 마지막 자리는 2자리 순번만 있고, "0102"를 랙 자리에 그대로 보여준다.
+    const mBetween = mSpecial ? null : String(code || "").match(/^([A-Za-z]{1,3})BT-(\d{2})(\d{2})-(\d{2})$/);
+    const m = (mSpecial || mBetween) ? null : String(code || "").match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
     const row = document.createElement("div");
     row.className = "indiv-v2-row";
-    if (mSpecial || m){
-      const [, zone, col, rack, level, slot] = mSpecial || m;
+    if (mSpecial || mBetween || m){
+      const [, zone, col, rack, level, slot] = mSpecial2
+        ? [null, mSpecial2[1], mSpecial2[2], mSpecial2[3], "", mSpecial2[4]]
+        : mSpecial3 || m || [null, mBetween[1], "BT", `${mBetween[2]}·${mBetween[3]}`, "", mBetween[4]];
       const zoneSpan = document.createElement("span");
       zoneSpan.className = "indiv-v2-seg";
       zoneSpan.textContent = zone.toUpperCase();
@@ -1670,7 +1678,7 @@
 
       const colSpan = document.createElement("span");
       colSpan.className = "indiv-v2-seg boxed";
-      colSpan.textContent = mSpecial ? col.toUpperCase() : col;
+      colSpan.textContent = (mSpecial || mBetween) ? col.toUpperCase() : col;
       applyPos(colSpan, "col", true);
       const colPos = getPos("col");
       const boxPadPct = Number.isFinite(Number(colPos.boxPad)) ? Number(colPos.boxPad) : 100;

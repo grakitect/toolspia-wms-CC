@@ -8839,6 +8839,11 @@ function buildLocCode(building, zone, col, rack, level, slot) {
   return `${b}${z}${c}-${r}-${l}${s}`;
 }
 
+// 정상 랙 코드(동/존+열-랙-단칸) 형식인지 여부. MZ/SD/BT 같은 특수구역 코드는 false.
+function isStandardLocCode(code) {
+  return /^[A-Za-z]+\d{2}-\d{2}-[1-9]\d{2}$/.test(String(code || ""));
+}
+
 function parseLocCode(code) {
   // AA06-01-101 → { zone:"AA"(동+존 결합 문자열), col:6, rack:1, level:1, slot:1 }
   // 동/존 경계는 여기서 구분하지 않는다 — 랙 번호 증감(nextLocCode) 등 문자 접두사를 통째로
@@ -8889,7 +8894,11 @@ async function renderLocationMaster() {
   if (locZoneTab !== "__ALL__" && !zoneCombos.includes(locZoneTab)) locZoneTab = "__ALL__";
   const locs = (locZoneTab === "__ALL__" ? buildingFiltered : buildingFiltered.filter((l) => zoneCombo(l) === locZoneTab))
     .slice()
-    .sort((a, b) => String(a.name || a.code).localeCompare(String(b.name || b.code), "ko", { numeric: true, sensitivity: "base" }));
+    .sort((a, b) => {
+      const stdDiff = Number(isStandardLocCode(b.code)) - Number(isStandardLocCode(a.code)); // 정상 랙 먼저, 특수구역(MZ/SD/BT 등)은 뒤로
+      if (stdDiff) return stdDiff;
+      return String(a.name || a.code).localeCompare(String(b.name || b.code), "ko", { numeric: true, sensitivity: "base" });
+    });
 
   const buildingTabsHtml = [
     `<button class="bh-btn bh-btn-sm loc-building-tab${locBuildingTab === "__ALL__" ? " bh-btn-primary" : ""}" data-building="__ALL__">전체 동 (${allLocs.length})</button>`,
