@@ -114,6 +114,9 @@
   .label-wrap{
     position:relative;box-sizing:border-box;
     padding:2mm;border:0.5mm solid var(--lbl-border,#000);
+    /* 대지 여백(frame)만큼 안쪽 라벨이 바깥 테두리보다 작게 그려지는 경우, flex 중앙 정렬로
+       남는 여백이 사방에 고르게 나뉘도록 한다(기본 block 레이아웃이면 왼쪽/위로 붙어버림). */
+    display:flex;align-items:center;justify-content:center;
   }
   .label-wrap .remove-label-btn{
     position:absolute;top:-10px;right:-10px;background:#F04452;color:#fff;border-radius:50%;
@@ -163,6 +166,9 @@
     content:"";position:absolute;left:0;top:2mm;bottom:2mm;width:3px;background:var(--lbl-border,#000);
   }
   .indiv-label.no-inner-border{border:none;}
+  /* 개별형 타입3 — 텍스트+QR은 타입1과 같지만 세로로 쌓아서 QR을 아래로 내리고 분리 */
+  .indiv-label.indiv-stack{flex-direction:column;align-items:center;}
+  .indiv-v3-divider{flex:none;width:88%;height:3px;background:var(--lbl-border,#000);margin:0.6mm 0;}
   /* 개별형 타입2 — 코드 구간 표시(열 구간 강조 박스 + 화살표) */
   .indiv-v2-row{display:flex;align-items:center;gap:0.16em;font-weight:700;white-space:nowrap;}
   .indiv-v2-seg{white-space:nowrap;}
@@ -447,6 +453,7 @@
       <div class="type-subtab-bar" style="margin-bottom:14px;">
         <button class="indiv-variant-tab active" data-indivvariant="variant1">타입 1 (텍스트+QR)</button>
         <button class="indiv-variant-tab" data-indivvariant="variant2">타입 2 (코드 구간 강조+QR)</button>
+        <button class="indiv-variant-tab" data-indivvariant="variant3">타입 3 (텍스트+QR, QR 아래 분리)</button>
       </div>
 
       <div class="indiv-variant-panel active" id="indiv-variant-panel-variant1">
@@ -516,6 +523,38 @@
         <div class="card">
           <h2>실시간 미리보기</h2>
           <div id="indivSettingsPreviewV2"></div>
+        </div>
+      </div>
+
+      <div class="indiv-variant-panel" id="indiv-variant-panel-variant3">
+        <div class="card">
+          <small class="hint">타입1과 같은 로케이션명+QR 구성이지만, QR을 아래로 내려서 위(로케이션명)와 아래(QR)로 분리해 배치합니다.</small>
+          <div class="settings-grid" style="margin-top:10px;">
+            <div class="setting-item">
+              <label>대지 여백 (mm)</label>
+              <input type="number" id="set-indivFrameV3" min="0" max="30" step="0.5">
+            </div>
+          </div>
+          <small class="hint" style="display:block;margin-top:6px;">라벨 바깥 테두리와 안쪽 내용(로케이션명/QR) 사이의 대지 여백입니다. 타입1·타입2의 "전체 여백"과 별개로 타입3에서만 적용됩니다.</small>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:normal;margin-top:14px;">
+            <input type="checkbox" id="set-indivDividerV3"> 로케이션명과 QR 사이에 굵은 구분선 넣기
+          </label>
+        </div>
+
+        <div class="card">
+          <h2>요소별 위치·크기</h2>
+          <small class="hint">각 요소를 라벨 안에서 개별적으로 옮기거나(X/Y, mm) 크기를 조절할 수 있습니다(%, 100=원래 크기). 박스여백은 QR 자체의 바깥 여백입니다.</small>
+          <div style="overflow-x:auto;margin-top:10px;">
+            <table id="indivV3PosTable" style="min-width:520px;">
+              <thead><tr><th>요소</th><th>X(mm)</th><th>Y(mm)</th><th>크기(%)</th><th>박스여백(%)</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>실시간 미리보기</h2>
+          <div id="indivSettingsPreviewV3"></div>
         </div>
       </div>
     </div>
@@ -917,8 +956,10 @@
     indivLabelW: 70,
     indivLabelH: 20,
     indivShowDivider: false,
+    indivShowDividerV3: true,
     indivShowInnerBorder: true,
     indivFrameMm: 5,
+    indivFrameMmV3: 5,
     indivActiveVariant: "variant1",
     indivArrowDir: "down",
     indivV2Align: "center",
@@ -931,6 +972,11 @@
       levelslot: { x: 0, y: 0, scale: 100 },
       arrow:     { x: 0, y: 0 },
       qr:        { x: 5, y: 0, scale: 100, boxPad: 100 }
+    },
+    indivV3Pos: {
+      text:    { x: 0, y: 0, scale: 100 },
+      divider: { x: 0, y: 0, scale: 100 },
+      qr:      { x: 0, y: 0, scale: 100, boxPad: 100 }
     }
   };
 
@@ -1392,6 +1438,33 @@
     return Math.max(3, Math.min(maxHeightMm, widthBased));
   }
 
+  // 로케이션 코드를 동/구역·열·랙·단칸 구간으로 분해 (타입2/타입3의 "열/특수구역 박스 강조" 표시에 공용으로 쓰임)
+  function parseLocationCode(code){
+    const str = String(code || "");
+    // 다락(복층)/사이드 거치대/열 코너 평치/구역 내 특정 열에 속하지 않는 평치 등 "열" 구분 없이
+    // 동/구역 뒤에 특수 구역 표기(MZ/SD/CN/FL)가 붙는 코드. 단(레벨) 구분이 없어 마지막 자리는
+    // 2자리 순번만 있다 (예: ADMZ-01-01, ADSD-01-01, AACN-01-01, AAFL-01-01).
+    // 예전에 쓰던 3자리(단+칸) 형식(예: ADMZ-01-101)이 남아있을 경우도 대비해 같이 인식한다.
+    const mSpecial2 = str.match(/^([A-Za-z]{1,3})(MZ|SD|CN|FL)-(\d{2})-(\d{2})$/);
+    const mSpecial3 = mSpecial2 ? null : str.match(/^([A-Za-z]{1,3})(MZ|SD|CN|FL)-(\d{2})-(\d)(\d{2})$/);
+    const mSpecial = mSpecial2 || mSpecial3;
+    // 열과 열 사이 통로 평치 코드(예: AABT-0102-01 = A동 A구역 1열-2열 사이, 1번 자리).
+    // 단(레벨) 구분이 없어 마지막 자리는 2자리 순번만 있고, "0102"를 랙 자리에 그대로 보여준다.
+    const mBetween = mSpecial ? null : str.match(/^([A-Za-z]{1,3})BT-(\d{2})(\d{2})-(\d{2})$/);
+    const m = (mSpecial || mBetween) ? null : str.match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
+    if (!mSpecial && !mBetween && !m) return null;
+    const [, zone, col, rack, level, slot] = mSpecial2
+      ? [null, mSpecial2[1], mSpecial2[2], mSpecial2[3], "", mSpecial2[4]]
+      : mSpecial3 || m || [null, mBetween[1], "BT", `${mBetween[2]}·${mBetween[3]}`, "", mBetween[4]];
+    return {
+      zone: zone.toUpperCase(),
+      col: (mSpecial || mBetween) ? col.toUpperCase() : col,
+      rack,
+      level,
+      slot,
+    };
+  }
+
   // 굵은 블록 화살표 아이콘 (참고 이미지와 동일한 두께의 화살표, 폰트에 의존하지 않음)
   function arrowSVG(dir){
     const shape = dir === "down"
@@ -1655,30 +1728,19 @@
       return p;
     }
 
-    // 다락(복층)/사이드 거치대 등 "열" 구분 없이 동/구역 뒤에 특수 구역 표기(MZ/SD)가 붙는 코드.
-    // 단(레벨) 구분이 없어 마지막 자리는 2자리 순번만 있다 (예: ADMZ-01-01, ADSD-01-01).
-    // 예전에 쓰던 3자리(단+칸) 형식(예: ADMZ-01-101)이 남아있을 경우도 대비해 같이 인식한다.
-    const mSpecial2 = String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d{2})$/);
-    const mSpecial3 = mSpecial2 ? null : String(code || "").match(/^([A-Za-z]{1,3})(MZ|SD)-(\d{2})-(\d)(\d{2})$/);
-    const mSpecial = mSpecial2 || mSpecial3;
-    // 열과 열 사이 통로 평치 코드(예: AABT-0102-01 = A동 A구역 1열-2열 사이, 1번 자리).
-    // 단(레벨) 구분이 없어 마지막 자리는 2자리 순번만 있고, "0102"를 랙 자리에 그대로 보여준다.
-    const mBetween = mSpecial ? null : String(code || "").match(/^([A-Za-z]{1,3})BT-(\d{2})(\d{2})-(\d{2})$/);
-    const m = (mSpecial || mBetween) ? null : String(code || "").match(/^([A-Za-z]{1,3})(\d{2})-(\d{2})-(\d)(\d{2})$/);
+    const seg = parseLocationCode(code);
     const row = document.createElement("div");
     row.className = "indiv-v2-row";
-    if (mSpecial || mBetween || m){
-      const [, zone, col, rack, level, slot] = mSpecial2
-        ? [null, mSpecial2[1], mSpecial2[2], mSpecial2[3], "", mSpecial2[4]]
-        : mSpecial3 || m || [null, mBetween[1], "BT", `${mBetween[2]}·${mBetween[3]}`, "", mBetween[4]];
+    if (seg){
+      const { zone, col, rack, level, slot } = seg;
       const zoneSpan = document.createElement("span");
       zoneSpan.className = "indiv-v2-seg";
-      zoneSpan.textContent = zone.toUpperCase();
+      zoneSpan.textContent = zone;
       applyPos(zoneSpan, "zone", true);
 
       const colSpan = document.createElement("span");
       colSpan.className = "indiv-v2-seg boxed";
-      colSpan.textContent = (mSpecial || mBetween) ? col.toUpperCase() : col;
+      colSpan.textContent = col;
       applyPos(colSpan, "col", true);
       const colPos = getPos("col");
       const boxPadPct = Number.isFinite(Number(colPos.boxPad)) ? Number(colPos.boxPad) : 100;
@@ -1701,7 +1763,7 @@
 
       row.appendChild(zoneSpan);
       row.appendChild(colSpan);
-      row.appendChild(rackSpan);
+      if (rack) row.appendChild(rackSpan); // CN 코드는 랙 구간이 없으므로 빈 칸을 만들지 않는다
       row.appendChild(hyphenSpan);
       row.appendChild(levelSlotSpan);
       if (arrowDir){
@@ -1756,6 +1818,129 @@
     return wrap;
   }
 
+  // 개별형 타입3 — 타입1과 같은 로케이션명+QR 구성이지만 세로로 쌓아서 위(로케이션명)/아래(QR)로 분리 배치
+  function buildIndividualLabelElementVariant3(code, s){
+    const wrap = document.createElement("div");
+    wrap.className = "label-wrap";
+    wrap.style.setProperty("--lbl-border", s.border);
+    wrap.style.width = s.indivLabelW + "mm";
+    wrap.style.height = s.indivLabelH + "mm";
+
+    const frameMm = Number(s.indivFrameMmV3) || DEFAULT_SETTINGS.indivFrameMmV3;
+    const innerW = s.indivLabelW - frameMm;
+    const innerH = s.indivLabelH - frameMm;
+
+    const label = document.createElement("div");
+    const indivLabelClasses = ["indiv-label", "indiv-stack"];
+    if (!s.indivShowInnerBorder) indivLabelClasses.push("no-inner-border");
+    label.className = indivLabelClasses.join(" ");
+    label.style.setProperty("--lbl-border", s.border);
+    label.style.setProperty("--lbl-bg", s.labelBg);
+    label.style.width = innerW + "mm";
+    label.style.height = innerH + "mm";
+
+    // 요소별 위치(mm)/크기(%) 오프셋 — position:relative + left/top이라 레이아웃 크기 계산에는
+    // 영향을 주지 않고(다른 요소가 밀리지 않고) 화면에 그려지는 위치만 순수하게 옮긴다.
+    const v3pos = s.indivV3Pos || DEFAULT_SETTINGS.indivV3Pos;
+    function getPos(key){ return { ...DEFAULT_SETTINGS.indivV3Pos[key], ...((v3pos && v3pos[key]) || {}) }; }
+    function applyPos(el, key){
+      const p = getPos(key);
+      el.style.position = "relative";
+      el.style.left = (Number(p.x) || 0) + "mm";
+      el.style.top = (Number(p.y) || 0) + "mm";
+      return p;
+    }
+
+    // 텍스트+QR 그룹 전체를 라벨 높이의 90%만 채우도록 예산을 잡아, 나머지 10%가 위아래 여백으로 남아
+    // justify-content:center가 그룹 전체를 세로 한가운데로 정렬할 수 있게 한다.
+    const contentBudgetH = innerH * 0.9;
+    const dividerHmm = s.indivShowDividerV3 ? 2 : 0; // 구분선 두께(3px) + 위아래 여백(0.6mm씩) 대략치
+    const textAreaHmm = contentBudgetH * 0.32;
+    const baseQrSizeMm = Math.min(innerW * 0.9, contentBudgetH - textAreaHmm - dividerHmm);
+
+    const textPos = getPos("text");
+    const textScalePct = Number.isFinite(Number(textPos.scale)) ? Number(textPos.scale) : 100;
+    const baseFontSizeMm = fitFontSizeMm(code, innerW * 0.95 - 4, textAreaHmm * 0.85);
+
+    const textEl = document.createElement("div");
+    textEl.className = "indiv-text";
+    textEl.style.maxWidth = (innerW * 0.95) + "mm";
+    // 요소별 위치 조정으로 자동 계산된 범위를 벗어나게 옮기거나 키울 수 있으므로,
+    // 공유 CSS의 overflow:hidden을 여기서만 풀어서 옮긴 요소가 잘리지 않게 한다.
+    textEl.style.overflow = "visible";
+    textEl.style.fontSize = (baseFontSizeMm * (textScalePct / 100)) + "mm";
+    applyPos(textEl, "text");
+
+    // 열 구간을 검정 배경 박스로 강조 (타입2와 동일한 표시 방식). 정해진 코드 형식이 아니면 통째로 표시.
+    const seg = parseLocationCode(code);
+    if (seg){
+      const row = document.createElement("div");
+      row.className = "indiv-v2-row";
+      const zoneSpan = document.createElement("span");
+      zoneSpan.className = "indiv-v2-seg";
+      zoneSpan.textContent = seg.zone;
+      const colSpan = document.createElement("span");
+      colSpan.className = "indiv-v2-seg boxed";
+      colSpan.textContent = seg.col;
+      const rackSpan = document.createElement("span");
+      rackSpan.className = "indiv-v2-seg";
+      rackSpan.textContent = seg.rack;
+      const hyphenSpan = document.createElement("span");
+      hyphenSpan.className = "indiv-v2-seg";
+      hyphenSpan.textContent = "-";
+      const levelSlotSpan = document.createElement("span");
+      levelSlotSpan.className = "indiv-v2-seg";
+      levelSlotSpan.textContent = `${seg.level}${seg.slot}`;
+      row.appendChild(zoneSpan);
+      row.appendChild(colSpan);
+      if (seg.rack) row.appendChild(rackSpan); // CN 코드는 랙 구간이 없으므로 빈 칸을 만들지 않는다
+      row.appendChild(hyphenSpan);
+      row.appendChild(levelSlotSpan);
+      textEl.appendChild(row);
+    } else {
+      textEl.textContent = code;
+    }
+
+    const qrPos = getPos("qr");
+    const qrScalePct = Number.isFinite(Number(qrPos.scale)) ? Number(qrPos.scale) : 100;
+    const qrSizeMm = baseQrSizeMm * (qrScalePct / 100);
+    const qrEl = document.createElement("div");
+    qrEl.className = "indiv-qr";
+    qrEl.style.width = qrSizeMm + "mm";
+    qrEl.style.height = qrSizeMm + "mm";
+    const qrBoxPadPct = Number.isFinite(Number(qrPos.boxPad)) ? Number(qrPos.boxPad) : 100;
+    qrEl.style.padding = `${1.5 * (qrBoxPadPct / 100)}mm`;
+    qrEl.innerHTML = qrSVG(code, s.border, 2); // 요청: 2모듈(스펙 권장 최소 4보다 얇음 — 스캔 여유가 줄어들 수 있음)
+    applyPos(qrEl, "qr");
+
+    label.appendChild(textEl);
+    if (s.indivShowDividerV3){
+      const dividerPos = getPos("divider");
+      const dividerScalePct = Number.isFinite(Number(dividerPos.scale)) ? Number(dividerPos.scale) : 100;
+      const divider = document.createElement("div");
+      divider.className = "indiv-v3-divider";
+      divider.style.width = (88 * (dividerScalePct / 100)) + "%";
+      applyPos(divider, "divider");
+      label.appendChild(divider);
+    }
+    label.appendChild(qrEl);
+
+    const removeBtn = document.createElement("div");
+    removeBtn.className = "remove-label-btn";
+    removeBtn.textContent = "×";
+    removeBtn.title = "이 라벨을 인쇄 목록에서 제거";
+    removeBtn.addEventListener("click", ()=>{
+      queue = queue.filter(c => c !== code);
+      persistQueue();
+      renderQueue();
+      renderPrintArea();
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(removeBtn);
+    return wrap;
+  }
+
   function renderPrintArea(){
     const area = document.getElementById("printArea");
     area.innerHTML = "";
@@ -1767,7 +1952,9 @@
         area.innerHTML = `<div class="empty-msg">인쇄할 항목이 없습니다. 마스터 관리 탭에서 선택해 추가하세요.</div>`;
         return;
       }
-      const buildFn = settings.indivActiveVariant === "variant2" ? buildIndividualLabelElementVariant2 : buildIndividualLabelElement;
+      const buildFn = settings.indivActiveVariant === "variant2" ? buildIndividualLabelElementVariant2
+        : settings.indivActiveVariant === "variant3" ? buildIndividualLabelElementVariant3
+        : buildIndividualLabelElement;
       codes.sort((a,b)=>a.localeCompare(b)).forEach(code=>{
         area.appendChild(buildFn(code, settings));
       });
@@ -1990,7 +2177,9 @@
     indivW: document.getElementById("set-indivW"),
     indivH: document.getElementById("set-indivH"),
     indivFrame: document.getElementById("set-indivFrame"),
+    indivFrameV3: document.getElementById("set-indivFrameV3"),
     indivDivider: document.getElementById("set-indivDivider"),
+    indivDividerV3: document.getElementById("set-indivDividerV3"),
     indivInnerBorder: document.getElementById("set-indivInnerBorder"),
     indivArrowDown: document.getElementById("set-indivArrowDir-down"),
     indivArrowUp: document.getElementById("set-indivArrowDir-up"),
@@ -2003,7 +2192,9 @@
     indivSetEls.indivW.value = settings.indivLabelW;
     indivSetEls.indivH.value = settings.indivLabelH;
     indivSetEls.indivFrame.value = settings.indivFrameMm;
+    indivSetEls.indivFrameV3.value = settings.indivFrameMmV3;
     indivSetEls.indivDivider.checked = !!settings.indivShowDivider;
+    indivSetEls.indivDividerV3.checked = !!settings.indivShowDividerV3;
     indivSetEls.indivInnerBorder.checked = !!settings.indivShowInnerBorder;
     indivSetEls.indivArrowDown.checked = settings.indivArrowDir !== "up" && settings.indivArrowDir !== "none";
     indivSetEls.indivArrowUp.checked = settings.indivArrowDir === "up";
@@ -2011,6 +2202,7 @@
     indivSetEls.indivV2Align.value = settings.indivV2Align;
     indivSetEls.indivArrowHeight.value = settings.indivArrowHeightMm;
     fillIndivV2PosForm();
+    fillIndivV3PosForm();
   }
 
   function readIndivSettingsForm(){
@@ -2018,7 +2210,10 @@
     settings.indivLabelH = Number(indivSetEls.indivH.value) || DEFAULT_SETTINGS.indivLabelH;
     const frameVal = Number(indivSetEls.indivFrame.value);
     settings.indivFrameMm = Number.isFinite(frameVal) && frameVal >= 0 ? frameVal : DEFAULT_SETTINGS.indivFrameMm;
+    const frameValV3 = Number(indivSetEls.indivFrameV3.value);
+    settings.indivFrameMmV3 = Number.isFinite(frameValV3) && frameValV3 >= 0 ? frameValV3 : DEFAULT_SETTINGS.indivFrameMmV3;
     settings.indivShowDivider = indivSetEls.indivDivider.checked;
+    settings.indivShowDividerV3 = indivSetEls.indivDividerV3.checked;
     settings.indivShowInnerBorder = indivSetEls.indivInnerBorder.checked;
     settings.indivArrowDir = indivSetEls.indivArrowNone.checked ? "none" : (indivSetEls.indivArrowUp.checked ? "up" : "down");
     settings.indivV2Align = indivSetEls.indivV2Align.value;
@@ -2096,6 +2291,67 @@
     el.addEventListener("change", readIndivV2PosForm);
   });
 
+  /* ---- 개별형 타입3 요소별 위치/크기 테이블 ---- */
+  const INDIV_V3_ELEMENTS = [
+    { key: "text", label: "로케이션명", hasBoxPad: false },
+    { key: "divider", label: "구분선", hasBoxPad: false },
+    { key: "qr", label: "QR", hasBoxPad: true },
+  ];
+  const indivV3PosTableBody = document.querySelector("#indivV3PosTable tbody");
+  indivV3PosTableBody.innerHTML = INDIV_V3_ELEMENTS.map(e => `
+    <tr>
+      <td>${escapeHtml(e.label)}</td>
+      <td><input type="number" class="form-control" style="width:64px;" id="v3pos-${e.key}-x" step="0.5"></td>
+      <td><input type="number" class="form-control" style="width:64px;" id="v3pos-${e.key}-y" step="0.5"></td>
+      <td><input type="number" class="form-control" style="width:64px;" id="v3pos-${e.key}-scale" step="5"></td>
+      <td>${e.hasBoxPad ? `<input type="number" class="form-control" style="width:64px;" id="v3pos-${e.key}-boxpad" step="5">` : "-"}</td>
+    </tr>
+  `).join("");
+
+  function fillIndivV3PosForm(){
+    const v3pos = settings.indivV3Pos || {};
+    INDIV_V3_ELEMENTS.forEach(e=>{
+      // 이전 버전에 저장된 값은 필드가 일부만 있을 수 있어, 객체 전체가 아니라 필드 하나하나를 기본값과 병합한다.
+      const saved = v3pos[e.key] || {};
+      const def = DEFAULT_SETTINGS.indivV3Pos[e.key];
+      const p = { ...def, ...saved };
+      document.getElementById(`v3pos-${e.key}-x`).value = p.x;
+      document.getElementById(`v3pos-${e.key}-y`).value = p.y;
+      document.getElementById(`v3pos-${e.key}-scale`).value = p.scale;
+      if (e.hasBoxPad) document.getElementById(`v3pos-${e.key}-boxpad`).value = p.boxPad;
+    });
+  }
+
+  function readIndivV3PosForm(){
+    if (!settings.indivV3Pos) settings.indivV3Pos = {};
+    INDIV_V3_ELEMENTS.forEach(e=>{
+      const cur = settings.indivV3Pos[e.key] || {};
+      const xEl = document.getElementById(`v3pos-${e.key}-x`);
+      const yEl = document.getElementById(`v3pos-${e.key}-y`);
+      const scaleEl = document.getElementById(`v3pos-${e.key}-scale`);
+      const scaleV = Number(scaleEl.value);
+      const next = {
+        x: Number(xEl.value) || 0,
+        y: Number(yEl.value) || 0,
+        scale: Number.isFinite(scaleV) && scaleV > 0 ? scaleV : 100,
+        boxPad: cur.boxPad,
+      };
+      if (e.hasBoxPad){
+        const boxPadEl = document.getElementById(`v3pos-${e.key}-boxpad`);
+        const v = Number(boxPadEl.value);
+        next.boxPad = Number.isFinite(v) && v >= 0 ? v : 100;
+      }
+      settings.indivV3Pos[e.key] = next;
+    });
+    persistSettings();
+    renderIndivSettingsPreview();
+  }
+
+  indivV3PosTableBody.querySelectorAll("input").forEach(el=>{
+    el.addEventListener("input", readIndivV3PosForm);
+    el.addEventListener("change", readIndivV3PosForm);
+  });
+
   Object.values(indivSetEls).forEach(el=>{
     el.addEventListener("input", readIndivSettingsForm);
     el.addEventListener("change", readIndivSettingsForm);
@@ -2111,6 +2367,11 @@
     el2.innerHTML = "";
     el2.appendChild(buildIndividualLabelElementVariant2("AA01-01-101", settings));
     el2.querySelector(".remove-label-btn").style.display = "none";
+
+    const el3 = document.getElementById("indivSettingsPreviewV3");
+    el3.innerHTML = "";
+    el3.appendChild(buildIndividualLabelElementVariant3("AA01-01-101", settings));
+    el3.querySelector(".remove-label-btn").style.display = "none";
   }
 
   let saveBadgeTimer = null;
